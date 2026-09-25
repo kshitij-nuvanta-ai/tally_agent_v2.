@@ -2991,6 +2991,132 @@
         },
         "B": {
           "outcome": "CONFIRMED",
+          "summary": "cancelled [201, 202] and optional [301, 302] carry their flags on both reads (the cancelled ones with no ledger lines and an empty PartyLedgerName); the other 956 vouchers carry none",
+          "observations": {
+            "count": 960,
+            "flags": {
+              "IsCancelled": {
+                "empty": 0,
+                "yes": 2
+              },
+              "IsOptional": {
+                "empty": 0,
+                "yes": 2
+              },
+              "IsPostDated": {
+                "empty": 0,
+                "yes": 0
+              }
+            },
+            "header_flagged": {
+              "201": {
+                "returned": true,
+                "IsCancelled": "Yes",
+                "IsOptional": "No",
+                "flags_ok": true
+              },
+              "202": {
+                "returned": true,
+                "IsCancelled": "Yes",
+                "IsOptional": "No",
+                "flags_ok": true
+              },
+              "301": {
+                "returned": true,
+                "IsCancelled": "No",
+                "IsOptional": "Yes",
+                "flags_ok": true
+              },
+              "302": {
+                "returned": true,
+                "IsCancelled": "No",
+                "IsOptional": "Yes",
+                "flags_ok": true
+              }
+            },
+            "months": {
+              "2023-02": {
+                "returned": 20,
+                "flags": {
+                  "201": {
+                    "returned": true,
+                    "IsCancelled": "Yes",
+                    "IsOptional": "No",
+                    "flags_ok": true
+                  },
+                  "202": {
+                    "returned": true,
+                    "IsCancelled": "Yes",
+                    "IsOptional": "No",
+                    "flags_ok": true
+                  }
+                },
+                "lines": {
+                  "201": {
+                    "ledger_lines": 0,
+                    "amounts": 0,
+                    "party": ""
+                  },
+                  "202": {
+                    "ledger_lines": 0,
+                    "amounts": 0,
+                    "party": ""
+                  }
+                }
+              },
+              "2023-07": {
+                "returned": 20,
+                "flags": {
+                  "301": {
+                    "returned": true,
+                    "IsCancelled": "No",
+                    "IsOptional": "Yes",
+                    "flags_ok": true
+                  },
+                  "302": {
+                    "returned": true,
+                    "IsCancelled": "No",
+                    "IsOptional": "Yes",
+                    "flags_ok": true
+                  }
+                },
+                "lines": {
+                  "301": {
+                    "ledger_lines": 7,
+                    "amounts": 7,
+                    "party": "शर्मा ट्रेडर्स"
+                  },
+                  "302": {
+                    "ledger_lines": 7,
+                    "amounts": 7,
+                    "party": "Kolhapur Retail Mart"
+                  }
+                }
+              }
+            },
+            "others": 956,
+            "cancelled_party_names": {
+              "201": "",
+              "202": ""
+            },
+            "prior_evidence": "probe 21 (2026-09-24): 201/202 returned by probe 5's month request, p21_B_fy2022_month_02.xml — recorded there, judged here",
+            "unlisted_month": [],
+            "unlisted_header": []
+          },
+          "spec_impact": "R16: the extractor's month request returns cancelled and optional vouchers WITH their flags (a cancelled one exports no ledger lines); S1 ingests them and keeps both out of balances by IsCancelled / IsOptional, as Tally does (C42). No other voucher carries a flag.",
+          "fixtures": [
+            "p03_B_vouchers_flags.xml",
+            "p03_B_flagged_month_2023_02.xml",
+            "p03_B_flagged_month_2023_07.xml"
+          ],
+          "manual_steps": [],
+          "ran_at": "2026-09-25T18:03:53+05:30"
+        }
+      },
+      "history": [
+        {
+          "part": "B",
+          "outcome": "CONFIRMED",
           "summary": "cancelled [201, 202] and optional [301, 302] carry their flags on both reads (the cancelled ones with no ledger lines and an empty PartyLedgerName); the other 954 vouchers carry none",
           "observations": {
             "count": 958,
@@ -3112,8 +3238,7 @@
           "manual_steps": [],
           "ran_at": "2026-09-24T20:57:45+05:30"
         }
-      },
-      "history": [],
+      ],
       "remaining": []
     },
     "4": {

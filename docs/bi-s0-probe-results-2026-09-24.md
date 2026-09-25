@@ -20,7 +20,7 @@
 | 0 | environment | A | CONFIRMED | A: Tally answers under Wine (wine-11.0); company A made; seed anchors match | — |
 | 1 | company_counters | A | CONFIRMED | A: AltVchId moves on every voucher change, AltMstId on every master change; a voucher entry doesn't move the ledger's AlterID [Educational mode — confirm on a licensed Tally] | — |
 | 2 | active_company_guid | A | CONFIRMED | A: Candidate (a) returns the GUID in 1674 bytes; the no-company response is distinguishable | — |
-| 3 | voucher_ids_flags | A+B | CONFIRMED | A: 50 vouchers: GUID / MasterID unique, AlterID present, the three flags export everywhere, Reference = invoice number; B: cancelled [201, 202] and optional [301, 302] carry their flags on both reads (the cancelled ones with no ledger lines and an empty PartyLedgerName); the other 954 vouchers carry none | B: R16: the extractor's month request returns cancelled and optional vouchers WITH their flags (a cancelled one exports no ledger lines); S1 ingests them and keeps both out of balances by IsCancelled / IsOptional, as Tally does (C42). No other voucher carries a flag. |
+| 3 | voucher_ids_flags | A+B | CONFIRMED | A: 50 vouchers: GUID / MasterID unique, AlterID present, the three flags export everywhere, Reference = invoice number; B: cancelled [201, 202] and optional [301, 302] carry their flags on both reads (the cancelled ones with no ledger lines and an empty PartyLedgerName); the other 956 vouchers carry none | B: R16: the extractor's month request returns cancelled and optional vouchers WITH their flags (a cancelled one exports no ledger lines); S1 ingests them and keeps both out of balances by IsCancelled / IsOptional, as Tally does (C42). No other voucher carries a flag. |
 | 4 | alterid_filter | A | CONFIRMED | A: $AlterID > N returns exactly the expected objects for Voucher, Ledger, Group and StockItem, and Tally answers a cheap read afterwards | — |
 | 5 | voucher_month_bounds | B | CONFIRMED | B: Typed SVFROMDATE/SVTODATE bound June 2023 exactly (20 vouchers) and a one-day window returns exactly 01-06-2023's 10. educational: to-date clamped to 02-06-2023 because Tally ignores non-1/2/31 date variables — C43. C33 reproduced: untyped, Tally answered 240 voucher(s) dated 2025-04-01..2026-03-31. [Educational mode — confirm on a licensed Tally] | B: The extractor's month request types its period variables (TYPE="Date", C33): untyped, Tally silently answers for the company's current period, so an untyped chunk looks healthy and is wrong (Part 1 §5 extractor). |
 | 6 | nested_lines_ledger_guid | A | CONFIRMED | A: Nested lines, bills and inventory export; every voucher balances under the 'all_only' rule with debit negative; ledger GUID on lines via a plain fetch field | A: S1 ingest: posting rule 'all_only'; ledger GUID on lines comes from a plain fetch field. |
@@ -46,11 +46,11 @@
 
 | Ran at | When | Result | Problems |
 |---|---|---|---|
-| 2026-09-23T12:25:35+05:30 | before_parity | OK | — |
 | 2026-09-23T12:47:14+05:30 | before_parity | OK | — |
 | 2026-09-23T13:15:44+05:30 | after_a_batch | OK | — |
 | 2026-09-24T18:13:46+05:30 | before_parity | OK | — |
 | 2026-09-24T18:14:33+05:30 | after_a_batch | OK | — |
+| 2026-09-25T17:12:28+05:30 | after_a_batch | OK | — |
 
 ## Deferred (tier C, Q29)
 
