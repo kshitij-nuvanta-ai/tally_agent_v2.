@@ -1,0 +1,37 @@
+{
+  "probe": null,
+  "part": "B",
+  "step": "tb_group_asof_2026-03-31",
+  "company_name": "Sharma & Sons' Probe Traders",
+  "company_guid": "138b7373-753c-4dbe-aa63-b802035f0ba9",
+  "sent_at": "2026-09-25T18:43:45+05:30",
+  "elapsed_ms": 13,
+  "response_bytes": 4430,
+  "timing_note": "Wine — not representative",
+  "request_xml": "<ENVELOPE>\n<HEADER>\n<VERSION>1</VERSION>\n<TALLYREQUEST>Export</TALLYREQUEST>\n<TYPE>Data</TYPE>\n<ID>Trial Balance</ID>\n</HEADER>\n<BODY>\n<DESC>\n<STATICVARIABLES>\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>\n<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>\n<EXPLODEFLAG>Yes</EXPLODEFLAG>\n<SVCurrentCompany>Sharma &amp; Sons&apos; Probe Traders</SVCurrentCompany>\n</STATICVARIABLES>\n</DESC>\n</BODY>\n</ENVELOPE>",
+  "environment": {
+    "wine": "wine-11.0",
+    "tally_version": "TallyPrime 7.0 (release 7.0 from the XML response header)",
+    "edition": "Edit Log",
+    "licence": "educational"
+  },
+  "capture": "s1_task0",
+  "gap": "G3",
+  "observations": {
+    "rows": 18,
+    "unadjusted_forex_row": {
+      "ledger": "Unadjusted Forex Gain/Loss",
+      "found": true,
+      "debit_text": "-183.87",
+      "credit_text": "",
+      "form": "plain"
+    },
+    "usd_row": {
+      "ledger": "Gulf Office Supplies LLC (USD)",
+      "found": false,
+      "debit_text": "",
+      "credit_text": "",
+      "form": "absent"
+    }
+  }
+}

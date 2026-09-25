@@ -1,0 +1,52 @@
+{
+  "probe": null,
+  "part": "A",
+  "step": "voucher_types",
+  "company_name": "Bharat Traders Probe Copy",
+  "company_guid": "710de34a-3661-4a7b-8148-c2206c3b3e17",
+  "sent_at": "2026-09-25T18:45:30+05:30",
+  "elapsed_ms": 3,
+  "response_bytes": 14789,
+  "timing_note": "Wine — not representative",
+  "request_xml": "<ENVELOPE>\n<HEADER>\n<VERSION>1</VERSION>\n<TALLYREQUEST>Export</TALLYREQUEST>\n<TYPE>Collection</TYPE>\n<ID>S1CapVoucherTypes</ID>\n</HEADER>\n<BODY>\n<DESC>\n<STATICVARIABLES>\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n<SVCurrentCompany>Bharat Traders Probe Copy</SVCurrentCompany>\n</STATICVARIABLES>\n<TDL>\n<TDLMESSAGE>\n<COLLECTION NAME=\"S1CapVoucherTypes\" ISMODIFY=\"No\">\n<TYPE>VoucherType</TYPE>\n\n<NATIVEMETHOD>Name</NATIVEMETHOD>\n<NATIVEMETHOD>Parent</NATIVEMETHOD>\n<NATIVEMETHOD>ReservedName</NATIVEMETHOD>\n<NATIVEMETHOD>GUID</NATIVEMETHOD>\n<NATIVEMETHOD>AlterID</NATIVEMETHOD>\n<NATIVEMETHOD>MasterID</NATIVEMETHOD>\n\n</COLLECTION>\n\n\n</TDLMESSAGE>\n</TDL>\n</DESC>\n</BODY>\n</ENVELOPE>",
+  "environment": {
+    "wine": "wine-11.0",
+    "tally_version": "TallyPrime 7.0 (release 7.0 from the XML response header)",
+    "edition": "Edit Log",
+    "licence": "educational"
+  },
+  "capture": "s1_task0",
+  "gap": "G4",
+  "observations": {
+    "rows": 24,
+    "found": [
+      "Attendance",
+      "Contra",
+      "Credit Note",
+      "Debit Note",
+      "Delivery Note",
+      "Job Work In Order",
+      "Job Work Out Order",
+      "Journal",
+      "Material In",
+      "Material Out",
+      "Memorandum",
+      "Payment",
+      "Payroll",
+      "Physical Stock",
+      "Purchase",
+      "Purchase Order",
+      "Receipt",
+      "Receipt Note",
+      "Rejections In",
+      "Rejections Out",
+      "Reversing Journal",
+      "Sales",
+      "Sales Order",
+      "Stock Journal"
+    ],
+    "missing_guid": [],
+    "missing_alterid": [],
+    "missing_masterid": []
+  }
+}

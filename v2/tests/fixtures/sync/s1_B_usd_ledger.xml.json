@@ -1,0 +1,35 @@
+{
+  "probe": null,
+  "part": "B",
+  "step": "usd_ledger",
+  "company_name": "Sharma & Sons' Probe Traders",
+  "company_guid": "138b7373-753c-4dbe-aa63-b802035f0ba9",
+  "sent_at": "2026-09-25T18:43:45+05:30",
+  "elapsed_ms": 4,
+  "response_bytes": 2244,
+  "timing_note": "Wine — not representative",
+  "request_xml": "<ENVELOPE>\n<HEADER>\n<VERSION>1</VERSION>\n<TALLYREQUEST>Export</TALLYREQUEST>\n<TYPE>Collection</TYPE>\n<ID>S1CapUsdLedger</ID>\n</HEADER>\n<BODY>\n<DESC>\n<STATICVARIABLES>\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n<SVCurrentCompany>Sharma &amp; Sons&apos; Probe Traders</SVCurrentCompany>\n</STATICVARIABLES>\n<TDL>\n<TDLMESSAGE>\n<COLLECTION NAME=\"S1CapUsdLedger\" ISMODIFY=\"No\">\n<TYPE>Ledger</TYPE>\n<FILTER>S1CapIsUsdParty</FILTER>\n<NATIVEMETHOD>Name</NATIVEMETHOD>\n<NATIVEMETHOD>Parent</NATIVEMETHOD>\n<NATIVEMETHOD>CurrencyName</NATIVEMETHOD>\n<NATIVEMETHOD>OpeningBalance</NATIVEMETHOD>\n<NATIVEMETHOD>ClosingBalance</NATIVEMETHOD>\n<NATIVEMETHOD>GUID</NATIVEMETHOD>\n<NATIVEMETHOD>AlterID</NATIVEMETHOD>\n<NATIVEMETHOD>MasterID</NATIVEMETHOD>\n\n</COLLECTION>\n<SYSTEM TYPE=\"Formulae\" NAME=\"S1CapIsUsdParty\">$Name = \"Gulf Office Supplies LLC (USD)\"</SYSTEM>\n\n</TDLMESSAGE>\n</TDL>\n</DESC>\n</BODY>\n</ENVELOPE>",
+  "environment": {
+    "wine": "wine-11.0",
+    "tally_version": "TallyPrime 7.0 (release 7.0 from the XML response header)",
+    "edition": "Edit Log",
+    "licence": "educational"
+  },
+  "capture": "s1_task0",
+  "gap": "G4",
+  "observations": {
+    "rows": 1,
+    "found": [
+      "Gulf Office Supplies LLC (USD)"
+    ],
+    "missing_guid": [],
+    "missing_alterid": [],
+    "missing_masterid": [],
+    "forms": {
+      "Gulf Office Supplies LLC (USD)": {
+        "opening": "expression",
+        "closing": "expression"
+      }
+    }
+  }
+}

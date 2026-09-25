@@ -1,0 +1,49 @@
+{
+  "probe": null,
+  "part": "B",
+  "step": "ledgers_touched",
+  "company_name": "Sharma & Sons' Probe Traders",
+  "company_guid": "138b7373-753c-4dbe-aa63-b802035f0ba9",
+  "sent_at": "2026-09-25T18:43:45+05:30",
+  "elapsed_ms": 3,
+  "response_bytes": 3838,
+  "timing_note": "Wine — not representative",
+  "request_xml": "<ENVELOPE>\n<HEADER>\n<VERSION>1</VERSION>\n<TALLYREQUEST>Export</TALLYREQUEST>\n<TYPE>Collection</TYPE>\n<ID>S1CapTouchedLedgers</ID>\n</HEADER>\n<BODY>\n<DESC>\n<STATICVARIABLES>\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n<SVCurrentCompany>Sharma &amp; Sons&apos; Probe Traders</SVCurrentCompany>\n</STATICVARIABLES>\n<TDL>\n<TDLMESSAGE>\n<COLLECTION NAME=\"S1CapTouchedLedgers\" ISMODIFY=\"No\">\n<TYPE>Ledger</TYPE>\n<FILTER>S1CapIsTouched</FILTER>\n<NATIVEMETHOD>GUID</NATIVEMETHOD>\n<NATIVEMETHOD>AlterID</NATIVEMETHOD>\n<NATIVEMETHOD>Name</NATIVEMETHOD>\n<NATIVEMETHOD>Parent</NATIVEMETHOD>\n<NATIVEMETHOD>OpeningBalance</NATIVEMETHOD>\n<NATIVEMETHOD>ClosingBalance</NATIVEMETHOD>\n\n</COLLECTION>\n<SYSTEM TYPE=\"Formulae\" NAME=\"S1CapIsTouched\">$Name = \"Gulf Office Supplies LLC (USD)\" OR $Name = \"Export Sales\" OR $Name = \"Gulf Office Supplies LLC\" OR $Name = \"Local Purchases\"</SYSTEM>\n\n</TDLMESSAGE>\n</TDL>\n</DESC>\n</BODY>\n</ENVELOPE>",
+  "environment": {
+    "wine": "wine-11.0",
+    "tally_version": "TallyPrime 7.0 (release 7.0 from the XML response header)",
+    "edition": "Edit Log",
+    "licence": "educational"
+  },
+  "capture": "s1_task0",
+  "gap": "G5",
+  "observations": {
+    "requested": [
+      "Gulf Office Supplies LLC (USD)",
+      "Export Sales",
+      "Gulf Office Supplies LLC",
+      "Local Purchases"
+    ],
+    "returned": [
+      "Export Sales",
+      "Gulf Office Supplies LLC",
+      "Gulf Office Supplies LLC (USD)",
+      "Local Purchases"
+    ],
+    "missing": [],
+    "unexpected": [],
+    "missing_guid": [],
+    "closing_forms": {
+      "Export Sales": "empty",
+      "Gulf Office Supplies LLC": "plain",
+      "Gulf Office Supplies LLC (USD)": "expression",
+      "Local Purchases": "plain"
+    },
+    "opening_forms": {
+      "Export Sales": "plain",
+      "Gulf Office Supplies LLC": "plain",
+      "Gulf Office Supplies LLC (USD)": "expression",
+      "Local Purchases": "plain"
+    }
+  }
+}

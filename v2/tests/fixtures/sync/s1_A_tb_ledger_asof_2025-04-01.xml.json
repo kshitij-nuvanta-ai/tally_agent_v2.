@@ -1,0 +1,30 @@
+{
+  "probe": null,
+  "part": "A",
+  "step": "tb_ledger_asof_2025-04-01",
+  "company_name": "Bharat Traders Probe Copy",
+  "company_guid": "710de34a-3661-4a7b-8148-c2206c3b3e17",
+  "sent_at": "2026-09-25T18:45:30+05:30",
+  "elapsed_ms": 46,
+  "response_bytes": 996,
+  "timing_note": "Wine — not representative",
+  "request_xml": "<ENVELOPE>\n<HEADER>\n<VERSION>1</VERSION>\n<TALLYREQUEST>Export</TALLYREQUEST>\n<TYPE>Data</TYPE>\n<ID>Trial Balance</ID>\n</HEADER>\n<BODY>\n<DESC>\n<STATICVARIABLES>\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>\n<SVTODATE TYPE=\"Date\">01-04-2025</SVTODATE>\n<ISLEDGERWISE>Yes</ISLEDGERWISE>\n<SVCurrentCompany>Bharat Traders Probe Copy</SVCurrentCompany>\n</STATICVARIABLES>\n</DESC>\n</BODY>\n</ENVELOPE>",
+  "environment": {
+    "wine": "wine-11.0",
+    "tally_version": "TallyPrime 7.0 (release 7.0 from the XML response header)",
+    "edition": "Edit Log",
+    "licence": "educational"
+  },
+  "capture": "s1_task0",
+  "gap": "G1",
+  "observations": {
+    "rows": 4,
+    "opening_stock_row": {
+      "ledger": "Opening Stock",
+      "found": true,
+      "debit_text": "",
+      "credit_text": "1855800.00",
+      "form": "plain"
+    }
+  }
+}
