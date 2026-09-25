@@ -1,4 +1,7 @@
 """Probe 16's B part: is Ledger.OpeningBalance books- or FY-scoped, and does a typed SVTODATE give as-on closings?"""
+from decimal import Decimal
+from pathlib import Path
+
 from v2.agent.tally.client import TallyClient
 from v2.probes import p16_ledger_closing_balance as p16
 from v2.probes.capture import Capture
@@ -10,14 +13,12 @@ from v2.tests.probes.fake_books import FakeBooks, seed_company_b
 from v2.tests.probes.fakes import ScriptedIO, ready_store
 
 B = COMPANIES["B"]
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "sync"
 
 
 def _books(**knobs) -> FakeBooks:
-    # C47: live, the USD party's ClosingBalance exports as an expression that probe 16 B can't parse today (pinned by
-    # test_b_the_live_forex_closing_is_a_harness_error_today). The other tests here are about the INR ledgers, so they
-    # use the candidate plain form unless a test says otherwise.
-    knobs.setdefault("forex_ledger_closing", "plain")
-    knobs.setdefault("forex_ledger_opening", "plain")         # C47 review I2: same, for the FY-scoped opening
+    # C47: the USD party's balances export in the live expression form (FakeBooks' default) — parse_ledger_list reads
+    # it at its stated INR base since the forex-parser change, so every test here sees the live form.
     books = FakeBooks(name=B, educational=True, **knobs)
     seed_company_b(books, "educational", masters=True)
     return books
@@ -121,16 +122,44 @@ async def test_b_scope_reads_that_disagree_are_different(tmp_path, monkeypatch):
     assert "disagree" in part["summary"]
 
 
-async def test_b_the_live_forex_closing_is_a_harness_error_today(tmp_path):
+async def test_b_the_live_forex_closing_reads_at_its_revalued_base(tmp_path):
     """C47 (live 2026-09-25): after the plan-part-7 load the USD party's ClosingBalance is `-$1609.71 @ ? 82.58/$ =
-    -? 132929.85`. `parse_ledger_list` raises on it, so a 16 B re-run BLOCKs with a harness error. Known gap, pinned so
-    it can't pass silently: fix probe 16's ledger read before any 16 B re-run (plan part 7 review M4)."""
-    part = await _run(tmp_path, _books(forex_ledger_closing="expression"))
-    assert part["outcome"] == "BLOCKED" and "AmountParseError" in part["summary"] and "132929.85" in part["summary"]
+    -? 132929.85`. parse_ledger_list now takes the stated base, so 16 B no longer BLOCKs. Part 1 §6 Rung 1 "Forex
+    ledgers": Tally's ClosingBalance is the ledger revalued at its LATEST voucher rate, and S1 reads it from Tally — so
+    16 B expects the revalued figure (the dataset's C47-aware balance), not Σ the vouchers' INR bases (-133113.72)."""
+    books = _books(forex_ledger_closing="expression")
+    part = await _run(tmp_path, books)
+    plain = await _run(tmp_path / "plain", _books(forex_ledger_closing="plain"))
+    assert part["outcome"] == plain["outcome"] == "DIFFERENT", part["summary"]
+    assert part["summary"] == plain["summary"] and "AmountParseError" not in part["summary"]
+    assert part["observations"]["closing_now"] == {"compared": 20, "mismatches": {}}
+    captured = next((tmp_path / "fixtures").rglob("p16_B_ledgers.xml")).read_text(encoding="utf-8")
+    assert "-$1609.71 @ ? 82.58/$ = -? 132929.85" in captured
 
 
-async def test_b_the_live_forex_opening_is_a_harness_error_today_too(tmp_path):
-    """C47 review I2: even with the closing half parsed, the USD party's FY-scoped OpeningBalance is an expression
-    too (p22_B_usd_ledger.xml:52), so a closing-only parser fix would still BLOCK 16 B live."""
-    part = await _run(tmp_path, _books(ledger_opening_scope="fy", forex_ledger_opening="expression"))
-    assert part["outcome"] == "BLOCKED" and "AmountParseError" in part["summary"] and "132929.85" in part["summary"]
+def test_b_expects_the_revalued_usd_closing_not_the_sum_of_bases():
+    """The comparison 16 B makes for the USD party, on the live bytes (p22_B_usd_ledger.xml): Tally's figure equals the
+    dataset's balance at the current period's end, which carries the C47 revaluation (−₹183.87 vs the bases)."""
+    from v2.probes.company_b_view import B_CURRENT_PERIOD, ledger_balances_at
+    from v2.probes.setup.company_b_data import USD_EXPORT_PARTY
+    live = p16._balances((FIXTURES / "p22_B_usd_ledger.xml").read_text(encoding="utf-8"))
+    want = ledger_balances_at("educational", B_CURRENT_PERIOD[1])
+    assert want[USD_EXPORT_PARTY] == Decimal("-132929.85")
+    assert p16.compare_closing(live, [USD_EXPORT_PARTY], want) == {"compared": 1, "mismatches": {}}
+    assert p16.compare_closing(live, [USD_EXPORT_PARTY], {USD_EXPORT_PARTY: Decimal("-133113.72")})["mismatches"]
+
+
+async def test_b_the_live_forex_opening_reads_at_its_base_too(tmp_path):
+    """C47 review I2: the USD party's FY-scoped OpeningBalance is the same expression (p22_B_usd_ledger.xml:52). Read at
+    its base it is the current FY's (revalued) opening, so the live combination judges exactly as the plain form."""
+    live = dict(ledger_opening_scope="fy", forex_ledger_opening="expression", forex_ledger_closing="expression")
+    part = await _run(tmp_path, _books(**live))
+    plain = await _run(tmp_path / "plain", _books(ledger_opening_scope="fy", forex_ledger_opening="plain",
+                                                  forex_ledger_closing="plain"))
+    assert part["outcome"] == plain["outcome"] == "DIFFERENT", part["summary"]
+    assert part["summary"] == plain["summary"] and "AmountParseError" not in part["summary"]
+    assert part["observations"]["opening_scope"] == plain["observations"]["opening_scope"]
+    assert part["observations"]["opening_scope"]["verdict"] == "fy"
+    honoured = await _run(tmp_path / "honoured", _books(**live, ledger_svtodate_honoured=True))
+    assert honoured["outcome"] == "CONFIRMED", honoured["summary"]
+    assert honoured["observations"]["opening_scope"]["source"] == "fy2024_read"

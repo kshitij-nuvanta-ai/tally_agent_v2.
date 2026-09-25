@@ -2,14 +2,15 @@
 # Changes: parse_trial_balance, parse_ledger_list, parse_bills and parse_stock_summary return Decimal (via
 # amounts.parse_decimal) and None for a missing value instead of float 0.0; a stock rate like "1250.00/NOS" is
 # read as its number (the source's parse_amount turned it into 0.0); parse_stock_summary rows no longer carry
-# parent_group.
+# parent_group. parse_ledger_list reads a forex expression balance at its stated INR base (amounts.parse_amount,
+# C47) and adds closing_forex / opening_forex.
 """Parsers for Tally report and ledger-list responses (Decimal amounts)."""
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 
-from v2.agent.tally.amounts import parse_decimal
+from v2.agent.tally.amounts import parse_amount, parse_decimal
 from v2.agent.tally.xml_utils import get_text, sanitize_xml
 
 
@@ -52,17 +53,24 @@ def parse_trial_balance(raw_xml: str) -> list[dict]:
 
 
 def parse_ledger_list(raw_xml: str) -> list[dict]:
+    """Ledger rows. A forex ledger's balance (C47, live `-$1609.71 @ ? 82.58/$ = -? 132929.85`) reads as its stated
+    INR base — Tally's own figure, revalued at the latest voucher rate — with the parts in `closing_forex` /
+    `opening_forex` (amounts.ForexAmount, None for a plain balance). An unreadable amount raises AmountParseError."""
     root = ET.fromstring(sanitize_xml(raw_xml))
     ledgers: list[dict] = []
     for ledger in root.iter("LEDGER"):
         name = get_text(ledger, "NAME") or ledger.get("NAME", "")
         if not name:
             continue
+        closing, closing_forex = parse_amount(get_text(ledger, "CLOSINGBALANCE"))
+        opening, opening_forex = parse_amount(get_text(ledger, "OPENINGBALANCE"))
         ledgers.append({
             "name": name,
             "parent_group": get_text(ledger, "PARENT"),
-            "closing_balance": parse_decimal(get_text(ledger, "CLOSINGBALANCE")),
-            "opening_balance": parse_decimal(get_text(ledger, "OPENINGBALANCE")),
+            "closing_balance": closing,
+            "opening_balance": opening,
+            "closing_forex": closing_forex,
+            "opening_forex": opening_forex,
         })
     return ledgers
 

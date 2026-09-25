@@ -16,11 +16,8 @@ B = COMPANIES["B"]
 
 
 def _books(**knobs) -> FakeBooks:
-    # C47: live, the USD party's ClosingBalance is an expression that `parse_ledger_list` can't read (pinned by
-    # test_the_live_forex_closing_breaks_parse_ledger_list below); these ledger-collection tests are about other
-    # ledgers, so they read the candidate plain form unless a test says otherwise.
-    knobs.setdefault("forex_ledger_closing", "plain")
-    knobs.setdefault("forex_ledger_opening", "plain")         # C47 review I2: same, for the FY-scoped opening
+    # C47: the USD party's balances export in the live expression form (FakeBooks' default); parse_ledger_list reads
+    # them at their stated INR base (test_the_live_forex_closing_reads_at_its_base below).
     books = FakeBooks(name=B, educational=True, **knobs)
     seed_company_b(books, "educational", masters=True)
     return books
@@ -108,19 +105,20 @@ def test_malformed_and_unknown_company_answers():
     assert detect_error(_ask(_books(honour_company_var=True), unknown))
 
 
-def test_the_live_forex_closing_breaks_parse_ledger_list():
-    """C47 / plan part 7 Review Focus 4, a real S1 finding pinned here (not fixed in S0): the agent's Ledger parser
-    raises on the USD party's live ClosingBalance `-$1609.71 @ ? 82.58/$ = -? 132929.85`. Probe 16 B inherits it."""
-    import pytest
-    from v2.agent.tally.amounts import AmountParseError
-    with pytest.raises(AmountParseError, match="132929.85"):
-        _ledgers(_books(forex_ledger_closing="expression"))
+def test_the_live_forex_closing_reads_at_its_base():
+    """C47 / plan part 7 Review Focus 4: the USD party's live ClosingBalance `-$1609.71 @ ? 82.58/$ = -? 132929.85`
+    (formerly an AmountParseError) reads at its stated INR base — the latest-rate revalued figure — with the parts."""
+    from v2.probes.setup.company_b_data import USD_EXPORT_PARTY
+    row = _ledgers(_books(forex_ledger_closing="expression"))[USD_EXPORT_PARTY]
+    assert row["closing_balance"] == Decimal("-132929.85")
+    fx = row["closing_forex"]
+    assert (fx.face, fx.currency, fx.rate, fx.base_derived) == (Decimal("-1609.71"), "$", Decimal("82.58"), False)
+    assert row["closing_balance"] == _ledgers(_books(forex_ledger_closing="plain"))[USD_EXPORT_PARTY]["closing_balance"]
 
 
-def test_the_live_forex_opening_breaks_parse_ledger_list_too():
+def test_the_live_forex_opening_reads_at_its_base_too():
     """C47 review I2: live, the USD party's (FY-scoped) OpeningBalance is the same expression as its closing
-    (p22_B_usd_ledger.xml:52). With the closing plain, the opening alone still breaks the agent's Ledger parser."""
-    import pytest
-    from v2.agent.tally.amounts import AmountParseError
-    with pytest.raises(AmountParseError, match="132929.85"):
-        _ledgers(_books(ledger_opening_scope="fy", forex_ledger_opening="expression"))
+    (p22_B_usd_ledger.xml:52); it reads at its base as well."""
+    from v2.probes.setup.company_b_data import USD_EXPORT_PARTY
+    row = _ledgers(_books(ledger_opening_scope="fy", forex_ledger_opening="expression"))[USD_EXPORT_PARTY]
+    assert row["opening_balance"] == Decimal("-132929.85") and row["opening_forex"].face == Decimal("-1609.71")

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 from v2.agent.tally.client import TallyClient
@@ -16,10 +17,8 @@ BOOKS_SCOPE = {"stock_opening_scope": "books"}   # review M4: the pre-C46 hypoth
 
 
 def _books(**knobs) -> FakeBooks:
-    # C47 review I2: live, the USD party's FY-scoped OpeningBalance is an expression that probe 11 B can't parse today
-    # (pinned by test_b_the_live_forex_opening_is_a_harness_error_today). The other tests are about the INR ledgers,
-    # the bill and stock, so they use the candidate plain form unless a test says otherwise.
-    knobs.setdefault("forex_ledger_opening", "plain")
+    # C47 review I2: the USD party's FY-scoped OpeningBalance exports in the live expression form (FakeBooks'
+    # default); parse_ledger_list reads it at its stated INR base since the forex-parser change.
     books = FakeBooks(name=B, educational=True, **knobs)
     seed_company_b(books, "educational", masters=True)
     return books
@@ -147,10 +146,20 @@ async def test_books_scope_stock_judges_rate_and_value(tmp_path):
     assert "not judged" not in part["summary"]
 
 
-async def test_b_the_live_forex_opening_is_a_harness_error_today(tmp_path):
+async def test_b_the_live_forex_opening_reads_at_its_base(tmp_path):
     """C47 review I2 (live 2026-09-25, p22_B_usd_ledger.xml:52): with FY-scoped openings (live, probe 11 B) the USD
-    party's OpeningBalance is `-$1609.71 @ ? 82.58/$ = -? 132929.85`. `parse_ledger_list` raises on it, so a 11 B
-    re-run BLOCKs with a harness error. Known gap, pinned like 16 B's closing: an expression-form balance parser is
-    needed before any 11 B re-run (open S1 decision)."""
+    party's OpeningBalance is `-$1609.71 @ ? 82.58/$ = -? 132929.85`. parse_ledger_list now takes the stated base, so
+    11 B no longer BLOCKs: the USD party (books-start opening 0, its forex sales are before the current FY) reads as the
+    current FY's revalued opening −₹1,32,929.85 and joins the other as_current_fy ledgers — the ledger half stays
+    DIFFERENT (FY-scoped), exactly as with the plain form."""
+    from v2.probes.setup.company_b_data import USD_EXPORT_PARTY
     part = await _run(tmp_path, _books(ledger_opening_scope="fy", forex_ledger_opening="expression"))
-    assert part["outcome"] == "BLOCKED" and "AmountParseError" in part["summary"] and "132929.85" in part["summary"]
+    plain = await _run(tmp_path / "plain", _books(ledger_opening_scope="fy", forex_ledger_opening="plain"))
+    assert part["outcome"] == plain["outcome"] == "DIFFERENT", part["summary"]
+    assert part["summary"] == plain["summary"] and "AmountParseError" not in part["summary"]
+    ledgers = part["observations"]["ledgers"]
+    assert ledgers == plain["observations"]["ledgers"]
+    assert ledgers["mismatched"][USD_EXPORT_PARTY] == {"tally": Decimal("-132929.85"), "setup": Decimal("0"),
+                                                       "current_fy_opening": Decimal("-132929.85")}
+    assert USD_EXPORT_PARTY in ledgers["as_current_fy"]
+    assert part["observations"]["sub_verdicts"]["ledgers"] == "DIFFERENT"

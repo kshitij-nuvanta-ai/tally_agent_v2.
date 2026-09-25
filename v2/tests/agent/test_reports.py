@@ -1,9 +1,13 @@
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
+from v2.agent.tally.amounts import AmountParseError
 from v2.agent.tally.reports import parse_bills, parse_ledger_list, parse_stock_summary, parse_trial_balance
 
 SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "tally_samples"
+SYNC = Path(__file__).resolve().parents[1] / "fixtures" / "sync"
 
 
 def _read(name):
@@ -34,6 +38,8 @@ def test_ledger_list_missing_opening_is_none():
         "parent_group": "North Zone Debtors",
         "closing_balance": Decimal("-55000.00"),
         "opening_balance": None,
+        "closing_forex": None,
+        "opening_forex": None,
     }
     assert any(l["name"] == "Sharma & Sons Traders" for l in ledgers)
 
@@ -77,3 +83,32 @@ def test_stock_rate_with_unit_suffix():
     assert item["base_units"] == "Box of 10 Nos"
     assert item["closing_rate"] == Decimal("1250.00")
     assert item["closing_value"] == Decimal("-1500000.00")
+
+
+def test_ledger_list_reads_the_live_forex_ledger_at_its_stated_base():
+    """C47 (live 2026-09-25, p22_B_usd_ledger.xml): the USD party's Closing/OpeningBalance export as
+    `-$1609.71 @ ? 82.58/$ = -? 132929.85`. The balance is the stated INR base (Dr negative, as a plain export) —
+    Tally's revalued figure at the latest voucher rate — and the forex parts ride alongside."""
+    [row] = parse_ledger_list((SYNC / "p22_B_usd_ledger.xml").read_text(encoding="utf-8"))
+    assert row["name"] == "Gulf Office Supplies LLC (USD)" and row["parent_group"] == "Sundry Debtors"
+    assert row["closing_balance"] == Decimal("-132929.85") and row["opening_balance"] == Decimal("-132929.85")
+    for key in ("closing_forex", "opening_forex"):
+        fx = row[key]
+        assert (fx.face, fx.currency, fx.rate, fx.base, fx.base_derived) == (
+            Decimal("-1609.71"), "$", Decimal("82.58"), Decimal("-132929.85"), False)
+
+
+def _one_ledger(closing: str, opening: str = "") -> str:
+    return (f"<ENVELOPE><LEDGER NAME=\"X\"><NAME>X</NAME><PARENT>Sundry Debtors</PARENT>"
+            f"<CLOSINGBALANCE>{closing}</CLOSINGBALANCE><OPENINGBALANCE>{opening}</OPENINGBALANCE></LEDGER></ENVELOPE>")
+
+
+def test_ledger_list_mixes_plain_and_forex_halves():
+    [row] = parse_ledger_list(_one_ledger("-$448.44 @ 82.99/$", "-1,000.00"))
+    assert row["closing_balance"] == Decimal("-37216.04") and row["closing_forex"].base_derived is True
+    assert row["opening_balance"] == Decimal("-1000.00") and row["opening_forex"] is None
+
+
+def test_ledger_list_still_raises_on_an_unreadable_balance():
+    with pytest.raises(AmountParseError, match="37216.04"):
+        parse_ledger_list(_one_ledger("-$448.44 @ ? 82.99/€ = -? 37216.04"))
