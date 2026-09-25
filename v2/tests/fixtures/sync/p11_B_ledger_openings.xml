@@ -135,6 +135,16 @@
       <LANGUAGEID TYPE="Number"> 1033</LANGUAGEID>
      </LANGUAGENAME.LIST>
     </LEDGER>
+    <LEDGER NAME="Gulf Office Supplies LLC (USD)" RESERVEDNAME="">
+     <PARENT TYPE="String">Sundry Debtors</PARENT>
+     <OPENINGBALANCE TYPE="Amount">-$1609.71 @ ? 82.58/$ = -? 132929.85</OPENINGBALANCE>
+     <LANGUAGENAME.LIST>
+      <NAME.LIST TYPE="String">
+       <NAME>Gulf Office Supplies LLC (USD)</NAME>
+      </NAME.LIST>
+      <LANGUAGEID TYPE="Number"> 1033</LANGUAGEID>
+     </LANGUAGENAME.LIST>
+    </LEDGER>
     <LEDGER NAME="HDFC Bank Current A/c" RESERVEDNAME="">
      <PARENT TYPE="String">Bank Accounts</PARENT>
      <OPENINGBALANCE TYPE="Amount">-1562043.95</OPENINGBALANCE>
@@ -267,7 +277,7 @@
     </LEDGER>
     <LEDGER NAME="Profit &amp; Loss A/c" RESERVEDNAME="Profit &amp; Loss A/c">
      <PARENT TYPE="String">&#4; Primary</PARENT>
-     <OPENINGBALANCE TYPE="Amount">1307770.18</OPENINGBALANCE>
+     <OPENINGBALANCE TYPE="Amount">$1609.71 @ ? 895.1202/$ = ? 1440883.90</OPENINGBALANCE>
      <LANGUAGENAME.LIST>
       <NAME.LIST TYPE="String">
        <NAME>Profit &amp; Loss A/c</NAME>

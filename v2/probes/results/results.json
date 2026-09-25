@@ -883,15 +883,15 @@
           "summary": "SVTODATE 31-03-2025, 31-03-2023 moved closing balances, but not to the as-on values [Educational mode — confirm on a licensed Tally]",
           "observations": {
             "ledger_kinds": {
-              "bs": 19,
+              "bs": 20,
               "pl": 6,
               "special": 1
             },
             "opening_scope": {
               "verdict": "fy",
-              "telling": 14,
+              "telling": 15,
               "as_books": 0,
-              "as_fy": 14,
+              "as_fy": 15,
               "mismatched": [],
               "source": "current_fy_read",
               "why": "the FY 2024-25 read's period was not honoured (SVTODATE wrong)",
@@ -902,12 +902,12 @@
               "reads_agree": false
             },
             "closing_now": {
-              "compared": 19,
+              "compared": 20,
               "mismatches": {}
             },
             "as_on_fy2024": {
               "state": "wrong",
-              "compared": 19,
+              "compared": 20,
               "moved": 14,
               "mismatches": {
                 "Cash": {
@@ -954,7 +954,7 @@
             },
             "as_on_2023": {
               "state": "wrong",
-              "compared": 19,
+              "compared": 20,
               "moved": 14,
               "mismatches": {
                 "Cash": {
@@ -1015,7 +1015,7 @@
             "p16_B_ledgers_asof_2023-03-31.xml"
           ],
           "manual_steps": [],
-          "ran_at": "2026-09-24T18:19:38+05:30"
+          "ran_at": "2026-09-25T18:21:44+05:30"
         }
       },
       "history": [
@@ -1577,6 +1577,146 @@
             }
           ],
           "ran_at": "2026-09-23T12:10:33+05:30"
+        },
+        {
+          "part": "B",
+          "outcome": "FAILED",
+          "summary": "SVTODATE 31-03-2025, 31-03-2023 moved closing balances, but not to the as-on values [Educational mode — confirm on a licensed Tally]",
+          "observations": {
+            "ledger_kinds": {
+              "bs": 19,
+              "pl": 6,
+              "special": 1
+            },
+            "opening_scope": {
+              "verdict": "fy",
+              "telling": 14,
+              "as_books": 0,
+              "as_fy": 14,
+              "mismatched": [],
+              "source": "current_fy_read",
+              "why": "the FY 2024-25 read's period was not honoured (SVTODATE wrong)",
+              "supporting": {
+                "fy2024_read": "neither",
+                "current_fy_read": "fy"
+              },
+              "reads_agree": false
+            },
+            "closing_now": {
+              "compared": 19,
+              "mismatches": {}
+            },
+            "as_on_fy2024": {
+              "state": "wrong",
+              "compared": 19,
+              "moved": 14,
+              "mismatches": {
+                "Cash": {
+                  "tally": "-401396.40",
+                  "dataset": "-374074.32"
+                },
+                "Chennai Components Ltd": {
+                  "tally": "1008095.09",
+                  "dataset": "983077.51"
+                },
+                "Gulf Office Supplies LLC": {
+                  "tally": "-192264.86",
+                  "dataset": "-178008.58"
+                },
+                "HDFC Bank Current A/c": {
+                  "tally": "-1555912.11",
+                  "dataset": "-1562043.95"
+                },
+                "Indore Home Needs": {
+                  "tally": "-424458.63",
+                  "dataset": "-421930.89"
+                },
+                "Input CGST": {
+                  "tally": "-150406.92",
+                  "dataset": "-147010.48"
+                },
+                "Input SGST": {
+                  "tally": "-150406.92",
+                  "dataset": "-147010.48"
+                },
+                "Nagpur Wholesale Traders": {
+                  "tally": "-318270.78",
+                  "dataset": "-315637.10"
+                },
+                "Output CGST": {
+                  "tally": "281692.68",
+                  "dataset": "279085.03"
+                },
+                "Output SGST": {
+                  "tally": "281692.68",
+                  "dataset": "279085.03"
+                }
+              }
+            },
+            "as_on_2023": {
+              "state": "wrong",
+              "compared": 19,
+              "moved": 14,
+              "mismatches": {
+                "Cash": {
+                  "tally": "-401396.40",
+                  "dataset": "-90837.94"
+                },
+                "Chennai Components Ltd": {
+                  "tally": "1008095.09",
+                  "dataset": "204710.31"
+                },
+                "Gulf Office Supplies LLC": {
+                  "tally": "-192264.86",
+                  "dataset": "-15332.62"
+                },
+                "HDFC Bank Current A/c": {
+                  "tally": "-1555912.11",
+                  "dataset": "-1131734.47"
+                },
+                "Indore Home Needs": {
+                  "tally": "-424458.63",
+                  "dataset": "-58736.26"
+                },
+                "Input CGST": {
+                  "tally": "-150406.92",
+                  "dataset": "-44394.92"
+                },
+                "Input SGST": {
+                  "tally": "-150406.92",
+                  "dataset": "-44394.92"
+                },
+                "Kolhapur Retail Mart": {
+                  "tally": "65468.06",
+                  "dataset": "-48132.46"
+                },
+                "Nagpur Wholesale Traders": {
+                  "tally": "-318270.78",
+                  "dataset": "-132588.53"
+                },
+                "Output CGST": {
+                  "tally": "281692.68",
+                  "dataset": "87219.87"
+                }
+              }
+            },
+            "as_on_svfromdate": {
+              "attempted": false,
+              "note": "not sent: SVFROMDATE on a Ledger collection froze Tally's XML server behind a modal (live 2026-09-23, twice — sent untyped, before C33 was known; the typed form has not been re-measured) and needed a Tally restart. Opt in with `run 16 --company A --rerun --allow-risky`."
+            },
+            "tags": [
+              "Educational"
+            ]
+          },
+          "spec_impact": "A dated Ledger-collection read returns neither the as-on balance nor today's: the agent never sends a period variable on a master collection (LESSONS §15 rule 17 stands), and per-ledger anchors come from probe 17's ledger-level TB (decision 11).",
+          "fixtures": [
+            "p16_B_groups.xml",
+            "p16_B_ledgers.xml",
+            "p16_B_ledgers_fy2024.xml",
+            "p16_B_ledgers_asof_2023-03-31.xml"
+          ],
+          "manual_steps": [],
+          "ran_at": "2026-09-24T18:19:38+05:30"
         }
       ],
       "remaining": []
@@ -7695,6 +7835,409 @@
       "parts": {
         "B": {
           "outcome": "DIFFERENT",
+          "summary": "ledgers: OpeningBalance equals the current FY's opening for 15 ledger(s) (DIFFERENT); opening bill: 'Op/2022-001' (₹62500.00) on the ledger master (CONFIRMED); stock: openings are the current period's (as at 2025-04-01) for 5 item(s), not the books-start ones (C46); rate/value recorded, not judged (DIFFERENT)",
+          "observations": {
+            "ledgers": {
+              "compared": 26,
+              "mismatched": {
+                "Kolhapur Retail Mart": {
+                  "tally": "65468.06",
+                  "setup": "-45000.00",
+                  "current_fy_opening": "65468.06"
+                },
+                "Gulf Office Supplies LLC": {
+                  "tally": "-178008.58",
+                  "setup": "0",
+                  "current_fy_opening": "-178008.58"
+                },
+                "शर्मा ट्रेडर्स": {
+                  "tally": "-678655.57",
+                  "setup": "0",
+                  "current_fy_opening": "-678655.57"
+                },
+                "Nagpur Wholesale Traders": {
+                  "tally": "-315637.10",
+                  "setup": "0",
+                  "current_fy_opening": "-315637.10"
+                },
+                "Pune Digital Solutions": {
+                  "tally": "-355057.65",
+                  "setup": "-62500.00",
+                  "current_fy_opening": "-355057.65"
+                },
+                "Indore Home Needs": {
+                  "tally": "-421930.89",
+                  "setup": "0",
+                  "current_fy_opening": "-421930.89"
+                },
+                "Gulf Office Supplies LLC (USD)": {
+                  "tally": "-132929.85",
+                  "setup": "0",
+                  "current_fy_opening": "-132929.85"
+                },
+                "Chennai Components Ltd": {
+                  "tally": "983077.51",
+                  "setup": "0",
+                  "current_fy_opening": "983077.51"
+                },
+                "Satara Packaging Co": {
+                  "tally": "304733.78",
+                  "setup": "0",
+                  "current_fy_opening": "304733.78"
+                },
+                "HDFC Bank Current A/c": {
+                  "tally": "-1562043.95",
+                  "setup": "-868050.00",
+                  "current_fy_opening": "-1562043.95"
+                },
+                "Cash": {
+                  "tally": "-374074.32",
+                  "setup": "0",
+                  "current_fy_opening": "-374074.32"
+                },
+                "Input CGST": {
+                  "tally": "-147010.48",
+                  "setup": "0",
+                  "current_fy_opening": "-147010.48"
+                },
+                "Input SGST": {
+                  "tally": "-147010.48",
+                  "setup": "0",
+                  "current_fy_opening": "-147010.48"
+                },
+                "Output CGST": {
+                  "tally": "279085.03",
+                  "setup": "0",
+                  "current_fy_opening": "279085.03"
+                },
+                "Output SGST": {
+                  "tally": "279085.03",
+                  "setup": "0",
+                  "current_fy_opening": "279085.03"
+                }
+              },
+              "as_current_fy": [
+                "Cash",
+                "Chennai Components Ltd",
+                "Gulf Office Supplies LLC",
+                "Gulf Office Supplies LLC (USD)",
+                "HDFC Bank Current A/c",
+                "Indore Home Needs",
+                "Input CGST",
+                "Input SGST",
+                "Kolhapur Retail Mart",
+                "Nagpur Wholesale Traders",
+                "Output CGST",
+                "Output SGST",
+                "Pune Digital Solutions",
+                "Satara Packaging Co",
+                "शर्मा ट्रेडर्स"
+              ]
+            },
+            "opening_bill": {
+              "party": "Pune Digital Solutions",
+              "bill": "Op/2022-001",
+              "expected": "-62500.00",
+              "candidate": {
+                "found": true,
+                "amount": "-62500.00",
+                "date": "20220331",
+                "magnitude_match": true,
+                "sign": "negative",
+                "bills_seen": 1
+              }
+            },
+            "stock": {
+              "USB Cable Type-C": {
+                "present": true,
+                "qty_text": "11 Nos",
+                "rate_text": "695.51/Nos",
+                "value": "-7650.65",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "books_qty": "120",
+                "current_period_qty": "11",
+                "qty_ok": false,
+                "qty_current_ok": true,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Wireless Mouse": {
+                "present": true,
+                "qty_text": "47 Nos",
+                "rate_text": "335.92/Nos",
+                "value": "-15788.07",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "books_qty": "0",
+                "current_period_qty": "47",
+                "qty_ok": false,
+                "qty_current_ok": true,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "A4 Paper Ream": {
+                "present": true,
+                "qty_text": "19 Box 0 Nos",
+                "rate_text": "431.11/Box",
+                "value": "-8191.10",
+                "base_units": "Box of 10 Nos",
+                "qty_unit": "Box",
+                "books_qty": "15",
+                "current_period_qty": "19",
+                "qty_ok": false,
+                "qty_current_ok": true,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Office Stapler": {
+                "present": true,
+                "qty_text": "9 Nos",
+                "rate_text": "669.00/Nos",
+                "value": "-6021.03",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "books_qty": "0",
+                "current_period_qty": "9",
+                "qty_ok": false,
+                "qty_current_ok": true,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Whiteboard Marker Set": {
+                "present": true,
+                "qty_text": "4 Nos",
+                "rate_text": "534.93/Nos",
+                "value": "-2139.72",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "books_qty": "0",
+                "current_period_qty": "4",
+                "qty_ok": false,
+                "qty_current_ok": true,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              }
+            },
+            "stock_scope": {
+              "scope": "current_period",
+              "telling": 5,
+              "as_books": [],
+              "as_current_period": [
+                "A4 Paper Ream",
+                "Office Stapler",
+                "USB Cable Type-C",
+                "Whiteboard Marker Set",
+                "Wireless Mouse"
+              ],
+              "neither": []
+            },
+            "sub_verdicts": {
+              "ledgers": "DIFFERENT",
+              "opening_bill": "CONFIRMED",
+              "stock": "DIFFERENT"
+            }
+          },
+          "spec_impact": "Ledger OpeningBalance reads as the current FY's opening, not the books-start one: R5's books-start anchor is computed or read with the period in the first FY — probe 16 B settles the scope. C46: StockItem OpeningBalance / OpeningRate / OpeningValue are the CURRENT period's opening, not the books-start one — S1 may use them only as the current FY's stock opening; a books-start stock opening comes from a Stock Summary as-on the books start (probe 18's route), never the StockItem master (R5).",
+          "fixtures": [
+            "p11_B_ledger_openings.xml",
+            "p11_B_opening_bills.xml",
+            "p11_B_stock_openings.xml"
+          ],
+          "manual_steps": [],
+          "ran_at": "2026-09-25T18:21:45+05:30"
+        }
+      },
+      "history": [
+        {
+          "part": "B",
+          "outcome": "FAILED",
+          "summary": "stock openings ≠ setup for A4 Paper Ream, Office Stapler, USB Cable Type-C, Whiteboard Marker Set, Wireless Mouse",
+          "observations": {
+            "ledgers": {
+              "compared": 25,
+              "mismatched": {
+                "Kolhapur Retail Mart": {
+                  "tally": "65468.06",
+                  "setup": "-45000.00",
+                  "current_fy_opening": "65468.06"
+                },
+                "Gulf Office Supplies LLC": {
+                  "tally": "-178008.58",
+                  "setup": "0",
+                  "current_fy_opening": "-178008.58"
+                },
+                "शर्मा ट्रेडर्स": {
+                  "tally": "-678655.57",
+                  "setup": "0",
+                  "current_fy_opening": "-678655.57"
+                },
+                "Nagpur Wholesale Traders": {
+                  "tally": "-315637.10",
+                  "setup": "0",
+                  "current_fy_opening": "-315637.10"
+                },
+                "Pune Digital Solutions": {
+                  "tally": "-355057.65",
+                  "setup": "-62500.00",
+                  "current_fy_opening": "-355057.65"
+                },
+                "Indore Home Needs": {
+                  "tally": "-421930.89",
+                  "setup": "0",
+                  "current_fy_opening": "-421930.89"
+                },
+                "Chennai Components Ltd": {
+                  "tally": "983077.51",
+                  "setup": "0",
+                  "current_fy_opening": "983077.51"
+                },
+                "Satara Packaging Co": {
+                  "tally": "304733.78",
+                  "setup": "0",
+                  "current_fy_opening": "304733.78"
+                },
+                "HDFC Bank Current A/c": {
+                  "tally": "-1562043.95",
+                  "setup": "-868050.00",
+                  "current_fy_opening": "-1562043.95"
+                },
+                "Cash": {
+                  "tally": "-374074.32",
+                  "setup": "0",
+                  "current_fy_opening": "-374074.32"
+                },
+                "Input CGST": {
+                  "tally": "-147010.48",
+                  "setup": "0",
+                  "current_fy_opening": "-147010.48"
+                },
+                "Input SGST": {
+                  "tally": "-147010.48",
+                  "setup": "0",
+                  "current_fy_opening": "-147010.48"
+                },
+                "Output CGST": {
+                  "tally": "279085.03",
+                  "setup": "0",
+                  "current_fy_opening": "279085.03"
+                },
+                "Output SGST": {
+                  "tally": "279085.03",
+                  "setup": "0",
+                  "current_fy_opening": "279085.03"
+                }
+              },
+              "as_current_fy": [
+                "Cash",
+                "Chennai Components Ltd",
+                "Gulf Office Supplies LLC",
+                "HDFC Bank Current A/c",
+                "Indore Home Needs",
+                "Input CGST",
+                "Input SGST",
+                "Kolhapur Retail Mart",
+                "Nagpur Wholesale Traders",
+                "Output CGST",
+                "Output SGST",
+                "Pune Digital Solutions",
+                "Satara Packaging Co",
+                "शर्मा ट्रेडर्स"
+              ]
+            },
+            "opening_bill": {
+              "party": "Pune Digital Solutions",
+              "bill": "Op/2022-001",
+              "expected": "-62500.00",
+              "candidate": {
+                "found": true,
+                "amount": "-62500.00",
+                "date": "20220331",
+                "magnitude_match": true,
+                "sign": "negative",
+                "bills_seen": 1
+              }
+            },
+            "stock": {
+              "USB Cable Type-C": {
+                "present": true,
+                "qty_text": "11 Nos",
+                "rate_text": "695.51/Nos",
+                "value": "-7650.65",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "qty_ok": false,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Wireless Mouse": {
+                "present": true,
+                "qty_text": "47 Nos",
+                "rate_text": "335.92/Nos",
+                "value": "-15788.07",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "qty_ok": false,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "A4 Paper Ream": {
+                "present": true,
+                "qty_text": "19 Box 0 Nos",
+                "rate_text": "431.11/Box",
+                "value": "-8191.10",
+                "base_units": "Box of 10 Nos",
+                "qty_unit": "Box",
+                "qty_ok": false,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Office Stapler": {
+                "present": true,
+                "qty_text": "9 Nos",
+                "rate_text": "669.00/Nos",
+                "value": "-6021.03",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "qty_ok": false,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              },
+              "Whiteboard Marker Set": {
+                "present": true,
+                "qty_text": "4 Nos",
+                "rate_text": "534.93/Nos",
+                "value": "-2139.72",
+                "base_units": "Nos",
+                "qty_unit": "Nos",
+                "qty_ok": false,
+                "rate_ok": false,
+                "value_ok": false,
+                "value_sign_flipped": false
+              }
+            }
+          },
+          "spec_impact": "Stock openings don't export setup's quantity / rate / value: stock tiles start from the first Stock Summary snapshot, not an opening anchor (R5).",
+          "fixtures": [
+            "p11_B_ledger_openings.xml",
+            "p11_B_opening_bills.xml",
+            "p11_B_stock_openings.xml"
+          ],
+          "manual_steps": [],
+          "ran_at": "2026-09-24T18:18:51+05:30"
+        },
+        {
+          "part": "B",
+          "outcome": "DIFFERENT",
           "summary": "ledgers: OpeningBalance equals the current FY's opening for 14 ledger(s) (DIFFERENT); opening bill: 'Op/2022-001' (₹62500.00) on the ledger master (CONFIRMED); stock: openings are the current period's (as at 2025-04-01) for 5 item(s), not the books-start ones (C46) (DIFFERENT)",
           "observations": {
             "ledgers": {
@@ -7905,189 +8448,6 @@
           ],
           "manual_steps": [],
           "ran_at": "2026-09-24T20:57:35+05:30"
-        }
-      },
-      "history": [
-        {
-          "part": "B",
-          "outcome": "FAILED",
-          "summary": "stock openings ≠ setup for A4 Paper Ream, Office Stapler, USB Cable Type-C, Whiteboard Marker Set, Wireless Mouse",
-          "observations": {
-            "ledgers": {
-              "compared": 25,
-              "mismatched": {
-                "Kolhapur Retail Mart": {
-                  "tally": "65468.06",
-                  "setup": "-45000.00",
-                  "current_fy_opening": "65468.06"
-                },
-                "Gulf Office Supplies LLC": {
-                  "tally": "-178008.58",
-                  "setup": "0",
-                  "current_fy_opening": "-178008.58"
-                },
-                "शर्मा ट्रेडर्स": {
-                  "tally": "-678655.57",
-                  "setup": "0",
-                  "current_fy_opening": "-678655.57"
-                },
-                "Nagpur Wholesale Traders": {
-                  "tally": "-315637.10",
-                  "setup": "0",
-                  "current_fy_opening": "-315637.10"
-                },
-                "Pune Digital Solutions": {
-                  "tally": "-355057.65",
-                  "setup": "-62500.00",
-                  "current_fy_opening": "-355057.65"
-                },
-                "Indore Home Needs": {
-                  "tally": "-421930.89",
-                  "setup": "0",
-                  "current_fy_opening": "-421930.89"
-                },
-                "Chennai Components Ltd": {
-                  "tally": "983077.51",
-                  "setup": "0",
-                  "current_fy_opening": "983077.51"
-                },
-                "Satara Packaging Co": {
-                  "tally": "304733.78",
-                  "setup": "0",
-                  "current_fy_opening": "304733.78"
-                },
-                "HDFC Bank Current A/c": {
-                  "tally": "-1562043.95",
-                  "setup": "-868050.00",
-                  "current_fy_opening": "-1562043.95"
-                },
-                "Cash": {
-                  "tally": "-374074.32",
-                  "setup": "0",
-                  "current_fy_opening": "-374074.32"
-                },
-                "Input CGST": {
-                  "tally": "-147010.48",
-                  "setup": "0",
-                  "current_fy_opening": "-147010.48"
-                },
-                "Input SGST": {
-                  "tally": "-147010.48",
-                  "setup": "0",
-                  "current_fy_opening": "-147010.48"
-                },
-                "Output CGST": {
-                  "tally": "279085.03",
-                  "setup": "0",
-                  "current_fy_opening": "279085.03"
-                },
-                "Output SGST": {
-                  "tally": "279085.03",
-                  "setup": "0",
-                  "current_fy_opening": "279085.03"
-                }
-              },
-              "as_current_fy": [
-                "Cash",
-                "Chennai Components Ltd",
-                "Gulf Office Supplies LLC",
-                "HDFC Bank Current A/c",
-                "Indore Home Needs",
-                "Input CGST",
-                "Input SGST",
-                "Kolhapur Retail Mart",
-                "Nagpur Wholesale Traders",
-                "Output CGST",
-                "Output SGST",
-                "Pune Digital Solutions",
-                "Satara Packaging Co",
-                "शर्मा ट्रेडर्स"
-              ]
-            },
-            "opening_bill": {
-              "party": "Pune Digital Solutions",
-              "bill": "Op/2022-001",
-              "expected": "-62500.00",
-              "candidate": {
-                "found": true,
-                "amount": "-62500.00",
-                "date": "20220331",
-                "magnitude_match": true,
-                "sign": "negative",
-                "bills_seen": 1
-              }
-            },
-            "stock": {
-              "USB Cable Type-C": {
-                "present": true,
-                "qty_text": "11 Nos",
-                "rate_text": "695.51/Nos",
-                "value": "-7650.65",
-                "base_units": "Nos",
-                "qty_unit": "Nos",
-                "qty_ok": false,
-                "rate_ok": false,
-                "value_ok": false,
-                "value_sign_flipped": false
-              },
-              "Wireless Mouse": {
-                "present": true,
-                "qty_text": "47 Nos",
-                "rate_text": "335.92/Nos",
-                "value": "-15788.07",
-                "base_units": "Nos",
-                "qty_unit": "Nos",
-                "qty_ok": false,
-                "rate_ok": false,
-                "value_ok": false,
-                "value_sign_flipped": false
-              },
-              "A4 Paper Ream": {
-                "present": true,
-                "qty_text": "19 Box 0 Nos",
-                "rate_text": "431.11/Box",
-                "value": "-8191.10",
-                "base_units": "Box of 10 Nos",
-                "qty_unit": "Box",
-                "qty_ok": false,
-                "rate_ok": false,
-                "value_ok": false,
-                "value_sign_flipped": false
-              },
-              "Office Stapler": {
-                "present": true,
-                "qty_text": "9 Nos",
-                "rate_text": "669.00/Nos",
-                "value": "-6021.03",
-                "base_units": "Nos",
-                "qty_unit": "Nos",
-                "qty_ok": false,
-                "rate_ok": false,
-                "value_ok": false,
-                "value_sign_flipped": false
-              },
-              "Whiteboard Marker Set": {
-                "present": true,
-                "qty_text": "4 Nos",
-                "rate_text": "534.93/Nos",
-                "value": "-2139.72",
-                "base_units": "Nos",
-                "qty_unit": "Nos",
-                "qty_ok": false,
-                "rate_ok": false,
-                "value_ok": false,
-                "value_sign_flipped": false
-              }
-            }
-          },
-          "spec_impact": "Stock openings don't export setup's quantity / rate / value: stock tiles start from the first Stock Summary snapshot, not an opening anchor (R5).",
-          "fixtures": [
-            "p11_B_ledger_openings.xml",
-            "p11_B_opening_bills.xml",
-            "p11_B_stock_openings.xml"
-          ],
-          "manual_steps": [],
-          "ran_at": "2026-09-24T18:18:51+05:30"
         }
       ],
       "remaining": []
