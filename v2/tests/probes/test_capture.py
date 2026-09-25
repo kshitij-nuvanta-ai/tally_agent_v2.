@@ -61,3 +61,29 @@ def test_error_deletes_stale_xml_from_an_earlier_run(tmp_path):
     assert (tmp_path / name).exists()
     _save(capture, step="popup_read", error={"kind": "timeout", "message": "no answer"})
     assert not (tmp_path / name).exists()
+
+
+def test_named_capture_keeps_the_sidecar_format_and_adds_extra_keys(tmp_path):
+    """S1 task 0 (s1_capture): a fixture named outside the pNN_ scheme, same sidecar plus the extra keys."""
+    raw = b"<E/>"
+    name = _save(Capture(tmp_path), probe_id=None, part="B", step="tb_group_asof_2026-03-31",
+                 name="s1_B_tb_group_asof_2026-03-31.xml", extra={"capture": "s1_task0", "gap": "G3"},
+                 response=TallyResponse(text="<E/>", raw=raw, elapsed_ms=3))
+    assert name == "s1_B_tb_group_asof_2026-03-31.xml"
+    assert (tmp_path / name).read_bytes() == raw
+    sidecar = json.loads((tmp_path / f"{name}.json").read_text(encoding="utf-8"))
+    assert sidecar["probe"] is None and sidecar["step"] == "tb_group_asof_2026-03-31"
+    assert sidecar["capture"] == "s1_task0" and sidecar["gap"] == "G3"
+    assert list(sidecar)[:11] == ["probe", "part", "step", "company_name", "company_guid", "sent_at", "elapsed_ms",
+                                  "response_bytes", "timing_note", "request_xml", "environment"]
+
+
+def test_named_capture_rejects_a_bad_name_and_a_missing_probe_id(tmp_path):
+    with pytest.raises(ValueError):
+        _save(Capture(tmp_path), probe_id=None, name="S1 bad.xml",
+              response=TallyResponse(text="<E/>", raw=b"<E/>", elapsed_ms=1))
+    with pytest.raises(ValueError):
+        _save(Capture(tmp_path), probe_id=None, response=TallyResponse(text="<E/>", raw=b"<E/>", elapsed_ms=1))
+    with pytest.raises(ValueError):
+        _save(Capture(tmp_path), name="s1_B_x.xml", extra={"step": "clobber"},
+              response=TallyResponse(text="<E/>", raw=b"<E/>", elapsed_ms=1))

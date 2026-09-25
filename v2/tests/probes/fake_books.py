@@ -49,8 +49,9 @@ MALFORMED_ANSWER = ("<ENVELOPE><HEADER><VERSION>1</VERSION><STATUS>0</STATUS></H
 _BARE_AMP = re.compile(r"&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)")
 _COMPANY_VAR = re.compile(r"<SVCurrentCompany>([^<]*)</SVCurrentCompany>")
 # Collection-name prefixes answered by the generic probe master routes below (probes 3 B, 11, 14, 15, 16 B, 18 B, 24,
-# 25 B).
-B_PROBE_COLLECTIONS = ("S0P03B", "S0P11", "S0P14", "S0P15", "S0P16B", "S0P18B", "S0P22", "S0P24", "S0P25B")
+# 25 B; S1 task 0's s1_capture).
+B_PROBE_COLLECTIONS = ("S0P03B", "S0P11", "S0P14", "S0P15", "S0P16B", "S0P18B", "S0P22", "S0P24", "S0P25B",
+                       "S1Cap")
 # The fake keeps no stock valuation: a current-period opening (C46 knob) is priced at this placeholder rate. Probe 11
 # records, never judges, the rate/value of a current-period opening.
 FAKE_STOCK_RATE = Decimal("100.00")
@@ -408,7 +409,8 @@ class FakeBooks:
                  forex_export_form: str = "full", forex_ledger_closing: str = "expression", deletes_stick: bool = True,
                  refuse_narrations: tuple[str, ...] = (), forex_currency_listed: bool = True,
                  ledger_currency_sticks: bool = True, forex_rate_symbols_refused: tuple[str, ...] = ("?",),
-                 forex_ledger_revaluation: str = "latest_rate", forex_ledger_opening: str = "expression"):
+                 forex_ledger_revaluation: str = "latest_rate", forex_ledger_opening: str = "expression",
+                 forex_tb_row: str = "plain"):
         self.folder = folder
         # plan part 7 (probe 22). Task 3.9 pinned the defaults to the live read-back on company B (2026-09-25:
         # forex_shape_2026-09-25_run2/, run1_currency_refused/; test_fake_books_forex.py compares them with the
@@ -484,6 +486,9 @@ class FakeBooks:
         # to an unfiltered read rather than record a false text FAILED.
         self.hindi_ledger_filter_matches = hindi_ledger_filter_matches
         self.current_period = current_period  # C33: what an untyped (ignored) period variable reads instead
+        # S1 task 0 (fixture gap G2, UNMEASURED): how a currency ledger's row reads in an ISLEDGERWISE Trial Balance —
+        # "plain" (the revalued INR number) or "expression" (the C47 ClosingBalance form). The capture decides.
+        self.forex_tb_row = forex_tb_row
         self._memory = seed_state(name)
         self.running = running
         self.loaded = loaded
@@ -660,6 +665,8 @@ class FakeBooks:
         if "S0BVoucherTypes" in body:
             return objects_xml("VOUCHERTYPE", [{"Name": n} for n in state["voucherTypes"]])
         if "<ID>Trial Balance</ID>" in body:
+            if "<ISLEDGERWISE>Yes</ISLEDGERWISE>" in body:
+                return tb_xml(self._ledger_level_tb_rows(state, as_on=period[1]))
             return tb_xml(self._trial_balance_rows(state, as_on=period[1]))
         if "<ID>Bills Receivable</ID>" in body:
             return self._bills_report(state, receivable=True, as_on=period[1])
@@ -712,6 +719,25 @@ class FakeBooks:
             rows.append(("Opening Stock", stock))
         return [(name, *_dr_cr(value)) for name, value in rows]
 
+    def _ledger_level_tb_rows(self, state: dict, as_on: str) -> list[tuple[str, str, str]]:
+        """The ISLEDGERWISE Trial Balance (probe 17's confirmed request): one flat row per ledger with a balance as on
+        `as_on` (a currency ledger per the `forex_tb_row` knob), plus Opening Stock when the company holds stock."""
+        balances = self._ledger_balances(state, up_to=as_on)
+        rows: list[tuple[str, str, str]] = []
+        stock = sum((Decimal(i.get("opening_value") or "0.00") for i in state["items"].values()), Decimal("0.00"))
+        if stock:
+            rows.append(("Opening Stock", *_dr_cr(stock)))
+        for name in sorted(state["ledgers"]):
+            value = balances.get(name, Decimal("0.00"))
+            if value == 0:
+                continue
+            debit, credit = _dr_cr(value)
+            if self.forex_tb_row == "expression" and state["ledgers"][name].get("currency"):
+                text = self._forex_balance_text(state, name, value, up_to=as_on)
+                debit, credit = (text, "") if value < 0 else ("", text)
+            rows.append((name, debit, credit))
+        return rows
+
     def _all_groups(self, state: dict) -> dict[str, str]:
         return {**RESERVED_GROUPS, **{n: g["parent"] for n, g in state["groups"].items()}}
 
@@ -754,8 +780,10 @@ class FakeBooks:
         kind = re.search(r"<COLLECTION [^>]*>\s*<TYPE>([^<]+)</TYPE>", body)
         kind = kind.group(1) if kind else ""
         fields = {f.lower() for f in re.findall(r"<NATIVEMETHOD>([^<]+)</NATIVEMETHOD>", body)}
-        match = re.search(r'\$Name = "([^"]*)"', body)
-        wanted = html.unescape(match.group(1)) if match else None
+        names = [html.unescape(n) for n in re.findall(r'\$Name = "([^"]*)"', body)]
+        # One `$Name = "…"` filter → that name; several OR-ed (S1 task 0's touched-ledgers re-read) → the set.
+        wanted: str | frozenset[str] | None = (None if not names else names[0] if len(names) == 1
+                                               else frozenset(names))
         if kind == "Voucher":                              # probe 3 B: header fields only, typed period, knobs
             rows = [_voucher_header(state, mid, v)
                     for mid, v in sorted(state["vouchers"].items(), key=lambda kv: int(kv[0]))
@@ -772,7 +800,19 @@ class FakeBooks:
                                  "ReservedName": reserved.get(vtype, "")})
                 else:                                      # live p25 A: a reserved type is its own Parent and ReservedName
                     rows.append({"Name": vtype, "Parent": vtype, "ReservedName": vtype})
-            return objects_xml("VOUCHERTYPE", rows)
+            return objects_xml("VOUCHERTYPE", self._with_ids(state, "vt", rows, fields))
+        if kind == "Currency":                             # S1 task 0 (G4)
+            rows = [{"Name": n, **{k: v for k, v in c.items() if k != "hidden"}}
+                    for n, c in state.get("currencies", {}).items() if not c.get("hidden")]
+            return objects_xml("CURRENCY", self._with_ids(state, "cu", rows, fields))
+        if kind == "StockGroup":                           # S1 task 0 (G4)
+            rows = [{"Name": n, "Parent": ""} for n in state.get("stock_groups", [])]
+            return objects_xml("STOCKGROUP", self._with_ids(state, "sg", rows, fields))
+        if kind == "Unit":                                 # S1 task 0 (G4)
+            rows = [{"Name": n, "IsSimpleUnit": "No" if u.get("additional") else "Yes", "BaseUnits": u.get("base") or "",
+                     "AdditionalUnits": u.get("additional") or "", "Conversion": u.get("conversion") or ""}
+                    for n, u in state.get("units", {}).items()]
+            return objects_xml("UNIT", self._with_ids(state, "un", rows, fields))
         if kind == "Ledger":
             if self.ledger_svfromdate_wedges and "<SVFROMDATE" in body:
                 self.popup = True                     # LESSONS §15 rule 17 (measured untyped, 2026-09-23)
@@ -796,13 +836,27 @@ class FakeBooks:
             return objects_xml("STOCKITEM", rows)
         return "<ENVELOPE></ENVELOPE>"
 
-    def _ledger_export(self, state: dict, fields: set[str], period: tuple[str, str], wanted: str | None) -> str:
+    @staticmethod
+    def _with_ids(state: dict, prefix: str, rows: list[dict[str, str]], fields: set[str]) -> list[dict[str, str]]:
+        """GUID / AlterID / MasterID on a master row, only when the request asks for them (S1 task 0, G4): synthetic
+        but stable per (kind, position) — the live values are what the capture records."""
+        out = []
+        for n, row in enumerate(rows, start=1):
+            ids = {"GUID": f"{state['guid']}-{prefix}{n:05x}", "AlterID": str(500 + n), "MasterID": str(900 + n)}
+            out.append({**row, **{k: v for k, v in ids.items() if k.lower() in fields}})
+        return out
+
+    def _ledger_export(self, state: dict, fields: set[str], period: tuple[str, str],
+                       wanted: str | frozenset[str] | None) -> str:
         closing_to = period[1] if self.ledger_svtodate_honoured else self.current_period[1]
         closing = self._ledger_balances(state, up_to=closing_to)
         before_fy = self._ledger_balances(state, up_to="99991231", before=_fy_start(closing_to))
         out = []
         for name, led in state["ledgers"].items():
-            if wanted is not None:
+            if isinstance(wanted, frozenset):
+                if name not in wanted:
+                    continue
+            elif wanted is not None:
                 if not self.hindi_ledger_filter_matches and not wanted.isascii():
                     continue        # I1 knob: the formula filter never matches a non-ASCII `wanted`
                 if name != wanted:
@@ -817,6 +871,12 @@ class FakeBooks:
             else:
                 opening = Decimal(led.get("opening") or "0.00")
             parts = [f"<NAME>{esc(name)}</NAME>"]
+            if "guid" in fields:                                               # S1 task 0 (G4 / G5)
+                parts.append(f"<GUID>{esc(led.get('guid', ''))}</GUID>")
+            if "alterid" in fields:
+                parts.append(f"<ALTERID>{led.get('alter_id', '')}</ALTERID>")
+            if "masterid" in fields:
+                parts.append(f"<MASTERID>{led.get('alter_id', '')}</MASTERID>")
             if "parent" in fields:
                 parts.append(f"<PARENT>{esc(led['parent'])}</PARENT>")
             if "openingbalance" in fields:
@@ -835,7 +895,7 @@ class FakeBooks:
                                      "</BILLALLOCATIONS.LIST>")
             out.append(f'<LEDGER NAME="{esc(name)}">{"".join(parts)}</LEDGER>')
         for dup in state.get("duplicate_ledgers", []):     # probe 25 B / R9: a second ledger with the same name
-            if wanted is None or dup["name"] == wanted:
+            if wanted is None or dup["name"] == wanted or (isinstance(wanted, frozenset) and dup["name"] in wanted):
                 parent = f"<PARENT>{esc(dup['parent'])}</PARENT>" if "parent" in fields else ""
                 out.append(f'<LEDGER NAME="{esc(dup["name"])}"><NAME>{esc(dup["name"])}</NAME>{parent}</LEDGER>')
         return f"<ENVELOPE><BODY><DATA><COLLECTION>{''.join(out)}</COLLECTION></DATA></BODY></ENVELOPE>"

@@ -11,6 +11,9 @@ from v2.agent.tally.client import TallyResponse
 
 TIMING_NOTE = "Wine — not representative"
 _STEP = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
+SIDECAR_KEYS = ("probe", "part", "step", "company_name", "company_guid", "sent_at", "elapsed_ms", "response_bytes",
+                "timing_note", "request_xml", "environment")
+_NAME = re.compile(r"^[a-z0-9][A-Za-z0-9_.-]*\.xml$")
 
 
 def fixture_name(probe_id: int, part: str, step: str) -> str:
@@ -26,7 +29,7 @@ class Capture:
     def save(
         self,
         *,
-        probe_id: int,
+        probe_id: int | None,
         part: str,
         step: str,
         company_name: str,
@@ -36,11 +39,24 @@ class Capture:
         environment: dict[str, Any],
         response: TallyResponse | None = None,
         error: dict[str, str] | None = None,
+        name: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> str:
-        """Write the raw response bytes (if any) and the sidecar; return the fixture file name."""
+        """Write the raw response bytes (if any) and the sidecar; return the fixture file name.
+
+        `name` overrides the pNN_<part>_<step>.xml name (S1 task 0's `s1_<company>_<step>.xml`, where `probe_id` is
+        None); `extra` adds keys after the standard ones — it may not replace one."""
         if (response is None) == (error is None):
             raise ValueError("Capture.save needs exactly one of response or error")
-        name = fixture_name(probe_id, part, step)
+        if name is None:
+            if probe_id is None:
+                raise ValueError("Capture.save needs a probe_id or an explicit name")
+            name = fixture_name(probe_id, part, step)
+        elif not _NAME.match(name):
+            raise ValueError(f"Fixture name must match {_NAME.pattern}: {name!r}")
+        clash = sorted(set(extra or {}) & set(SIDECAR_KEYS + ("error",)))
+        if clash:
+            raise ValueError(f"extra would replace the standard sidecar key(s) {clash}")
         self.fixtures_dir.mkdir(parents=True, exist_ok=True)
         if response is not None:
             (self.fixtures_dir / name).write_bytes(response.raw)
@@ -61,6 +77,7 @@ class Capture:
         }
         if error is not None:
             sidecar["error"] = error
+        sidecar.update(extra or {})
         (self.fixtures_dir / f"{name}.json").write_text(
             json.dumps(sidecar, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8"
         )
