@@ -236,6 +236,24 @@
 >   is struck (current-period). **§15 Q22/Q23** — probe 21's 2026-09-25 re-run noted (every figure moved by <0.5%;
 >   the decisions hold). **§16 probe 16** — outcome noted.
 
+> **Changed 2026-09-25 (S1 spec written — `docs/specs/2026-09-25-bi-s1-cloud-design.md`, decisions taken on the
+> user's standing instruction, listed there for review):** the S1 spec settles Q1, Q4, Q5, Q6, Q10, Q19, Q20, Q21, Q25,
+> Q28, Q30, Q32 (§15 rows here are unchanged; the answers live in the S1 spec §2.1 and the tracker §2). It refines
+> this spec in these places — the S1 spec wins where they differ:
+> - **§6 Rungs 1–2, C47:** a forex ledger gets verdict `match_revalued`; the unrealised difference is proven by a face
+>   check on the mirrored balance and, on TB rows, by the TB's own synthetic **`Unadjusted Forex Gain/Loss`** row
+>   (found in `p18_B_tb_asof_2023-03-31.xml`: with it the TB nets to 0.00). Expression-form balances: stated base
+>   parsed, face/currency/rate kept as columns + `raw`, ledger-level TB as fallback.
+> - **§6 Rung 2 "the snapshot itself balances"** becomes a baseline check keyed on `AltMstId` (company A's opening
+>   difference and C47 both make a correct TB net to non-zero without the synthetic rows).
+> - **§6 opening anchor date convention:** ledger-level TB as-on `E − 1`; at `books_from`, the TB as-on `books_from`
+>   minus our own lines of that day. `Profit & Loss A/c` is `not_applicable` in rungs 1–2.
+> - **§5 Cloud:** binding attaches to an existing workspace only (no insert into `workspaces`); `ledger_balance`
+>   re-reads and snapshots use verbatim Tally text on the wire; new `trial_balance_ledgerwise` snapshot type; the
+>   snapshot key keeps `(workspace_id, report_type, as_on_date)` with `from_date` = FY start by convention; cursors
+>   advance on run completion; a `full_resync` run needs a user-confirmed command (decision 12, server-enforced);
+>   new `caught_up_at` beside `last_synced_at`.
+
 ## 1. Context
 New product direction:
 - **BI layer.** The owner sees their business (sales, profit, who owes money, top customers, stock) and asks the AI chat. Everything is answered from **our DB**.
