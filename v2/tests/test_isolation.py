@@ -114,3 +114,35 @@ def test_company_b_view_is_the_only_bridge_from_probes_to_the_dataset():
 def test_the_dataset_module_is_pure():
     modules = imported_modules((V2_ROOT / "probes" / "setup" / "company_b_data.py").read_text(encoding="utf-8"))
     assert [m for m in modules if m.split(".")[0] in {"v2", "httpx"}] == []
+
+
+def _layer_violations(root: Path) -> list[str]:
+    """S1 Global Constraints: cloud never imports agent/probes, agent never imports cloud, contract imports neither."""
+    rules = {"cloud": ("v2.agent", "v2.probes"), "agent": ("v2.cloud",), "contract": ("v2.cloud", "v2.agent", "v2.probes")}
+    found = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root)
+        if ".venv" in rel.parts or rel.parts[0] not in rules:
+            continue
+        mods = imported_modules(path.read_text(encoding="utf-8"), package=_package_for(rel))
+        for banned in rules[rel.parts[0]]:
+            if any(m == banned or m.startswith(banned + ".") for m in mods):
+                found.append(f"{rel}: {rel.parts[0]} imports {banned}")
+    return found
+
+
+def test_layer_rules_hold():
+    assert _layer_violations(V2_ROOT) == []
+
+
+def test_layer_scanner_flags_each_rule(tmp_path):
+    for d in ("cloud", "agent", "contract"):
+        (tmp_path / d).mkdir()
+    (tmp_path / "cloud" / "a.py").write_text("from v2.agent.tally import client\n")
+    (tmp_path / "cloud" / "b.py").write_text("import v2.probes.reads\n")
+    (tmp_path / "agent" / "c.py").write_text("from v2.cloud import main\n")
+    (tmp_path / "contract" / "d.py").write_text("from ..cloud import x\n")
+    (tmp_path / "cloud" / "ok.py").write_text("from v2.contract import parse\n")
+    assert _layer_violations(tmp_path) == [
+        "agent/c.py: agent imports v2.cloud", "cloud/a.py: cloud imports v2.agent",
+        "cloud/b.py: cloud imports v2.probes", "contract/d.py: contract imports v2.cloud"]

@@ -13,6 +13,9 @@ COPIED = {
     "agent/tally/client.py": "backend/tally_bridge/client.py",
     "agent/tally/reports.py": "backend/tally_bridge/response_parser.py",
     "probes/setup/import_xml.py": "backend/tally_bridge/import_builder.py",
+    "contract/parse.py": "v2/agent/tally/amounts.py",
+    "contract/tally_rules.py": "v2/probes/reads.py",
+    "contract/transcode.py": "v2/agent/tally/xml_utils.py",
 }
 
 
