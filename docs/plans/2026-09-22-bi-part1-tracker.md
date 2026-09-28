@@ -19,7 +19,7 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-28 end of day — **S1: Tasks P, 0–10 ✅; Task 11 built, IN REVIEW; stopped for the day**)
+## ▶ Resume here (updated 2026-09-28 end of day — **S1: Tasks P, 0–10 ✅; Task 11 built, review back (6 Important to fix); stopped for the day**)
 
 **Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `db3632a` (S1 Task 11) + this
 tracker commit. **Not pushed** (no upstream) — push only when the user says so. `feat/bi-s0-probe-harness` is pushed
@@ -36,18 +36,22 @@ Task 15 regression baseline = 1002 (pre-flight at `dd81030`). **Tally:** open on
 
 **Where Task 11 stopped:** built and committed (`db3632a` — maintenance slices: raw purge Q22, parity retention Q21
 protecting `last_parity`'s run and the ladder's `last_run_id`, batch-log retention, storage estimate/alert Q23 with
-`AVG_ROW_BYTES` measured on the real 8c ingest; `python -m v2.cloud purge [--workspace] [--now]`). A task review was
-dispatched at end of day; its result lands in `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/task-11-review.md` (if that
-file is missing, re-dispatch the review on `review-5307996..db3632a.diff`). Open questions the review was asked:
-- **Possible cross-task defect (Task 8c):** JSONB `raw=None` binds as JSON `'null'`, not SQL `NULL` — the builder found
-  and fixed it in the purge UPDATE and suspects `v2/cloud/ingest/store.py`'s bulk insert does the same, which would break
-  the FY−2 "stored with raw = NULL" rule (spec §4.9/§14.20). If confirmed → fix in Task 11's fix round.
-- Whether the three copies of the "window FYs" rule (store, `coverage.backfill`, `sync_status`) were really unified
-  (controller ruling 3) or only the purge reuses `store.raw_window_fys`.
-- The storage-estimate sub-step is deliberately not time-gated — judge vs D20.
+`AVG_ROW_BYTES` measured on the real 8c ingest; `python -m v2.cloud purge [--workspace] [--now]`). **Task 11 review is back**
+(`.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/task-11-review.md`): spec ❌, **6 Important** to fix tomorrow —
+- a maintenance-slice error 500s the heartbeat and rolls back `last_seen_at`/acks (and repeats every heartbeat) →
+  isolate maintenance in a savepoint, never fail the heartbeat;
+- the storage estimate runs 21 `count(*)` per heartbeat, unbounded vs D20;
+- `purge` is one transaction and can hit an FK when a device moved to another workspace, then abort forever;
+- ruling 3 not done: "window FYs" copies still in `coverage.py:150`, `state.py:250-259`, `pipeline.py:427-428`;
+- §4.9 quarantine retention (resolved > 90 days) missing;
+- the purge test doesn't assert per-table counts.
+**Cross-task defect CONFIRMED (Task 8c):** `store._voucher_row` stores JSON `'null'` instead of SQL `NULL` for FY−2
+vouchers (violates §4.9/§14.20) → fix in the same round (`JSONB(none_as_null=True)` or bind `null()`), re-measure
+`AVG_ROW_BYTES` for `tally_vouchers`, and commit the measurement script. 7 minors deferred.
 
 **Next concrete steps, in order:**
-1. Finish Task 11: read `task-11-review.md` → fix round (resume a fresh implementer with the brief + report + findings)
+1. Finish Task 11: fix round with a FRESH implementer (brief `task-11-brief.md` + report + `task-11-review.md` + the 8c
+   JSON-null fix)
    → scoped re-review → mark Task 11 ✅ + S1.23 ✅ here.
 2. **Task 12** — real-data parity (A, B) through the whole API + FakeBooks end-to-end + restart round-trips. Biggest
    unknown. Preflight rulings F4, F7, F9, F13, T12 apply; recommend a cheap read-only **G6** capture (B ledgerwise TB as-on
@@ -694,7 +698,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 8a/8b/8c | Ingest — parse/validate + rung 0; name → GUID + derivations; store/pipeline/`/batches` | ✅ 2026-09-28 | **8a ✅ 2026-09-28** (`bec2334` + review fixes `4ceff93`, `be371dc`; 1439 green, `logs/v2-s1-task8a-fix2.log`); **8b ✅ 2026-09-28** (`551413d` + test fix `390e241`; 1466 green, `logs/v2-s1-task8b-fix1.log`); **8c ✅** (`f0b837a` + review fix `47c667b`; 1513 green, `logs/v2-s1-task8c-fix1.log`) |
 | 9 | Reconcile + snapshots | ✅ 2026-09-28 | `77d7b38` + review fixes `4337e43`, `626d774`; 1557 green (`logs/v2-s1-task9-fix2.log`) |
 | 10a/10b/10c | Parity core (anchors, rung 1, C47, rung 2); classifier/ladder/bisect; engine + `/parity` | ✅ 2026-09-28 | **10a ✅ 2026-09-28** (`f6312e0`, review clean first pass; 1618 green, `logs/v2-s1-task10a.log`; real A FY 2025-26 + B 2023-03-31 all diffs 0.00, USD party `match_revalued` 183.87); **10b ✅ 2026-09-28** (`5e4b09f` + review fixes `1117781`, `485c299`; 1651 green, `logs/v2-s1-task10b-fix2.log`); **10c ✅** (`5dde418`, `7aec62c` + review fix `c1cdd21`; 1703 green, `logs/v2-s1-task10c-fix1.log`) |
-| 11 | Maintenance slices + `purge` CLI | 🟡 | built `db3632a` (1714 green, `logs/v2-s1-task11.log`); task review dispatched end of day 2026-09-28 → `task-11-review.md`; fix round + re-review pending |
+| 11 | Maintenance slices + `purge` CLI | 🟡 | built `db3632a` (1714 green, `logs/v2-s1-task11.log`); review 2026-09-28: 6 Important + confirmed Task 8c JSON-null defect (`task-11-review.md`); fix round + re-review pending |
 | 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | ⬜ | |
 | 13 | Whole-branch code review → `docs/code-review-bi-s1-<date>.md`, fix round | ⬜ | |
 | 14 | S1 hardening backlog from S0 (probe harness) | ⬜ | |
@@ -830,3 +834,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-28 | **S1 Task 10b ✅** — pure cause classifier (§10.7; F5 ≥2-ledger net-to-zero signature incl. a 4-ledger GST case; F7 optional-only flag faults; F4 forex_gap vs face mismatch), escalation ladder (never starts a resync — decision 12), month-bisect, ops-signal builders with no business data (decision 14) incl. the D12 quarantine event — `5e4b09f`, 1645 green. Review: 4 Important — unlabelled mismatches left with no cause; the ladder could stall invisibly in `suspect` when no remediation existed; `hard_alert` dropped back a level; a clean forex run reported a false magnitude. **Controller rulings:** leftover mismatches → `ledger_gap` + per-ledger re-read; no-remediation runs count as done so the ladder always climbs; `hard_alert` cleared only by a clean run; magnitude from `mismatch` verdicts only (`1117781`). Re-review: a clean run still reported `<₹1k` → now null (`485c299`). 1651 green. S1.22, S1.24 🟡 (wiring in 10c). Spec note for Task 15: `ladder` column gains `pending_remediation_ids`. Next: 10c. |
 | 2026-09-28 | **S1 Task 10c ✅ — Task 10 (parity) complete.** Parity engine wired to the DB: `POST /parity`, §10.1 preconditions in order, `last_parity`, ladder persistence, ops events, D12 quarantine event, group-level anchor route, imbalance recomputed at parity time — `5dde418`, `7aec62c`, 1699 green. **Spec changed (controller ruling, `2f7879c`):** §10.5(b) uses the change of the cumulative `Unadjusted Forex Gain/Loss` row since E (the E−1 anchor is already revalued; the as-on row alone would falsely reject every run with E > books_from). The reviewer checked every FakeBooks / harness edit: all model live B or remove fake artefacts, none tunes data to the engine. Review: 2 Important — precondition aborts emitted integrity events (spec: no alert; would flood on routine `aborted_moving`) → computed non-ok runs only; `suspect` leaked via `last_parity.mismatch_count` → shown as `ok` with 0 and the last visible run id. Also fixed (controller pulled in): an aborted run moved + committed the D10 baseline; bisect always aborted for a mid-year first FY (`c1cdd21`). Re-review clean. 1703 green. S1.20–S1.22, S1.24 ✅; S1.23 🟡 (retention → Task 11). Note for S2: outside bisect, the agent must always send Tally's current-period end as `as_on`. Next: Task 11. |
 | 2026-09-28 | **End of day — S1 Tasks 3–10 ✅ today; Task 11 built, in review.** Task 11 `db3632a`: maintenance slices (raw purge, parity retention protecting `last_parity`'s run + ladder run, batch-log retention, storage estimate with `AVG_ROW_BYTES` measured on the real 8c ingest) + `purge` CLI; 1714 green. **Found by the builder:** JSONB `raw=None` is stored as JSON `'null'`, not SQL `NULL` (fixed in the purge; suspected in Task 8c's `store.py` too — in review). Stopped here at the user's request; review result → `task-11-review.md`. Resume: see the "Resume here" block (Postgres restart note, SDD ledger, Tasks 11 finish → 12 → 15). |
+| 2026-09-28 | **Task 11 review (arrived after the stop):** 6 Important — maintenance errors break heartbeats; unbounded storage estimate; purge FK abort when a device moved workspaces; window-FY copies not unified (ruling 3); quarantine retention missing; thin purge test. **Confirmed cross-task defect:** Task 8c's `store.py` stores JSON `'null'` rather than SQL `NULL` for FY−2 voucher `raw` (spec §4.9/§14.20). All go into tomorrow's fix round. |
