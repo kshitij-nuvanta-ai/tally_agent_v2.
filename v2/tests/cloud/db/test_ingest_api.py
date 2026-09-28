@@ -604,6 +604,42 @@ async def test_quarantine_resend_stores_rest_and_records_row(app_client, session
         assert await count(s, "tally_vouchers", ws) == 10
 
 
+async def test_quarantine_ops_event_once_per_accepted_batch_counts_only(app_client, session, engine, caplog):
+    """D12 (10b/10c carry): an ACCEPTED batch that quarantines objects emits ONE counts-by-code event on
+    `v2.ops.integrity` -- codes and counts, never a name, GUID, amount or narration. A rejected batch emits nothing,
+    nor does a replay of the accepted one, nor an accepted batch with nothing quarantined."""
+    import logging
+
+    ws, headers, run_id, _ = await bound(app_client, session)
+    await _ingest_b_masters(app_client, ws, headers, run_id)
+    vouchers = month_09()[:10]
+    caplog.set_level(logging.INFO, logger="v2.ops.integrity")
+
+    bad = copy.deepcopy(vouchers)
+    bad[4]["data"]["ledger_entries"][0]["amount"] = str(
+        Decimal(bad[4]["data"]["ledger_entries"][0]["amount"]) + Decimal("0.01"))
+    r = await post_batch(app_client, ws, headers, batch(run_id, bad))                     # rejected
+    assert r.status_code == 422
+    assert [x for x in caplog.records if x.name == "v2.ops.integrity"] == []
+
+    quarantine = [{"kind": "voucher", "guid": bad[4]["data"]["guid"], "code": "unbalanced_voucher",
+                   "voucher_date": bad[4]["data"]["date"]},
+                  {"kind": "voucher", "guid": f"{B}-90000001", "code": "invalid_date"},
+                  {"kind": "voucher", "guid": f"{B}-90000002", "code": "unbalanced_voucher"}]
+    accepted = batch(run_id, [v for i, v in enumerate(bad) if i != 4], quarantine=quarantine)
+    assert (await post_batch(app_client, ws, headers, accepted)).status_code == 200
+    assert (await post_batch(app_client, ws, headers, accepted)).json()["replayed"] is True     # replay: no event
+    await post_ok(app_client, ws, headers, run_id, [vouchers[4]])                          # nothing quarantined
+
+    events = [json.loads(x.getMessage()) for x in caplog.records if x.name == "v2.ops.integrity"]
+    assert events == [{"workspace_id": str(ws), "event": "quarantine",
+                       "counts_by_code": {"invalid_date": 1, "unbalanced_voucher": 2}}]
+    logged = " ".join(x.getMessage() for x in caplog.records)
+    for secret in (bad[4]["data"]["guid"], bad[4]["data"].get("narration") or "", "Indore Home Needs",
+                   bad[4]["data"]["ledger_entries"][0]["amount"]):
+        assert secret and secret not in logged
+
+
 async def sw_owner(s, ws):
     return (await s.execute(text("SELECT user_id FROM workspaces WHERE id=:w"), {"w": ws})).scalar_one()
 

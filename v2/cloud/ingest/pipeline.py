@@ -30,6 +30,7 @@ from v2.cloud.ingest.resolve import NameIndex, ResolveError, guid_prefix_warning
 from v2.cloud.ingest.store import MASTER_MODELS, ResolvedVoucher
 from v2.cloud.ingest.validate import parse_objects
 from v2.cloud.models import AgentDevice, SyncBatch, SyncQuarantine, SyncRun, SyncWorkspace
+from v2.cloud.parity import opsignal
 from v2.cloud.sync import state
 from v2.cloud.sync.runs import require_open_run
 from v2.contract.models import DETERMINISTIC_CODES, BatchRequest, QuarantineEntry
@@ -479,4 +480,10 @@ async def ingest_batch(session: AsyncSession, sw: SyncWorkspace, device: AgentDe
                 "warnings": [asdict(w) for w in warnings], "reread_ledgers": []}
     await _finish_claim(session, claim, "accepted", len(body.objects), response)
     await session.commit()
+    # D12 (10b/10c carry): an ACCEPTED batch that quarantined objects -> one counts-by-code ops event, after the
+    # commit (a rejected batch returned above and never gets here; a replay returns before step 2). Codes and
+    # counts only -- decision 14: no names, GUIDs, amounts or narration.
+    quarantined = Counter(e.code for e in body.quarantine if e.guid not in stored_guids)
+    if quarantined:
+        opsignal.emit(opsignal.quarantine_event(str(ws_id), dict(sorted(quarantined.items()))))
     return 200, response

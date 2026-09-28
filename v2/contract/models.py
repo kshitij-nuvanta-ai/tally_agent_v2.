@@ -182,6 +182,7 @@ class ParityRequest(_Body):
     counters_before: Counters
     counters_after: Counters
     remediation_done: list[str] = []
+    fy_start: str | None = None          # scope = bisect only (§10.9; the month_bisect remediation's `fy_start`)
 
 
 # --- §7.1, §7.5, §7.15 auth / bind / relink / web commands ----------------------------------------------------------

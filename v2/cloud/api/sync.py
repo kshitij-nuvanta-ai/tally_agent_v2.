@@ -1,6 +1,6 @@
 """Device-token sync routes (S1 spec §7.5-§7.15). Task 5 landed ``POST /api/sync/company``; task 6 added the
 ``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10); task 8c adds batches
-(§7.9); task 9 adds reconcile (§7.11) and snapshots (§7.12). Later tasks add parity.
+(§7.9); task 9 adds reconcile (§7.11) and snapshots (§7.12); task 10c adds parity (§7.14).
 """
 from __future__ import annotations
 
@@ -22,9 +22,10 @@ from v2.cloud.ingest import pipeline
 from v2.cloud.ingest import reconcile as reconcile_mod
 from v2.cloud.ingest import snapshots as snapshots_mod
 from v2.cloud.models import AgentDevice
+from v2.cloud.parity import engine as parity_engine
 from v2.cloud.sync import coverage, runs, state
 from v2.cloud.sync.binding import BindRequest, bind
-from v2.contract.models import BatchRequest, ReconcileRequest, SnapshotRequest
+from v2.contract.models import BatchRequest, ParityRequest, ReconcileRequest, SnapshotRequest
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -285,3 +286,20 @@ async def post_snapshot(
     result = await snapshots_mod.store(session, sw, body, clock)
     await session.commit()
     return result
+
+
+# --- §7.14 parity ---------------------------------------------------------------------------------------------
+
+
+@router.post("/{ws}/parity")
+async def post_parity(
+    ws: uuid.UUID,
+    body: ParityRequest,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    """§10: preconditions in order, rungs 1-2, classifier, ladder; one transaction (the engine commits), then the
+    ops signal."""
+    device, sw = bound
+    return await parity_engine.run_parity(session, sw, body, request.app.state.settings, request.app.state.clock)

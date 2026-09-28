@@ -410,7 +410,7 @@ class FakeBooks:
                  refuse_narrations: tuple[str, ...] = (), forex_currency_listed: bool = True,
                  ledger_currency_sticks: bool = True, forex_rate_symbols_refused: tuple[str, ...] = ("?",),
                  forex_ledger_revaluation: str = "latest_rate", forex_ledger_opening: str = "expression",
-                 forex_tb_row: str = "plain"):
+                 forex_tb_row: str = "plain", tb_fy_scoped: bool = False, unadjusted_forex_row: bool = False):
         self.folder = folder
         # plan part 7 (probe 22). Task 3.9 pinned the defaults to the live read-back on company B (2026-09-25:
         # forex_shape_2026-09-25_run2/, run1_currency_refused/; test_fake_books_forex.py compares them with the
@@ -489,6 +489,16 @@ class FakeBooks:
         # S1 task 0 (fixture gap G2, UNMEASURED): how a currency ledger's row reads in an ISLEDGERWISE Trial Balance —
         # "plain" (the revalued INR number) or "expression" (the C47 ClosingBalance form). The capture decides.
         self.forex_tb_row = forex_tb_row
+        # S1 task 10c (parity on FakeBooks B, pre-flight F9). Both knobs model what the LIVE FY 2025-26 company-B
+        # Trial Balances show (s1_B_tb_ledger_2025-04-01_2026-03-31.xml, s1_B_tb_group_asof_2026-03-31.xml) and stay
+        # off by default so every earlier test keeps its TB bytes:
+        # - tb_fy_scoped: nominal (P&L) ledgers restart each FY -- their rows are the FY's own movement, and the
+        #   earlier FYs' profit sits on a top-level `Profit & Loss A/c` row (live: Domestic Sales 10,84,724.72 for
+        #   the FY only; `Profit & Loss A/c` Cr 14,40,883.90).
+        # - unadjusted_forex_row: the synthetic top-level `Unadjusted Forex Gain/Loss` row = minus the unrealised
+        #   revaluation of the currency ledgers (live: -183.87 on both TBs; p18_B_tb_asof_2023-03-31.xml too).
+        self.tb_fy_scoped = tb_fy_scoped
+        self.unadjusted_forex_row = unadjusted_forex_row
         self._memory = seed_state(name)
         self.running = running
         self.loaded = loaded
@@ -683,6 +693,8 @@ class FakeBooks:
         """One hop through a custom group this fake was asked to create (e.g. National Creditors -> Sundry
         Creditors); anything else is already at the reserved-group granularity."""
         group = state["groups"].get(ledger_parent)
+        if group and group["parent"] in ("", "Primary"):     # a custom TOP-LEVEL group is its own primary (10c)
+            return ledger_parent
         return group["parent"] if group else ledger_parent
 
     def _trial_balance_rows(self, state: dict, as_on: str = "99991231") -> list[tuple[str, str, str]]:
@@ -698,9 +710,14 @@ class FakeBooks:
         """
         # C42: flagged vouchers post nothing; C33: closing as on the (typed, or current-period) SVTODATE; C47: a
         # currency ledger at its latest voucher rate — all in `_ledger_balances`.
-        balances = self._ledger_balances(state, up_to=as_on)
+        balances = self._tb_balances(state, as_on)
         buckets: dict[str, Decimal] = {}
+        top_ledgers: list[tuple[str, Decimal]] = []
         for name, led in state["ledgers"].items():
+            if self.tb_fy_scoped and led["parent"] in ("", "Primary"):    # live: its own top-level ledger row
+                if balances.get(name, Decimal("0.00")):
+                    top_ledgers.append((name, balances[name]))
+                continue
             bucket = self._bucket_of(state, led["parent"])
             buckets[bucket] = buckets.get(bucket, Decimal("0.00")) + balances.get(name, Decimal("0.00"))
         primaries: dict[str, Decimal] = {}
@@ -715,14 +732,16 @@ class FakeBooks:
         rows = list(primaries.items())
         rows += [(bucket, value) for bucket, value in buckets.items()
                 if RESERVED_GROUP_PARENTS.get(bucket, bucket) != bucket]
+        rows += top_ledgers
         if stock and self.opening_stock_row:
             rows.append(("Opening Stock", stock))
+        rows += self._unadjusted_rows(state, as_on)
         return [(name, *_dr_cr(value)) for name, value in rows]
 
     def _ledger_level_tb_rows(self, state: dict, as_on: str) -> list[tuple[str, str, str]]:
         """The ISLEDGERWISE Trial Balance (probe 17's confirmed request): one flat row per ledger with a balance as on
         `as_on` (a currency ledger per the `forex_tb_row` knob), plus Opening Stock when the company holds stock."""
-        balances = self._ledger_balances(state, up_to=as_on)
+        balances = self._tb_balances(state, as_on)
         rows: list[tuple[str, str, str]] = []
         stock = sum((Decimal(i.get("opening_value") or "0.00") for i in state["items"].values()), Decimal("0.00"))
         if stock:
@@ -736,7 +755,47 @@ class FakeBooks:
                 text = self._forex_balance_text(state, name, value, up_to=as_on)
                 debit, credit = (text, "") if value < 0 else ("", text)
             rows.append((name, debit, credit))
+        rows += [(name, *_dr_cr(value)) for name, value in self._unadjusted_rows(state, as_on)]
         return rows
+
+    def _tb_balances(self, state: dict, as_on: str) -> dict[str, Decimal]:
+        """The ledger balances a Trial Balance as on `as_on` shows: `_ledger_balances`, and -- under `tb_fy_scoped`
+        (live) -- each nominal ledger reduced to its own FY's movement, the earlier FYs' total moved onto the
+        top-level `Profit & Loss A/c`."""
+        balances = self._ledger_balances(state, up_to=as_on)
+        if not self.tb_fy_scoped:
+            return balances
+        prior = self._ledger_balances(state, up_to="99991231", before=_fy_start(as_on))
+        moved = Decimal("0.00")
+        for name, led in state["ledgers"].items():
+            if self._primary_of(state, led["parent"]) in NOMINAL_PRIMARIES:
+                balances[name] = balances.get(name, Decimal("0.00")) - prior.get(name, Decimal("0.00"))
+                moved += prior.get(name, Decimal("0.00"))
+        pl = next((n for n, led in state["ledgers"].items() if n == "Profit & Loss A/c"), None)
+        if pl is not None:
+            balances[pl] = balances.get(pl, Decimal("0.00")) + moved
+        return balances
+
+    def _unadjusted_rows(self, state: dict, as_on: str) -> list[tuple[str, Decimal]]:
+        """Under `unadjusted_forex_row` (live): the synthetic `Unadjusted Forex Gain/Loss` row -- minus Σ over the
+        currency ledgers of (revalued balance − Σ INR bases of their forex lines), dated ≤ `as_on`; none when 0."""
+        if not self.unadjusted_forex_row or self.forex_ledger_revaluation != "latest_rate":
+            return []
+        per: dict[str, list[tuple[str, int, Decimal, Decimal, Decimal]]] = {}
+        for mid, v in state["vouchers"].items():
+            day = _yyyymmdd(v["date"]) or v["date"]
+            if _flagged(v) or day > as_on:
+                continue
+            for line in v.get("lines", []):
+                if line.get("fx") and line.get("rate") and state["ledgers"].get(line["ledger"], {}).get("currency"):
+                    per.setdefault(line["ledger"], []).append(
+                        (day, int(mid), Decimal(line["fx"]), Decimal(line["rate"]), Decimal(line["amount"])))
+        unrealised = Decimal("0.00")
+        for lines in per.values():
+            face = sum((fx for _, _, fx, _, _ in lines), Decimal("0.00"))
+            revalued = (face * max(lines)[3]).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            unrealised += revalued - sum((base for *_, base in lines), Decimal("0.00"))
+        return [("Unadjusted Forex Gain/Loss", -unrealised)] if unrealised else []
 
     def _all_groups(self, state: dict) -> dict[str, str]:
         return {**RESERVED_GROUPS, **{n: g["parent"] for n, g in state["groups"].items()}}
