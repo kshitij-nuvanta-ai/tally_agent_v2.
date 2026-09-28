@@ -19,11 +19,11 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-28 — **S1 build: Tasks P, 0–5 ✅; Task 6 (heartbeat/state) 🟡**)
+## ▶ Resume here (updated 2026-09-28 — **S1 build: Tasks P, 0–6 ✅; Task 7 (runs/cursors/coverage) 🟡**)
 
-**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `78d0004` (S1 Task 5 review fix).
+**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `0d94999` (S1 Task 6 review fix).
 **Not pushed** (no upstream). `feat/bi-s0-probe-harness` is pushed but 9 commits behind local (`dd81030`).
-**v2 suite: 1277 passed** at `78d0004` (DB tests included) (pre-flight baseline 1002 at `dd81030` — this is the Task 15 regression
+**v2 suite: 1330 passed** at `0d94999` (DB tests included) (pre-flight baseline 1002 at `dd81030` — this is the Task 15 regression
 baseline, not 917/973). **Tally:** open on company B only, tally.ini `Load=100000`.
 
 **S1 plan:** `docs/plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15; commit `e62d5d3`). Build runs
@@ -41,14 +41,15 @@ ledger; one is **carried to Task 8b** (strip U+0004 from name fields on both sid
 DB harness with stand-in `users`/`workspaces` + real `teardown_v2` (`564cd8e`; review fix `d8cb681`). **Task 4 ✅ 2026-09-28:** device auth (separate-secret device JWT, rotating hashed refresh with reuse→revoke, atomic
 conditional-UPDATE rotation, failed-only login limit + window sweep, validated bodies, `/api/devices`, §8.1 chain) —
 `b49d52b`, `f95cbd3`, `c6f65fd`. **Task 5 ✅ 2026-09-28:** binding (`POST /api/sync/company`, `GET /api/agent/workspaces`,
-one active device, take-over, re-bind-when-empty, coverage rows at bind) — `baaebc4`, `78d0004`. **Postgres:** DB tests
+one active device, take-over, re-bind-when-empty, coverage rows at bind) — `baaebc4`, `78d0004`. **Task 6 ✅ 2026-09-28:**
+heartbeat, `/state`, server→agent commands, restore detection (D17), re-link, `sync-status` — `430e1f6`, `0d94999`. **Postgres:** DB tests
 need `TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test`; on 2026-09-28 the user approved
 starting Homebrew postgresql@16 with `pg_ctl`, session-only (stops at reboot) — restart it the same way after a reboot.
 
 **Next concrete steps, in order:**
-1. Task 6 (heartbeat, `/state`, commands, restore detection, re-link, `sync-status`; preflight F6, F11, F18).
-   Never run the v2 DB tests and the current app's DB suite concurrently (A2).
-2. Tasks 7 → 15 in plan order, review after each; update §4 here as each task lands.
+1. Task 7 (runs + cursors D15/D16 + coverage + both edges + backfill copy; preflight F12, F15, T7; carried §8.6
+   incremental run refused 409 `restore_detected`). Never run the v2 DB tests and the current app's DB suite concurrently (A2).
+2. Tasks 8a → 15 in plan order, review after each; update §4 here as each task lands.
 3. The user reviews S1 spec §2.2 (D1–D32), §17.2 (D5, D21, Q6, Q5) and plan ambiguities A1–A18 when convenient.
 4. Push `feat/bi-s1-cloud` only when the user says so.
 
@@ -564,7 +565,7 @@ because its Bank/Cash rows carry the known-corrupt seed sign. Replaced by `Sundr
 |---|---|---|---|---|---|
 | Design | Part 1 brainstorm design | — | `specs/2026-09-21-bi-part1-sync-design.md` | — | ✅ 2026-09-21 |
 | **S0** | `v2/` scaffold + live-Tally probes 0–25 + real fixtures in `v2/tests/fixtures/sync/` | — | `specs/2026-09-22-bi-s0-probes-design.md` | `plans/2026-09-22-bi-s0-probes-plan.md` (part 1 ✅), `plans/2026-09-22-bi-s0-probes-plan-part2.md` (part 2, 13 tasks), `plans/2026-09-23-bi-s0-company-b-loader.md` (part 3, 9 tasks, ✅ built), `.superpowers/sdd/2026-09-24-bi-s0-probes-plan-part4/` (part 4, probes 5+21, ✅ built + run live), `docs/plans/2026-09-24-bi-s0-probes-plan-part5.md` (part 5, probes 11/14/15/16B/18B + 16A/17A/18A re-run, ✅ built + run live), `docs/plans/2026-09-25-bi-s0-probes-plan-part6.md` (part 6, probes 3B/23B/25B + R9, 11 under C46, company C + probe 24, ✅ built + run live + docs) | ✅ **Closed 2026-09-25: the S0 exit gate PASSED with recorded exceptions.** See `docs/bi-s0-exit-gate-2026-09-25.md` § "Final verdict". Items 1–7 all PASS: item 3 by `e8420f1`, item 5 by `9830e97`, item 7 by `bb71f83` + the review fixes `86df230`/`b92a659`. Exceptions: (a) `CLAUDE.md` `dc9bf02`; (b) Educational/Wine only, R8 open; (c) 9/20 ⏭ tier C; (d) 11 B/16 B need an expression-form balance parser; (e) M4 pre-forex B verdicts; (f) part-2 retro M1–M10 and (g) C47 review M1–M6 deferred to S1 hardening; (h) logs local only. **Next: the S1 spec.** **Previous status (superseded 2026-09-25, S0 exit gate):** 🟡 **Plan part 7 done 2026-09-25** (`docs/plans/2026-09-25-bi-s0-probes-plan-part7.md`). Probe 22 **CONFIRMED** (forex INR base stated in the export; decision 15 holds); C36 lifted (USD sales 101/102 loaded as forex); new Ruling C47 (forex ledger at the latest voucher rate); 21 B + 18 B re-run CONFIRMED. **Every tier-B probe now has an outcome.** Remaining for S0: the §10 exit-gate check, then the S1 spec. Open: probes 16 B / 11 need expression-form balance parsing before any re-run. Timing probes ⏭ (Q29). **Previous status (superseded 2026-09-25, plan part 7):** 🟡 **Plan part 6 done 2026-09-25.** 3 B CONFIRMED, 23 B CONFIRMED, 25 B DIFFERENT (R9 CONFIRMED — duplicate ledger name refused), 11 re-run DIFFERENT (ledger AND stock master openings are current-period), company C (100001) created + `setup-c`, 24 CONFIRMED (security/TallyVault export unchanged; pending prompt = empty company list). Review `docs/code-review-bi-s0-part6-2026-09-25.md` (minors M1–M8 deferred). **Every built probe has now run live.** Remaining for S0: probe 22 BLOCKED (C36, USD-sales write shape), the §10 exit-gate check, then the S1 spec. Timing probes 9/20/21-timing ⏭ (Q29). **Previous status (superseded 2026-09-25):** 🟡 **Plan part 5 done 2026-09-24.** Probes 16, 17, 18 A re-run typed (17 CONFIRMED unchanged, 18 A CONFIRMED — supersedes 2026-09-23's DIFFERENT, C43 artefact — 16 A DIFFERENT); probes 11, 14, 15 and 18 B built and run live on company B (14/15/18 B CONFIRMED, 11 FAILED stock-only per C46, 16 B FAILED per C45); C44 (company-switch-on-restart) live-verified both directions. **Every probe through 21 has now run live on at least its built companies**, except 3/23/25's B parts (still pending — no B-part code for those three) and probe 22 (BLOCKED, C36) and probe 24 (needs company C). Timing probes 9/20/21-timing ⏭ (Q29). Results: `docs/bi-s0-probe-results-2026-09-24.md`, `v2/probes/results/results.json`. Review: `docs/code-review-bi-s0-part5-2026-09-24.md` (ready with fixes; I1–I3 applied before the B live run). **Next: plan part 6** — B parts of probes 3, 23, 25; company C + probe 24. Open: part-2 code-review doc not written; auto-mode UI-parity gaps (1/7/8, 16, 19) and file-level-only 13 → **R8 stays open**; harness bug — `tally.ini` `Load=100003` preload making `--auto` restarts open A+B together is now **fixed by C44** (`restart("A")`/`restart("B")` open exactly one company; live-verified both directions, `logs/c44-live-restart-2026-09-24.log`, `logs/c44-verify-A-2026-09-24.log`) |
-| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | 🟡 **Building** — Tasks P, 0, 1, 2 ✅ (2026-09-25); Tasks 3, 4, 5 ✅ (2026-09-28); Task 6 🟡. See §4 "S1 plan tasks" |
+| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | 🟡 **Building** — Tasks P, 0, 1, 2 ✅ (2026-09-25); Tasks 3–6 ✅ (2026-09-28); Task 7 🟡. See §4 "S1 plan tasks" |
 | **S2** | Windows agent | S0 (probe 21 for backfill); parallel with S1 | — | — | ⬜ |
 
 ---
@@ -675,8 +676,8 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 3 | Migration `v2_001` — all §4 tables, own Alembic chain, DB harness | ✅ 2026-09-28 | `564cd8e` + review fix `d8cb681`; 1202 green (`logs/v2-s1-task3-fix1.log`, DB tests ran against `tallyagent_test`); models ≡ migration pinned by `test_models_match_migration_v2_001`; real teardown test both branches |
 | 4 | Device auth — tokens, rate limits, login/refresh/logout, `/api/devices` | ✅ 2026-09-28 | `b49d52b` + review fixes `f95cbd3`, `c6f65fd`; 1250 green (`logs/v2-s1-task4-fix2.log`); refresh race test RED 4/4 on pre-fix, GREEN 5/5 |
 | 5 | Binding — `POST /api/sync/company`, one active device, take-over | ✅ 2026-09-28 | `baaebc4` + review fix `78d0004`; 1277 green (`logs/v2-s1-task5-fix1.log`); first-bind + take-over race tests RED/GREEN |
-| 6 | Heartbeat, `/state`, commands, restore detection, re-link, `sync-status` | 🟡 | started 2026-09-28 |
-| 7 | Runs + cursors + coverage + both edges + backfill copy | ⬜ | |
+| 6 | Heartbeat, `/state`, commands, restore detection, re-link, `sync-status` | ✅ 2026-09-28 | `430e1f6` + review fix `0d94999`; 1330 green (`logs/v2-s1-task6-fix1.log`) |
+| 7 | Runs + cursors + coverage + both edges + backfill copy | 🟡 | started 2026-09-28 |
 | 8a/8b/8c | Ingest — parse/validate + rung 0; name → GUID + derivations; store/pipeline/`/batches` | ⬜ | |
 | 9 | Reconcile + snapshots | ⬜ | |
 | 10a/10b/10c | Parity core (anchors, rung 1, C47, rung 2); classifier/ladder/bisect; engine + `/parity` | ⬜ | |
@@ -706,10 +707,10 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | S1.13 | `PATCH /coverage`: idempotent, two watermark edges, `config.backfill` copy | ⬜ | |
 | S1.14 | `POST /reconcile`: soft-delete, return ledgers to re-read | ⬜ | |
 | S1.15 | `POST /snapshots`: upsert on `(workspace_id, report_type, as_on_date)` | ⬜ | |
-| S1.16 | `POST /heartbeat`: `last_seen_at` only | ⬜ | |
+| S1.16 | `POST /heartbeat`: `last_seen_at` only | ✅ | Task 6 (`430e1f6`, `0d94999`) |
 | S1.17 | Cursors on the server (`config.cursors`) | ⬜ | |
-| S1.18 | Stored `sync_state` values incl. `restore_detected`; re-link prompt flag | ⬜ | |
-| S1.19 | `GET /api/workspaces/{id}/sync-status` | ⬜ | |
+| S1.18 | Stored `sync_state` values incl. `restore_detected`; re-link prompt flag | ✅ | Task 6 (`430e1f6`, `0d94999`) |
+| S1.19 | `GET /api/workspaces/{id}/sync-status` | 🟡 | Task 6 endpoint ✅; backfill fields + first-sync percent filled by Tasks 7/8 |
 | S1.20 | Parity rung 1 + opening anchor (watermark-bounded) | ⬜ | |
 | S1.21 | Parity rung 2 + "TB itself balances" check | ⬜ | |
 | S1.22 | Cause classifier + escalation ladder + tolerance setting | ⬜ | |
@@ -806,3 +807,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-28 | **S1 Task 3 ✅** — migration `v2_001` (all 21 spec §4 tables), own Alembic chain `alembic_version_v2`, migrate/downgrade CLI, DB harness (A2 stand-ins + extracted `teardown_v2`) — `564cd8e`, 1201 green. Review: spec ❌ on 2 Important (teardown test couldn't fail on 2 checks; ORM models' indexes drifted from the migration with no test) → fix `d8cb681`, re-review clean (migration diff comment-only; model timestamps nullable like the migration, spec requires none NOT NULL). 1202 green incl. DB tests on `tallyagent_test` (Postgres via `pg_ctl`, session-only, user-approved). S1.0–S1.4 ✅. Minors deferred in the SDD ledger (setup leak on failed migrate; passlib `crypt` warning → Task 15). Next: Task 4. |
 | 2026-09-28 | **S1 Task 4 ✅** — device auth: login/refresh/logout, device JWT on a separate secret (`typ=v2_device`), opaque refresh stored as SHA-256 and rotated on use, `GET/DELETE /api/devices`, §8.1 `active_device` chain (`b49d52b`, 1224 green). Review: spec ❌, 5 Important. **Contradicted expectation:** the plan brief said the login limiter counts every attempt; the legacy `_check_rate_limit` the spec says to copy counts only **failed** logins (verified `backend/api/auth.py:125`) — spec won. Other fixes: limiter key sweep, pydantic bodies (422 not 500), atomic conditional-UPDATE rotation (concurrent reuse now revokes per D6), refuse equal device/web secrets (`f95cbd3`). Re-review: race test passed on pre-fix code → made deterministic with a read-before-write barrier, RED 4/4 / GREEN 5/5; added rate-limit 429 + invalid-bearer cases (`c6f65fd`). 1250 green. Accepted risk: a third party can burn a victim email's 5 failed-login allowance (legacy parity) → spec §17.1 at Task 15. S1.5 ✅. Next: Task 5. |
 | 2026-09-28 | **S1 Task 5 ✅** — binding: `POST /api/sync/company` (§7.5 table, A6 order), `GET /api/agent/workspaces`, one active device, take-over (D7), re-bind-when-empty, coverage rows at bind; first bind via `INSERT … ON CONFLICT DO NOTHING` + re-select `FOR UPDATE` (F22) with deterministic race tests (`baaebc4`, 1271 green). Review: 3 Important — a revoked/logged-out device still counted as the workspace's active device; a device moving W1→W2 left W1 pointing at it; a different-GUID re-bind silently revoked another live device. **Controller ruling (spec gap):** D7's take-over guard applies to ANY bind that would displace a live device, whatever the GUID — spec §7.5 gets a clarifying row at Task 15. Fixed `78d0004` (real-route tests via DELETE /api/devices + logout; RED/GREEN per fix), re-review clean, 1277 green. Kept the extra `invalid_books_from` 422 (a 500 would be retried forever) → add to spec §11 at Task 15. Deferred for the final review: same-GUID bind with no coverage rows skips the D7 guard (edge), concurrent workspace-swap deadlock → retried 500. S1.6, S1.7 ✅. Next: Task 6. |
+| 2026-09-28 | **S1 Task 6 ✅** — heartbeat (Q1 every cycle, `tally_status`), `/state`, server→agent commands + ack, restore detection (`counters_backwards`, fixtures per F6: cursors 79/269 vs heartbeat 78/269), device + web re-link, `GET /api/workspaces/{id}/sync-status`, `TRANSITIONS` incl. `company_resync_completed` (F11), final `SliceReport` shape (F18) — `430e1f6`, 1320 green. Review: **1 Critical** — after the first restore every heartbeat 500'd (undefined `restore_detected`→`counters_backwards` transition), so the workspace could never leave `restore_detected`; 3 Important — re-link bypassed `company_bound_elsewhere`, web commands unvalidated, persistence tests not whole-state; plus (controller ruling) one malformed ack id no-op'd the whole ack list. Fixed `0d94999`, re-review clean, 1330 green. Deferred for the final review: stored `last_heartbeat` keeps `counters` (spec §4.2 says without) and a test pins it. Carried to Tasks 7/8c: incremental run/batch refused 409 in `restore_detected`; first-sync percent test. S1.16, S1.18 ✅; S1.19 🟡. Next: Task 7. |
