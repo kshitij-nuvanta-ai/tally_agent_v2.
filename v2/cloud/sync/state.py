@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.clock import Clock
 from v2.cloud.config import V2Settings
+from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
 from v2.cloud.sync import commands, maintenance
+from v2.cloud.sync.binding import _bound_elsewhere
 
 # --- §8.2 sync_state machine ---------------------------------------------------------------------------------
 
@@ -106,9 +108,18 @@ async def heartbeat(
     # closed/blocked/no-company reading (test_heartbeat_not_ours_never_triggers_restore).
     if body.tally_status == "ours" and counters is not None:
         if detect_restore(sw, counters):
-            transition(sw, "counters_backwards")
-            sw.restore_reason = "counters_backwards"
-            sw.ladder = {**(sw.ladder or {}), "resync_offered": _resync_offer("restore")}
+            # Fix round 1 / Critical 1: §8.2 only defines `counters_backwards` FROM `ready`/`error`. Cursors
+            # don't move until a resync completes, so every heartbeat while already `restore_detected` (or, in
+            # principle, `first_sync`/`awaiting_first_connection`) would otherwise re-detect the same backwards
+            # counters and call `transition()` with an undefined pair, raising `ValueError` before the commit —
+            # which also silently kills `last_seen_at` updates and command delivery for the rest of THIS
+            # request. Only fire the transition when it's actually defined; otherwise the workspace is already
+            # in the right state and this heartbeat just continues as a normal heartbeat (records last_seen_at,
+            # delivers pending commands — including the `confirm_resync` that's the only way out).
+            if (sw.sync_state, "counters_backwards") in TRANSITIONS:
+                transition(sw, "counters_backwards")
+                sw.restore_reason = "counters_backwards"
+                sw.ladder = {**(sw.ladder or {}), "resync_offered": _resync_offer("restore")}
         elif (
             sw.cursor_alt_vch_id is not None
             and sw.cursor_alt_mst_id is not None
@@ -199,8 +210,15 @@ async def get_state(session: AsyncSession, sw: SyncWorkspace) -> dict:
 
 
 async def apply_relink(
-    session: AsyncSession, sw: SyncWorkspace, new_guid: str, name: str, clock: Clock
+    session: AsyncSession, sw: SyncWorkspace, new_guid: str, name: str, clock: Clock, user_id: uuid.UUID
 ) -> None:
+    """Fix round 1 / Important 1: reuses binding's own ``_bound_elsewhere`` check (§7.5/A6) so relink can never
+    create two live workspaces bound to the same Tally GUID — 409 ``company_bound_elsewhere`` before any
+    mutation, exactly like a fresh bind would refuse it."""
+    elsewhere = await _bound_elsewhere(session, user_id, new_guid, sw.workspace_id)
+    if elsewhere is not None:
+        raise ApiError(409, "company_bound_elsewhere", workspace_id=str(elsewhere))
+
     now = clock.now()
     previous = list(sw.previous_company_guids or [])
     if sw.tally_company_guid not in previous:

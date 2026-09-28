@@ -44,13 +44,19 @@ async def deliver_pending(session: AsyncSession, ws_id: uuid.UUID, clock: Clock)
 
 async def ack(session: AsyncSession, ws_id: uuid.UUID, ids: list[str], clock: Clock) -> None:
     """``delivered`` -> ``done`` for the given command ids. Silently ignores ids that are unknown, belong to
-    another workspace, or aren't currently ``delivered`` (an agent replaying an old ack list)."""
+    another workspace, or aren't currently ``delivered`` (an agent replaying an old ack list). A malformed
+    (non-UUID) id is skipped on its own — it must never cancel acking the OTHER, well-formed ids in the same
+    list (controller ruling, fix round 1)."""
     if not ids:
         return
     now = clock.now()
-    try:
-        uuids = [uuid.UUID(i) for i in ids]
-    except ValueError:
+    uuids = []
+    for i in ids:
+        try:
+            uuids.append(uuid.UUID(i))
+        except (ValueError, AttributeError, TypeError):
+            continue
+    if not uuids:
         return
     rows = (
         await session.execute(

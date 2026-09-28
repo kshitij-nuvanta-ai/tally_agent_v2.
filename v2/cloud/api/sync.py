@@ -117,7 +117,7 @@ async def relink(
     if row is None or not verify_password(body.password, row["password_hash"]):
         raise ApiError(401, "invalid_credentials")
 
-    await state.apply_relink(session, sw, body.new_company_guid, body.company_name, clock)
+    await state.apply_relink(session, sw, body.new_company_guid, body.company_name, clock, device.user_id)
     await session.commit()
     return {
         "applied": True,

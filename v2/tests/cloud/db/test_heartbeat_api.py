@@ -101,13 +101,35 @@ async def test_heartbeat_sets_last_seen_and_clock_skew_but_not_last_synced(app_c
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
     skewed = (clock.now() + timedelta(seconds=3)).isoformat()
 
-    r = await _heartbeat(app_client, headers, ws, clock, pc_clock=skewed)
+    r = await _heartbeat(
+        app_client, headers, ws, clock, pc_clock=skewed,
+        agent_version="0.1.0", tally_version="TallyPrime 7.0", last_error_code=None, breaker="closed",
+        outbox_depth=0,
+    )
     assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["server_time"] == clock.now().isoformat()
+    assert body["sync_state"] == "awaiting_first_connection"
+    assert body["cursors"] == {"alt_vch_id": None, "alt_mst_id": None}
+    assert body["commands"] == []
 
     sw = await _sw_row(session, ws)
     assert sw["last_seen_at"] is not None
-    assert sw["last_heartbeat"]["clock_skew_s"] == 3
     assert sw["last_synced_at"] is None
+    assert sw["sync_state"] == "awaiting_first_connection"
+    # Fix round 1 / Important 3: assert the WHOLE stored last_heartbeat, not just clock_skew_s (per §4.2 — minus
+    # counters, which this heartbeat didn't send).
+    assert sw["last_heartbeat"] == {
+        "agent_version": "0.1.0",
+        "tally_version": "TallyPrime 7.0",
+        "tally_status": "closed",
+        "seen_company": None,
+        "counters": None,
+        "last_error_code": None,
+        "breaker": "closed",
+        "outbox_depth": 0,
+        "clock_skew_s": 3,
+    }
 
     device = await _device_row(session, device_id)
     assert device["last_seen_at"] is not None
@@ -162,6 +184,87 @@ async def test_heartbeat_counters_below_cursors_restore_detected(app_client, ses
     assert sw["sync_state"] == "restore_detected"
     assert sw["restore_reason"] == "counters_backwards"
     assert sw["ladder"]["resync_offered"] == {"scope": "company", "reason": "restore"}
+    # Fix round 1 / Important 3: restore detection must never move the cursors themselves, never set
+    # caught_up_at (counters are BELOW cursors, not equal), and never touch last_synced_at (§8.5 — only an
+    # accepted batch moves it).
+    assert sw["cursor_alt_vch_id"] == cursor_counters["alt_vch_id"]
+    assert sw["cursor_alt_mst_id"] == cursor_counters["alt_mst_id"]
+    assert sw["caught_up_at"] is None
+    assert sw["last_synced_at"] is None
+
+
+async def test_heartbeat_after_restore_detected_keeps_returning_200_and_advances_last_seen(app_client, session, clock):
+    """Critical 1 (fix round 1): once `restore_detected`, cursors don't move until a resync completes, so
+    EVERY later `ours` heartbeat still reports backwards counters. Before the fix, `transition()` was called
+    unconditionally and raised on the undefined `(restore_detected, counters_backwards)` pair — a 500 that also
+    killed `last_seen_at` updates and command delivery for the rest of the request. Two more heartbeats after
+    the first restore-detecting one must each return 200 and keep advancing `last_seen_at`."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cursor_counters = _fixture_counters("p13_A_after_throwaway.xml")
+    heartbeat_counters = _fixture_counters("p13_A_after_restore_counters.xml")
+    await _set_cursors(session, ws, cursor_counters["alt_vch_id"], cursor_counters["alt_mst_id"])
+    await _set_state_row(session, ws, "ready")
+
+    seen_company = {"guid": BIND_BODY["company_guid"], "name": BIND_BODY["company_name"]}
+    r1 = await _heartbeat(
+        app_client, headers, ws, clock, tally_status="ours", seen_company=seen_company,
+        counters=heartbeat_counters,
+    )
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["sync_state"] == "restore_detected"
+    sw1 = await _sw_row(session, ws)
+    first_last_seen = sw1["last_seen_at"]
+    assert first_last_seen is not None
+
+    clock.advance(minutes=1)
+    r2 = await _heartbeat(
+        app_client, headers, ws, clock, tally_status="ours", seen_company=seen_company,
+        counters=heartbeat_counters,
+    )
+    assert r2.status_code == 200, r2.text  # no 500 — this is the regression this test guards
+    assert r2.json()["sync_state"] == "restore_detected"
+    sw2 = await _sw_row(session, ws)
+    assert sw2["sync_state"] == "restore_detected"
+    assert sw2["restore_reason"] == "counters_backwards"
+    assert sw2["last_seen_at"] > first_last_seen  # still advancing, not frozen by a swallowed exception
+
+    clock.advance(minutes=1)
+    r3 = await _heartbeat(
+        app_client, headers, ws, clock, tally_status="ours", seen_company=seen_company,
+        counters=heartbeat_counters,
+    )
+    assert r3.status_code == 200, r3.text
+    sw3 = await _sw_row(session, ws)
+    assert sw3["last_seen_at"] > sw2["last_seen_at"]
+
+
+async def test_confirm_resync_delivered_while_restore_detected(app_client, session, clock):
+    """Critical 1 (fix round 1): the recovery path — a `confirm_resync` command queued while the workspace is
+    `restore_detected` — must still be delivered on the next `ours` heartbeat that (still) reports backwards
+    counters. Before the fix, that heartbeat 500'd before `commands.deliver_pending` ever ran, so the only way
+    out of `restore_detected` was unreachable."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cursor_counters = _fixture_counters("p13_A_after_throwaway.xml")
+    heartbeat_counters = _fixture_counters("p13_A_after_restore_counters.xml")
+    await _set_cursors(session, ws, cursor_counters["alt_vch_id"], cursor_counters["alt_mst_id"])
+    await _set_state_row(session, ws, "restore_detected")
+
+    r_cmd = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands",
+        json={"type": "confirm_resync", "scope": "company"},
+        headers=web_headers(uid),
+    )
+    assert r_cmd.status_code == 200, r_cmd.text
+    cmd_id = r_cmd.json()["id"]
+
+    r = await _heartbeat(
+        app_client, headers, ws, clock, tally_status="ours",
+        seen_company={"guid": BIND_BODY["company_guid"], "name": BIND_BODY["company_name"]},
+        counters=heartbeat_counters,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["commands"] == [{"id": cmd_id, "type": "confirm_resync", "params": {"scope": "company"}}]
+    assert (await _command_row(session, cmd_id))["status"] == "delivered"
 
 
 async def test_heartbeat_not_ours_never_triggers_restore(app_client, session, clock):
@@ -208,6 +311,7 @@ async def test_other_company_same_name_sets_relink_prompt(app_client, session, c
 
     sw = await _sw_row(session, ws)
     assert sw["relink_prompt"] == {"guid": "new-guid-0000", "name": BIND_BODY["company_name"]}
+    assert sw["sync_state"] == "awaiting_first_connection"  # unchanged — a prompt is not itself a transition
 
 
 # --- D16: server -> agent commands ride the heartbeat -----------------------------------------------------
@@ -239,6 +343,71 @@ async def test_commands_delivered_once_then_acked_done(app_client, session, cloc
     assert (await _command_row(session, cmd_id))["status"] == "done"
 
 
+async def test_commands_ack_skips_malformed_id_but_acks_valid_ones(app_client, session, clock):
+    """Controller ruling (fix round 1): one malformed id in `acked_commands` must not cancel acking the OTHER,
+    well-formed ids in the same list."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+
+    r_cmd = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands", json={"type": "recheck_now"}, headers=web_headers(uid)
+    )
+    cmd_id = r_cmd.json()["id"]
+    r1 = await _heartbeat(app_client, headers, ws, clock)
+    assert r1.json()["commands"] == [{"id": cmd_id, "type": "recheck_now", "params": {}}]
+    assert (await _command_row(session, cmd_id))["status"] == "delivered"
+
+    r2 = await _heartbeat(app_client, headers, ws, clock, acked_commands=["not-a-uuid", cmd_id])
+    assert r2.status_code == 200, r2.text
+    assert (await _command_row(session, cmd_id))["status"] == "done"  # the valid id still got acked
+
+
+# --- Important 2 (fix round 1): web command validation (§7.15) ---------------------------------------------
+
+
+async def test_web_command_unknown_type_422(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands", json={"type": "delete_everything"}, headers=web_headers(uid)
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_web_command_confirm_resync_missing_scope_422(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands", json={"type": "confirm_resync"}, headers=web_headers(uid)
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_web_command_confirm_resync_fy_scope_without_fy_start_422(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands", json={"type": "confirm_resync", "scope": "fy"},
+        headers=web_headers(uid),
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_web_command_confirm_resync_fy_scope_with_fy_start_enqueues(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands",
+        json={"type": "confirm_resync", "scope": "fy", "fy_start": "2024-04-01"},
+        headers=web_headers(uid),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["params"] == {"scope": "fy", "fy_start": "2024-04-01"}
+
+
+async def test_web_command_confirm_relink_without_password_422(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands", json={"type": "confirm_relink"}, headers=web_headers(uid)
+    )
+    assert r.status_code == 422, r.text
+
+
 # --- §7.15 re-link (device path) --------------------------------------------------------------------------
 
 
@@ -265,8 +434,14 @@ async def test_relink_requires_prompt_and_password(app_client, session, clock):
     )
     assert r_wrong_pw.status_code == 401 and r_wrong_pw.json()["error"] == "invalid_credentials"
 
+    # Fix round 1 / Important 3: a failed attempt must leave the WHOLE row untouched, not just the GUID.
     sw_untouched = await _sw_row(session, ws)
-    assert sw_untouched["tally_company_guid"] == BIND_BODY["company_guid"]  # never touched by a failed attempt
+    assert sw_untouched["tally_company_guid"] == BIND_BODY["company_guid"]
+    assert sw_untouched["tally_company_name"] == BIND_BODY["company_name"]
+    assert sw_untouched["relink_prompt"] == {"guid": "new-guid-0000", "name": "New Co"}
+    assert sw_untouched["sync_state"] == "awaiting_first_connection"
+    assert (sw_untouched["ladder"] or {}).get("resync_offered") is None
+    assert sw_untouched["previous_company_guids"] == []
 
     r_ok = await app_client.post(
         f"/api/sync/{ws}/relink",
@@ -282,6 +457,57 @@ async def test_relink_requires_prompt_and_password(app_client, session, clock):
     assert sw["sync_state"] == "restore_detected"
     assert sw["restore_reason"] == "relink"
     assert sw["relink_prompt"] is None
+    assert sw["ladder"]["resync_offered"] == {"scope": "company", "reason": "relink"}
+
+
+async def _login_second_device(app_client, email, device_name):
+    r = await app_client.post(
+        "/api/agent/auth/login",
+        json={"email": email, "password": "Passw0rd!Passw0rd", "device_name": device_name,
+              "agent_version": "0.1.0"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body, {"Authorization": f"Bearer {body['access_token']}"}
+
+
+async def test_relink_device_409_when_new_guid_bound_to_another_live_workspace(app_client, session, clock):
+    """Important 1 (fix round 1): relink must not bypass the `company_bound_elsewhere` invariant binding
+    enforces (§7.5/A6) — the new GUID is already bound (live) to a DIFFERENT workspace of the same user."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+
+    # A second device of the SAME user, binding a DIFFERENT workspace of that same user to a different company —
+    # this becomes the "elsewhere" target for the relink below.
+    _, other_headers = await _login_second_device(app_client, email, "OTHER-PC")
+    other_ws = await make_workspace(session, uid, name="Other")
+    other_guid = "elsewhere-guid-0000"
+    r_bind_other = await app_client.post(
+        "/api/sync/company",
+        json={**BIND_BODY, "workspace_id": str(other_ws), "company_guid": other_guid,
+              "company_name": "Elsewhere Co"},
+        headers=other_headers,
+    )
+    assert r_bind_other.status_code == 200, r_bind_other.text
+
+    await session.execute(
+        text("UPDATE sync_workspaces SET relink_prompt = :p WHERE workspace_id = :w"),
+        {"p": f'{{"guid": "{other_guid}", "name": "Elsewhere Co"}}', "w": ws},
+    )
+    await session.commit()
+
+    r = await app_client.post(
+        f"/api/sync/{ws}/relink",
+        json={"new_company_guid": other_guid, "company_name": "Elsewhere Co", "password": "Passw0rd!Passw0rd"},
+        headers=headers,
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"] == "company_bound_elsewhere"
+    assert r.json()["workspace_id"] == str(other_ws)
+
+    sw = await _sw_row(session, ws)
+    assert sw["tally_company_guid"] == BIND_BODY["company_guid"]  # untouched
+    assert sw["sync_state"] == "awaiting_first_connection"
 
 
 async def test_web_confirm_relink_same_service_as_device(app_client, session, clock):
@@ -299,6 +525,12 @@ async def test_web_confirm_relink_same_service_as_device(app_client, session, cl
     )
     assert r_wrong.status_code == 401 and r_wrong.json()["error"] == "invalid_credentials"
 
+    # Fix round 1 / Important 3: a failed attempt must leave the WHOLE row untouched.
+    sw_untouched = await _sw_row(session, ws)
+    assert sw_untouched["tally_company_guid"] == BIND_BODY["company_guid"]
+    assert sw_untouched["relink_prompt"] == {"guid": "web-new-guid", "name": "Web New Co"}
+    assert sw_untouched["sync_state"] == "awaiting_first_connection"
+
     r_ok = await app_client.post(
         f"/api/workspaces/{ws}/sync/commands",
         json={"type": "confirm_relink", "password": "Passw0rd!Passw0rd"},
@@ -313,6 +545,44 @@ async def test_web_confirm_relink_same_service_as_device(app_client, session, cl
     assert BIND_BODY["company_guid"] in sw["previous_company_guids"]
     assert sw["sync_state"] == "restore_detected"
     assert sw["restore_reason"] == "relink"
+    assert sw["relink_prompt"] is None
+    assert sw["ladder"]["resync_offered"] == {"scope": "company", "reason": "relink"}
+
+
+async def test_web_confirm_relink_409_when_new_guid_bound_to_another_live_workspace(app_client, session, clock):
+    """Important 1 (fix round 1), web path."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+
+    _, other_headers = await _login_second_device(app_client, email, "OTHER-PC")
+    other_ws = await make_workspace(session, uid, name="Other")
+    other_guid = "web-elsewhere-guid-0000"
+    r_bind_other = await app_client.post(
+        "/api/sync/company",
+        json={**BIND_BODY, "workspace_id": str(other_ws), "company_guid": other_guid,
+              "company_name": "Elsewhere Co"},
+        headers=other_headers,
+    )
+    assert r_bind_other.status_code == 200, r_bind_other.text
+
+    await session.execute(
+        text("UPDATE sync_workspaces SET relink_prompt = :p WHERE workspace_id = :w"),
+        {"p": f'{{"guid": "{other_guid}", "name": "Elsewhere Co"}}', "w": ws},
+    )
+    await session.commit()
+
+    r = await app_client.post(
+        f"/api/workspaces/{ws}/sync/commands",
+        json={"type": "confirm_relink", "password": "Passw0rd!Passw0rd"},
+        headers=web_headers(uid),
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"] == "company_bound_elsewhere"
+    assert r.json()["workspace_id"] == str(other_ws)
+
+    sw = await _sw_row(session, ws)
+    assert sw["tally_company_guid"] == BIND_BODY["company_guid"]  # untouched
+    assert sw["sync_state"] == "awaiting_first_connection"
 
 
 # --- §7.7 state --------------------------------------------------------------------------------------------

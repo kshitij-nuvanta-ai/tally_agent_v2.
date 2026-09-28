@@ -4,9 +4,10 @@ web JWT + owner-only.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,10 +53,24 @@ async def get_sync_status(
 
 
 class WebCommandRequest(BaseModel):
-    type: str = Field(..., min_length=1, max_length=50)
-    scope: str | None = None
+    """§7.15's closed set of web commands, each with its own required fields — anything outside this shape is
+    a 422 (fix round 1 / Important 2), never silently stored and delivered to the agent."""
+
+    type: Literal["recheck_now", "confirm_resync", "confirm_relink"]
+    scope: Literal["company", "fy"] | None = None
     fy_start: str | None = None
     password: str | None = Field(None, max_length=255)
+
+    @model_validator(mode="after")
+    def _validate_per_type_fields(self) -> "WebCommandRequest":
+        if self.type == "confirm_resync":
+            if self.scope is None:
+                raise ValueError("scope is required for confirm_resync")
+            if self.scope == "fy" and not self.fy_start:
+                raise ValueError("fy_start is required when scope is 'fy'")
+        if self.type == "confirm_relink" and not self.password:
+            raise ValueError("password is required for confirm_relink")
+        return self
 
 
 @router.post("/{ws}/sync/commands")
@@ -74,8 +89,7 @@ async def post_command(
         # path uses — never merely queued as a pending sync_command the agent would have to deliver back.
         if not sw.relink_prompt:
             raise ApiError(409, "relink_not_prompted")
-        if not body.password:
-            raise ApiError(422, "password_required")
+        # `body.password` is guaranteed non-empty here — the model validator above requires it for this type.
         row = (
             await session.execute(text("SELECT password_hash FROM users WHERE id = :i"), {"i": user_id})
         ).mappings().first()
@@ -84,7 +98,7 @@ async def post_command(
 
         new_guid = sw.relink_prompt.get("guid")
         new_name = sw.relink_prompt.get("name")
-        await state.apply_relink(session, sw, new_guid, new_name, clock)
+        await state.apply_relink(session, sw, new_guid, new_name, clock, user_id)
         await session.commit()
         return {
             "applied": True,
