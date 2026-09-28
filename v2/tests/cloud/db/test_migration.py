@@ -1,14 +1,24 @@
 import asyncio
+import uuid
 
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from v2.cloud.cli import downgrade, migrate
-from v2.cloud.models import V2_TABLES
+from v2.cloud.models import V2_TABLES, Base
 from v2.tests.cloud.conftest import STANDIN_DDL, TEST_DB, TEST_EMAIL_DOMAIN, _exec, requires_db, teardown_v2
 
 pytestmark = requires_db
+
+
+def _include_object(obj, name, type_, reflected, compare_to):
+    """Same predicate as ``v2/cloud/alembic/env.py``'s ``include_object`` (duplicated here, not imported: that
+    module runs top-level code that only works inside a live Alembic migration context — see its
+    ``context.config`` access — so it cannot be imported standalone from a test)."""
+    if type_ == "table":
+        return name in V2_TABLES and not (getattr(obj, "info", {}) or {}).get("v2_readonly")
+    return True
 
 # Common columns every master row carries (spec §4.1): id, workspace_id, guid, alter_id, is_deleted, raw,
 # first_seen_at, updated_at, created_at, name.
@@ -105,6 +115,35 @@ def test_every_table_has_exactly_the_spec_columns(v2_schema):
     assert cols == EXPECTED_COLUMNS
 
 
+def test_models_match_migration_v2_001(v2_schema):
+    """The v2 ORM metadata (``v2.cloud.models.Base.metadata``) must describe exactly the schema migration
+    ``v2_001`` actually builds — not just the same column names (covered above), but the same indexes and
+    unique constraints, with the same names. The migration is the authority (it already matches spec §4); this
+    catches drift such as a model declaring `index=True` for a column the migration never indexes, or an index
+    the migration creates that no model declares. Restricted to v2 tables via the same `include_object`
+    predicate `alembic/env.py` uses, so the current app's `users`/`workspaces`/`alembic_version` are ignored.
+    """
+    from alembic.autogenerate import compare_metadata
+    from alembic.runtime.migration import MigrationContext
+
+    def _compare(sync_conn):
+        ctx = MigrationContext.configure(
+            sync_conn,
+            opts={"version_table": "alembic_version_v2", "include_object": _include_object},
+        )
+        return compare_metadata(ctx, Base.metadata)
+
+    async def _run():
+        eng = create_async_engine(TEST_DB)
+        async with eng.connect() as c:
+            diff = await c.run_sync(_compare)
+        await eng.dispose()
+        return diff
+
+    diff = asyncio.run(_run())
+    assert diff == [], f"v2 models vs migration v2_001 mismatch: {diff}"
+
+
 def test_money_columns_are_numeric_18_2_never_float(v2_schema):
     def check(i):
         bad = []
@@ -153,45 +192,119 @@ def test_down_then_up_round_trip_keeps_users(v2_schema):
     assert set(V2_TABLES) <= asyncio.run(_inspect(lambda i: set(i.get_table_names())))
 
 
+async def _regclass(url: str, name: str):
+    eng = create_async_engine(url)
+    async with eng.connect() as c:
+        r = (await c.execute(text(f"SELECT to_regclass('public.{name}')"))).scalar_one()
+    await eng.dispose()
+    return r
+
+
+async def _seed_test_user_and_workspace(url: str) -> None:
+    """Insert one ``@v2test.invalid`` user + workspace so teardown_v2's DELETE path has a real row to remove."""
+    eng = create_async_engine(url)
+    uid, wid = uuid.uuid4(), uuid.uuid4()
+    async with eng.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, name, is_active, created_at, updated_at) "
+                "VALUES (:id, :e, 'x', 'Teardown Test', true, now(), now())"
+            ),
+            {"id": uid, "e": f"{uid.hex[:8]}{TEST_EMAIL_DOMAIN}"},
+        )
+        await c.execute(
+            text(
+                "INSERT INTO workspaces (id, user_id, name, agent_type, config, memory, is_deleted, created_at, "
+                "updated_at) VALUES (:id, :u, 'Teardown W', 'tally', '{}', '{}', false, now(), now())"
+            ),
+            {"id": wid, "u": uid},
+        )
+    await eng.dispose()
+
+
+async def _seed_non_test_user(url: str, email: str) -> None:
+    eng = create_async_engine(url)
+    async with eng.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, name, is_active, created_at, updated_at) "
+                "VALUES (:id, :e, 'x', 'Real Tenant', true, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "e": email},
+        )
+    await eng.dispose()
+
+
+async def _count_email(url: str, email: str) -> int:
+    eng = create_async_engine(url)
+    async with eng.connect() as c:
+        n = (await c.execute(text("SELECT count(*) FROM users WHERE email = :e"), {"e": email})).scalar_one()
+    await eng.dispose()
+    return n
+
+
+async def _count_test_users(url: str) -> int:
+    eng = create_async_engine(url)
+    async with eng.connect() as c:
+        n = (
+            await c.execute(text(f"SELECT count(*) FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}'"))
+        ).scalar_one()
+    await eng.dispose()
+    return n
+
+
 def test_session_teardown_leaves_no_v2_objects(v2_schema):
-    """Review Focus 2 / controller ruling 1: exercises the REAL harness teardown (``teardown_v2``), not just a
-    bare migrate/downgrade pair, and asserts the shared test DB is left exactly as the harness found it — the
-    precondition for the current app's own ``drop_all``-based teardown to succeed against this DB. Depends on
-    ``v2_schema`` so it always has something real to tear down and restores state afterwards for the rest of
-    the session.
+    """Review Focus 2 / controller ruling 1 (fix round 1, items 1(a)/1(b)): exercises the REAL harness teardown
+    (``teardown_v2``), not just a bare migrate/downgrade pair, on BOTH branches it can take — deterministically,
+    regardless of what ``v2_schema["created_standins"]`` happens to be in this environment:
+
+    - Branch A — the normal shared-DB case (A2): ``users``/``workspaces`` already existed before the harness
+      ran (``created == []``). Teardown must leave both tables AND any non-test rows in place, deleting only
+      the seeded ``@v2test.invalid`` rows.
+    - Branch B — the harness created the stand-ins itself (``created == ["users", "workspaces"]``). Teardown
+      must drop both tables entirely.
+
+    Restores schema + stand-ins afterwards so the rest of the session-scoped ``v2_schema`` fixture's dependents
+    keep working.
     """
-    created = v2_schema["created_standins"]
-    teardown_v2(TEST_DB, created)
     try:
+        # --- Branch A: users/workspaces PRE-EXIST (created=[]) ---
+        non_test_email = f"real-{uuid.uuid4().hex[:8]}@example.com"
+        asyncio.run(_seed_non_test_user(TEST_DB, non_test_email))
+        asyncio.run(_seed_test_user_and_workspace(TEST_DB))
+
+        teardown_v2(TEST_DB, [])
+
+        assert asyncio.run(_regclass(TEST_DB, "users")) is not None, "pre-existing users table must survive"
+        assert (
+            asyncio.run(_regclass(TEST_DB, "workspaces")) is not None
+        ), "pre-existing workspaces table must survive"
+        assert asyncio.run(_count_email(TEST_DB, non_test_email)) == 1, "non-test rows must not be touched"
+        assert asyncio.run(_count_test_users(TEST_DB)) == 0, "test users must be deleted"
+        left = asyncio.run(_inspect(lambda i: set(i.get_table_names())))
+        assert not (set(V2_TABLES) & left), "v2 tables must be gone after teardown"
+        assert asyncio.run(_regclass(TEST_DB, "alembic_version_v2")) is None
+
+        # --- Branch B: the harness created users/workspaces itself (created=["users","workspaces"]) ---
+        # Drop them (safe: branch A's teardown already downgraded the v2 schema, so no v2 FK points at them),
+        # recreate as the harness would on a from-scratch DB, migrate, seed a test user, then tear down
+        # declaring them as harness-created stand-ins.
+        asyncio.run(_exec(TEST_DB, "DROP TABLE IF EXISTS workspaces", "DROP TABLE IF EXISTS users"))
+        asyncio.run(_exec(TEST_DB, *STANDIN_DDL))
+        migrate(TEST_DB)
+        asyncio.run(_seed_test_user_and_workspace(TEST_DB))
+
+        teardown_v2(TEST_DB, ["users", "workspaces"])
+
+        assert asyncio.run(_regclass(TEST_DB, "users")) is None, "harness-created users stand-in must be dropped"
+        assert (
+            asyncio.run(_regclass(TEST_DB, "workspaces")) is None
+        ), "harness-created workspaces stand-in must be dropped"
         left = asyncio.run(_inspect(lambda i: set(i.get_table_names())))
         assert not (set(V2_TABLES) & left)
-
-        async def _check():
-            eng = create_async_engine(TEST_DB)
-            async with eng.connect() as c:
-                v2_version_table = (
-                    await c.execute(text("SELECT to_regclass('public.alembic_version_v2')"))
-                ).scalar_one()
-                standins_left = {}
-                for t in created:
-                    standins_left[t] = (await c.execute(text(f"SELECT to_regclass('public.{t}')"))).scalar_one()
-                has_users = (await c.execute(text("SELECT to_regclass('public.users')"))).scalar_one()
-                test_user_count = None
-                if has_users:
-                    test_user_count = (
-                        await c.execute(
-                            text(f"SELECT count(*) FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}'")
-                        )
-                    ).scalar_one()
-            await eng.dispose()
-            return v2_version_table, standins_left, test_user_count
-
-        v2_version_table, standins_left, test_user_count = asyncio.run(_check())
-        assert v2_version_table is None, "alembic_version_v2 must be dropped by teardown"
-        assert all(v is None for v in standins_left.values()), "harness-created stand-in tables must be dropped"
-        assert test_user_count in (None, 0), "no @v2test.invalid users may remain"
+        assert asyncio.run(_regclass(TEST_DB, "alembic_version_v2")) is None
     finally:
-        # Restore the schema this test intentionally tore down, so the rest of the session's tests (which all
-        # depend on the session-scoped v2_schema fixture) still see a migrated v2 schema + stand-ins.
+        # Restore the schema this test intentionally tore down twice, so the rest of the session's tests
+        # (which all depend on the session-scoped v2_schema fixture) still see a migrated v2 schema + stand-ins.
         asyncio.run(_exec(TEST_DB, *STANDIN_DDL))
         migrate(TEST_DB)

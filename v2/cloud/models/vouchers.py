@@ -40,9 +40,7 @@ class TallyVoucher(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     guid: Mapped[str] = mapped_column(Text, nullable=False)
     master_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     alter_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -65,9 +63,9 @@ class TallyVoucher(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw: Mapped[dict | None] = mapped_column(JSONB)
     run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sync_runs.id"))
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
         Index("uq_tally_vouchers_ws_guid", "workspace_id", "guid", unique=True),
@@ -86,9 +84,7 @@ class TallyVoucherLedgerLine(Base):
     voucher_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tally_vouchers.id", ondelete="CASCADE"), nullable=False
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     ledger_name: Mapped[str] = mapped_column(Text, nullable=False)
     ledger_guid: Mapped[str] = mapped_column(Text, nullable=False)
@@ -99,9 +95,11 @@ class TallyVoucherLedgerLine(Base):
     fx_rate: Mapped[Numeric | None] = mapped_column(RATE)
     voucher_date: Mapped[date] = mapped_column(Date, nullable=False)
     countable: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_tally_voucher_ledger_lines_voucher", "voucher_id"),
+        Index("ix_tally_voucher_ledger_lines_ws", "workspace_id"),
         Index(
             "ix_lines_cover",
             "workspace_id",
@@ -122,9 +120,7 @@ class TallyVoucherInventoryLine(Base):
     voucher_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tally_vouchers.id", ondelete="CASCADE"), nullable=False
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     stock_item_name: Mapped[str] = mapped_column(Text, nullable=False)
     stock_item_guid: Mapped[str] = mapped_column(Text, nullable=False)
@@ -139,9 +135,13 @@ class TallyVoucherInventoryLine(Base):
     fx_rate: Mapped[Numeric | None] = mapped_column(RATE)
     is_deemed_positive: Mapped[bool] = mapped_column(Boolean, nullable=False)
     voucher_date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
-    __table_args__ = (Index("ix_inv_lines_cover", "workspace_id", "stock_item_guid", "voucher_date"),)
+    __table_args__ = (
+        Index("ix_tally_voucher_inventory_lines_voucher", "voucher_id"),
+        Index("ix_tally_voucher_inventory_lines_ws", "workspace_id"),
+        Index("ix_inv_lines_cover", "workspace_id", "stock_item_guid", "voucher_date"),
+    )
 
 
 class TallyBillAllocation(Base):
@@ -153,9 +153,7 @@ class TallyBillAllocation(Base):
     voucher_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tally_vouchers.id", ondelete="CASCADE"), nullable=False
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     ledger_line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     ledger_guid: Mapped[str] = mapped_column(Text, nullable=False)
     bill_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -168,6 +166,10 @@ class TallyBillAllocation(Base):
     credit_period_days: Mapped[int | None] = mapped_column(Integer)
     bill_date: Mapped[date | None] = mapped_column(Date)
     voucher_date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
-    __table_args__ = (Index("ix_bill_allocations_cover", "workspace_id", "ledger_guid", "bill_name"),)
+    __table_args__ = (
+        Index("ix_tally_bill_allocations_voucher", "voucher_id"),
+        Index("ix_tally_bill_allocations_ws", "workspace_id"),
+        Index("ix_bill_allocations_cover", "workspace_id", "ledger_guid", "bill_name"),
+    )

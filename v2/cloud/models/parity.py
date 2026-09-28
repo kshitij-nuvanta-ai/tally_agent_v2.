@@ -20,9 +20,7 @@ class ParityRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     sync_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sync_runs.id"))
     as_on_date: Mapped[date] = mapped_column(Date, nullable=False)
     rung: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -42,9 +40,12 @@ class ParityRun(Base):
     remediation: Mapped[dict | None] = mapped_column(JSONB)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
-    __table_args__ = (Index("ix_parity_runs_ws_started", "workspace_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_parity_runs_ws", "workspace_id"),
+        Index("ix_parity_runs_ws_started", "workspace_id", "started_at"),
+    )
 
 
 class ParityLine(Base):
@@ -53,9 +54,7 @@ class ParityLine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("parity_runs.id", ondelete="CASCADE"), nullable=False
     )
@@ -72,9 +71,10 @@ class ParityLine(Base):
     our_fx_amount: Mapped[Numeric | None] = mapped_column(FACE)
     tally_fx_amount: Mapped[Numeric | None] = mapped_column(FACE)
     as_on_date: Mapped[date | None] = mapped_column(Date)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_parity_lines_ws", "workspace_id"),
         Index("ix_parity_lines_ws_run", "workspace_id", "run_id"),
         Index("ix_parity_lines_ws_verdict", "workspace_id", "verdict"),
     )

@@ -20,23 +20,22 @@ class TallyReportSnapshot(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     report_type: Mapped[str] = mapped_column(Text, nullable=False)
     from_date: Mapped[date | None] = mapped_column(Date)
     as_on_date: Mapped[date] = mapped_column(Date, nullable=False)
     purpose: Mapped[str | None] = mapped_column(Text)
     request_flags: Mapped[dict | None] = mapped_column(JSONB)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     counters: Mapped[dict | None] = mapped_column(JSONB)
     cells: Mapped[dict | None] = mapped_column(JSONB)
     rows: Mapped[dict | None] = mapped_column(JSONB)
     row_count: Mapped[int | None] = mapped_column(Integer)
     synthetic_rows: Mapped[dict | None] = mapped_column(JSONB)
     imbalance: Mapped[Numeric | None] = mapped_column(MONEY)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_tally_report_snapshots_ws", "workspace_id"),
         Index("uq_snapshots_ws_type_ason", "workspace_id", "report_type", "as_on_date", unique=True),
     )

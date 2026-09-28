@@ -68,8 +68,8 @@ class SyncWorkspace(Base):
     quarantine_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     storage_estimate_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     storage_alert: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (Index("ix_sync_workspaces_company_guid", "tally_company_guid"),)
 
@@ -80,13 +80,11 @@ class AgentDevice(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), index=True
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"))
     device_name: Mapped[str] = mapped_column(Text, nullable=False)
     agent_version: Mapped[str | None] = mapped_column(Text)
-    refresh_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    refresh_hash: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_prev_hash: Mapped[str | None] = mapped_column(Text)
     refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -94,9 +92,12 @@ class AgentDevice(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoke_reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_agent_devices_user", "user_id"),
+        Index("ix_agent_devices_ws", "workspace_id"),
+        Index("uq_agent_devices_refresh_hash", "refresh_hash", unique=True),
         Index(
             "uq_agent_devices_one_active",
             "workspace_id",
@@ -112,14 +113,12 @@ class SyncCommand(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     params: Mapped[dict | None] = mapped_column(JSONB)
     requested_by: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -132,9 +131,7 @@ class SyncRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_devices.id"), nullable=False
     )
@@ -150,9 +147,10 @@ class SyncRun(Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_sync_runs_ws", "workspace_id"),
         Index("ix_sync_runs_ws_started", "workspace_id", desc("started_at")),
         Index(
             "uq_sync_runs_one_open_first_sync",
@@ -169,19 +167,20 @@ class SyncBatch(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("sync_runs.id"), nullable=False)
     batch_id: Mapped[str] = mapped_column(Text, nullable=False)
     request_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     object_count: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[dict | None] = mapped_column(JSONB)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
-    __table_args__ = (Index("uq_sync_batches_ws_batch", "workspace_id", "batch_id", unique=True),)
+    __table_args__ = (
+        Index("ix_sync_batches_ws", "workspace_id"),
+        Index("uq_sync_batches_ws_batch", "workspace_id", "batch_id", unique=True),
+    )
 
 
 class SyncQuarantine(Base):
@@ -190,21 +189,20 @@ class SyncQuarantine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     guid: Mapped[str] = mapped_column(Text, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
     voucher_date: Mapped[date | None] = mapped_column(Date)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     times_seen: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     __table_args__ = (
+        Index("ix_sync_quarantine_ws", "workspace_id"),
         Index(
             "uq_sync_quarantine_open",
             "workspace_id",
@@ -222,9 +220,7 @@ class SyncFyCoverage(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     fy_start: Mapped[date] = mapped_column(Date, nullable=False)
     fy_end: Mapped[date] = mapped_column(Date, nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False)
@@ -232,6 +228,9 @@ class SyncFyCoverage(Base):
     months_complete: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     months_total: Mapped[int] = mapped_column(Integer, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
-    __table_args__ = (Index("uq_sync_fy_coverage_ws_fystart", "workspace_id", "fy_start", unique=True),)
+    __table_args__ = (
+        Index("ix_sync_fy_coverage_ws", "workspace_id"),
+        Index("uq_sync_fy_coverage_ws_fystart", "workspace_id", "fy_start", unique=True),
+    )

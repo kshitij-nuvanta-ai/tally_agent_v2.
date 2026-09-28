@@ -24,8 +24,13 @@ FACE = sa.Numeric(18, 4)
 RATE = sa.Numeric(18, 6)
 QTY = sa.Numeric(18, 4)
 
-# FK-safe DROP order (children first) — kept in sync with v2.cloud.models.V2_TABLES by
-# ``test_expected_columns_cover_every_v2_table`` / ``test_every_table_has_exactly_the_spec_columns``.
+# FK-safe DROP order (children first). This tuple is a frozen copy for this migration's own downgrade() —
+# by design it does NOT track v2.cloud.models.V2_TABLES going forward (a later v2_00N migration may add
+# tables that no longer belong in this file's drop list). What IS kept in sync with the models, and checked,
+# is column names (``test_expected_columns_cover_every_v2_table`` /
+# ``test_every_table_has_exactly_the_spec_columns``) and index/constraint names
+# (``test_models_match_migration_v2_001`` in v2/tests/cloud/db/test_migration.py, via
+# ``alembic.autogenerate.compare_metadata``).
 V2_TABLES: tuple[str, ...] = (
     "parity_lines",
     "tally_bill_allocations",

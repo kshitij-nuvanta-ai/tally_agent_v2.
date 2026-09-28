@@ -33,16 +33,18 @@ class _MasterCommon:
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False, index=True
-    )
+    # No bare index here: v2_001 gives every master table `uq_<t>_ws_guid` and `ix_<t>_ws_name_live`
+    # (both workspace_id-leading), so a separate workspace_id-only index would be redundant and would not
+    # match the migration (the authority — see `_master_indexes` below and `models/__init__.py`'s note on
+    # keeping this module in sync with `v2_001_sync_tables.py`).
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     guid: Mapped[str] = mapped_column(Text, nullable=False)
     alter_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     raw: Mapped[dict | None] = mapped_column(JSONB)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
 
 
