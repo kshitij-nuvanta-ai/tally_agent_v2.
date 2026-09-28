@@ -334,16 +334,58 @@ async def test_reused_batch_id_different_body_409_batch_id_reused(app_client, se
 
 
 async def test_rejected_batch_same_body_replays_stored_422(app_client, session, engine):
-    """F10: a rejected batch replayed with the SAME body returns the stored 422 (idempotent)."""
+    """F10: a DETERMINISTIC rejection replayed with the SAME body returns the stored 422 (idempotent). Variant: a
+    real voucher unbalanced by 0.01."""
     ws, headers, run_id, _ = await bound(app_client, session)
-    body = batch(run_id, month_09())                                     # no masters yet -> missing_master
+    await _ingest_b_masters(app_client, ws, headers, run_id)
+    vouchers = month_09()[:3]
+    vouchers[1]["data"]["ledger_entries"][0]["amount"] = str(
+        Decimal(vouchers[1]["data"]["ledger_entries"][0]["amount"]) + Decimal("0.01"))
+    body = batch(run_id, vouchers)
     r1 = await post_batch(app_client, ws, headers, body)
     r2 = await post_batch(app_client, ws, headers, body)
     assert r1.status_code == r2.status_code == 422
-    assert r2.json()["objects"] == r1.json()["objects"]
+    assert r2.json() == r1.json()
+    assert [o["code"] for o in r1.json()["objects"]] == ["unbalanced_voucher"]
     async with fresh(engine) as s:
-        assert await count(s, "sync_batches", ws) == 1
+        assert await count(s, "sync_batches", ws) == 2                  # the masters batch + this rejected one
+        rejected = await one(s, "SELECT * FROM sync_batches WHERE workspace_id=:w AND status='rejected'", w=ws)
+        assert rejected["response"] == r1.json()
         assert await count(s, "tally_vouchers", ws) == 0
+
+
+async def test_retryable_rejection_same_body_resent_after_masters_is_accepted(app_client, session, engine):
+    """Fix round 1 / review I1 (controller ruling): a 422 holding any RETRYABLE code (`missing_master`) is never
+    replayed -- the S2 flow "vouchers -> 422 missing_master -> send masters -> resend the SAME batch (same id, same
+    body)" must end accepted, not loop on the stored 422 forever."""
+    ws, headers, run_id, _ = await bound(app_client, session)
+    vouchers = month_09()
+    body = batch(run_id, vouchers)
+    r1 = await post_batch(app_client, ws, headers, body)
+    assert r1.status_code == 422
+    assert {o["code"] for o in r1.json()["objects"]} == {"missing_master"}
+
+    await _ingest_b_masters(app_client, ws, headers, run_id)
+    r2 = await post_batch(app_client, ws, headers, body)                   # same batch_id, same body
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["replayed"] is False and r2.json()["counts"]["inserted"] == 20
+    r3 = await post_batch(app_client, ws, headers, body)                   # and now it IS an accepted replay
+    assert r3.status_code == 200 and r3.json() == {**r2.json(), "replayed": True}
+
+    async with fresh(engine) as s:
+        counts = await table_counts(s, ws)
+        assert counts["tally_vouchers"] == 20
+        assert counts["tally_voucher_ledger_lines"] == sum(len(v["data"]["ledger_entries"]) for v in vouchers)
+        assert counts["tally_voucher_inventory_lines"] == sum(len(v["data"].get("inventory_entries", []))
+                                                              for v in vouchers)
+        batches = await rows(s, "SELECT * FROM sync_batches WHERE workspace_id=:w AND batch_id=:b",
+                             w=ws, b=body["batch_id"])
+        assert len(batches) == 1                                           # no duplicate batch rows
+        assert (batches[0]["status"], batches[0]["object_count"], batches[0]["response"]) == (
+            "accepted", 20, r2.json())
+        assert await count(s, "sync_batches", ws) == 2                      # + the masters batch
+        state = await voucher_state(s, ws, B + FIRST_B_VOUCHER)
+        assert state["lines"][0]["ledger_guid"] == B + "-000000e1" and len(state["lines"]) == 4
 
 
 async def test_rejected_batch_id_retried_with_new_body_is_a_new_attempt(app_client, session, engine):
@@ -660,18 +702,45 @@ async def test_last_synced_at_moved_by_first_sync_and_incremental_not_backfill(a
 
 
 async def test_sync_status_first_sync_progress_with_real_run_and_batches(app_client, session, engine):
-    """Carried from Task 6: `sync-status.first_sync` read from a REAL open first_sync run (opened through the API
-    with `progress_total`), with accepted batches on it."""
+    """Carried from Task 6 + controller ruling (fix round 1): `sync-status.first_sync` comes from the WINDOW FY
+    coverage rows -- total = sum(months_total), done = sum(len(months_done)) -- on a REAL first_sync run (opened
+    through the API) with accepted batches and mid-run month acks. `run.progress_done` stays the agent's own report.
+    Clock 2026-09-25 IST: window = FY 2025-26 (12 months) + FY 2026-27 (Apr..Sep = 6) = 18."""
     uid, ws, headers = await bind(app_client, session)
     run_id = await open_run(app_client, ws, headers, progress_total=24)
     await post_ok(app_client, ws, headers, run_id, realdata.b_masters())
     await post_ok(app_client, ws, headers, run_id, month_09())
-    r = await app_client.get(f"/api/workspaces/{ws}/sync-status", headers=web_headers(uid))
-    assert r.status_code == 200, r.text
-    st = r.json()
+
+    async def status():
+        r = await app_client.get(f"/api/workspaces/{ws}/sync-status", headers=web_headers(uid))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    st = await status()
     assert st["sync_state"] == "first_sync"
-    assert st["first_sync"] == {"percent": 0.0, "done": 0, "total": 24}
+    assert st["first_sync"] == {"percent": 0.0, "done": 0, "total": 18}
     assert st["last_synced_at"] is not None and st["quarantine_count"] == 0
+
+    for fy, month in (("2026-04-01", "2026-09"), ("2026-04-01", "2026-08"), ("2025-04-01", "2026-03")):
+        r = await app_client.patch(f"/api/sync/{ws}/coverage", json={"fy_start": fy, "month": month,
+                                                                     "run_id": run_id}, headers=headers)
+        assert r.status_code == 200, r.text
+    # an older-FY ack (backfill territory) never counts toward first-sync progress
+    r = await app_client.patch(f"/api/sync/{ws}/coverage", json={"fy_start": "2022-04-01", "month": "2022-09",
+                                                                 "run_id": run_id}, headers=headers)
+    assert r.status_code == 200, r.text
+
+    st = await status()
+    assert st["sync_state"] == "first_sync"
+    assert st["first_sync"] == {"percent": 16.7, "done": 3, "total": 18}
+    async with fresh(engine) as s:
+        sw = await sw_row(s, ws)
+        assert sw["sync_state"] == "first_sync"
+        run = await one(s, "SELECT * FROM sync_runs WHERE id=:i", i=uuid.UUID(run_id))
+        assert (run["status"], run["progress_done"], run["progress_total"]) == ("running", 0, 24)   # agent's own
+        cov = await rows(s, "SELECT fy_start, months_done, months_total FROM sync_fy_coverage WHERE workspace_id=:w "
+                            "AND fy_start >= '2025-04-01' ORDER BY fy_start", w=ws)
+        assert sum(c["months_total"] for c in cov) == 18 and sum(len(c["months_done"]) for c in cov) == 3
 
 
 # --- performance budget ----------------------------------------------------------------------------------------------

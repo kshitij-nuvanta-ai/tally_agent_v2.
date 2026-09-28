@@ -144,12 +144,25 @@ async def _claim_batch_id(session: AsyncSession, ws_id: uuid.UUID, run_id: uuid.
         if row.request_sha256 == raw_sha256:
             return _Claim(replay_status=200, replay={**(row.response or {}), "replayed": True})
         raise ApiError(409, "batch_id_reused")
-    if row.request_sha256 == raw_sha256:              # rejected, same body: the stored 422 again (idempotent)
-        return _Claim(replay_status=422, replay=row.response or {})
+    if row.request_sha256 == raw_sha256 and _all_deterministic(row.response):
+        return _Claim(replay_status=422, replay=row.response or {})   # deterministic 422, same body: idempotent
+    # A different body -- or the same body after a rejection holding any RETRYABLE code (`missing_master` /
+    # `ambiguous_master`: the agent sends the masters, then resends the batch as-is) -- is a new attempt on this
+    # batch_id (fix round 1 / review I1, controller ruling: replaying such a 422 would loop forever).
     await session.execute(update(t).where(t.c.id == row.id).values(
         run_id=run_id, request_sha256=raw_sha256, object_count=len(body.objects), status="claimed",
         response=None, received_at=clock.now()))
     return _Claim(row_id=row.id)
+
+
+_REPLAYABLE_REJECTION_CODES = QUARANTINABLE_CODES | {"quarantine_code_not_allowed"}
+
+
+def _all_deterministic(response: dict | None) -> bool:
+    """True when every per-object code of a stored 422 is deterministic -- the same bytes can never do better, so
+    the stored rejection is replayed. Any retryable code (or an unreadable stored body) means re-evaluate."""
+    objects = (response or {}).get("objects") or []
+    return bool(objects) and all(o.get("code") in _REPLAYABLE_REJECTION_CODES for o in objects)
 
 
 async def _finish_claim(session: AsyncSession, claim: _Claim, status: str, object_count: int, response: dict) -> None:

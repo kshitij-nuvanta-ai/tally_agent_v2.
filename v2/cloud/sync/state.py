@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.clock import Clock
+from v2.cloud.clock import Clock, fy_start_of
 from v2.cloud.config import V2Settings
 from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
@@ -244,17 +244,22 @@ async def apply_relink(
 async def sync_status(session: AsyncSession, sw: SyncWorkspace) -> dict:
     first_sync = None
     if sw.sync_state == "first_sync":
-        run = (
+        # Controller ruling (Task 8c fix round 1): progress comes from the WINDOW FY coverage rows (the newest two
+        # FYs of coverage -- current + previous -- not before FY(books_from)): total = sum(months_total), done =
+        # sum(len(months_done)). `run.progress_done` stays the agent's own report and is not read here.
+        window = (
             await session.execute(
-                select(SyncRun).where(
-                    SyncRun.workspace_id == sw.workspace_id,
-                    SyncRun.kind == "first_sync",
-                    SyncRun.status == "running",
+                select(SyncFyCoverage)
+                .where(
+                    SyncFyCoverage.workspace_id == sw.workspace_id,
+                    SyncFyCoverage.fy_start >= fy_start_of(sw.books_from),
                 )
+                .order_by(SyncFyCoverage.fy_start.desc())
+                .limit(2)
             )
-        ).scalars().first()
-        done = (run.progress_done or 0) if run else 0
-        total = (run.progress_total or 0) if run else 0
+        ).scalars().all()
+        total = sum(r.months_total or 0 for r in window)
+        done = sum(len(r.months_done or []) for r in window)
         percent = round(done / total * 100, 1) if total else 0.0
         first_sync = {"percent": percent, "done": done, "total": total}
 
