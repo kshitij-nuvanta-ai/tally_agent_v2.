@@ -100,6 +100,18 @@ def effective_edge(verified_fy: date, books_from: date) -> date:
     return max(verified_fy, books_from)
 
 
+def last_parity_view(prev: dict | None, status: str, checked_at: datetime, as_on: date, verified_from: date,
+                     mismatch_count: int, run_id: str) -> dict:
+    """``last_parity`` (§7.13). Review I2 / controller ruling: ``suspect`` is invisible, so a suspect run writes the
+    ``ok`` view -- ``mismatch_count`` 0 and the PREVIOUS visible run's ``run_id`` (None if there was none); only
+    ``checked_at`` / ``as_on`` / ``verified_from`` describe this run."""
+    if status == "suspect":
+        return {"state": "ok", "checked_at": checked_at.isoformat(), "as_on": as_on.isoformat(), "mismatch_count": 0,
+                "verified_from": verified_from.isoformat(), "run_id": (prev or {}).get("run_id")}
+    return {"state": status, "checked_at": checked_at.isoformat(), "as_on": as_on.isoformat(),
+            "mismatch_count": mismatch_count, "verified_from": verified_from.isoformat(), "run_id": run_id}
+
+
 def month_ends(start: date, end: date) -> list[date]:
     """Every calendar month-end d with start <= d <= end, oldest first."""
     out: list[date] = []
@@ -328,15 +340,16 @@ class _Run:
 
 async def _finish_abort(session: AsyncSession, run: _Run, status: str, reason: str, now: datetime,
                         remediation: list[classify_mod.Remediation] | None = None) -> dict:
-    """Preconditions 1-4, 6 (and the no-BS-verified guard): one run row with that status, zero lines, ladder and
-    ``last_parity`` untouched (§10.1, §10.8)."""
+    """Preconditions 1-4, 6 (and the no-BS-verified guard): one run row with that status, zero lines, ladder,
+    ``last_parity`` and the D10 baseline untouched (§10.1, §10.8), no ops event."""
     rems = remediation or []
     run.row.status, run.row.abort_reason, run.row.finished_at = status, reason, now
     run.row.lines_compared, run.row.mismatch_count = 0, 0
     run.row.remediation = [_rem_json(r) for r in rems]
     session.add(run.row)
     await session.flush()
-    run.events.append(opsignal.integrity_event(str(run.sw.workspace_id), str(run.row.id), 2, status, []))
+    # Review I1 / controller ruling: an abort is "no alert" (§10.1) -- no integrity ops event (decision 14's
+    # signal is for integrity alerts, i.e. computed non-ok runs only).
     return {"parity_run_id": str(run.row.id), "status": status, "abort_reason": reason, "summary": None,
             "remediation": [_rem_json(r) for r in rems], "ladder": _ladder_view(run.sw.ladder or {})}
 
@@ -424,9 +437,9 @@ async def _run(session, sw, body, run: _Run, as_on, fy_arg, tol, now, clock, bef
     if verdict == "stale":
         return await _finish_abort(session, run, "discarded_stale", "stale_tally", now,
                                    [classify_mod._remediation("tally_notice", {"notice": "restart"})])
-    if verdict == "rebaseline":
-        sw.tb_imbalance_baseline = {"alt_mst_id": before.alt_mst_id, "imbalance": str(imbalance),
-                                    "recorded_at": now.isoformat()}
+    new_baseline = None
+    if verdict == "rebaseline":                 # review M1: applied only in the store block, never by an abort
+        new_baseline = {"alt_mst_id": before.alt_mst_id, "imbalance": str(imbalance), "recorded_at": now.isoformat()}
 
     # --- compute ---
     led = await _ledgers(session, ws, capture_started_at=body.capture_started_at)
@@ -496,8 +509,9 @@ async def _run(session, sw, body, run: _Run, as_on, fy_arg, tol, now, clock, bef
     if lines:
         await session.execute(insert(ParityLine), [_line_row(ws, run.row.id, as_on, l) for l in lines])
     sw.ladder = ladder
-    sw.last_parity = {"state": ladder_mod.visible_state(new), "checked_at": now.isoformat(), "as_on": as_on.isoformat(),
-                      "mismatch_count": len(problems), "verified_from": edge.isoformat(), "run_id": str(run.row.id)}
+    if new_baseline is not None:
+        sw.tb_imbalance_baseline = new_baseline
+    sw.last_parity = last_parity_view(sw.last_parity, status, now, as_on, edge, len(problems), str(run.row.id))
     sw.updated_at = now
     await session.flush()
     if status != "ok":
@@ -528,9 +542,11 @@ async def _bisect(session, sw, run: _Run, as_on: date, fy: date, edge: date, anc
     first diverging month comes back as ``refetch_month``. Missing month-ends -> ``aborted_incomplete`` with the
     ``capture_snapshot`` list."""
     ws = sw.workspace_id
-    if fy < edge:
+    # review M2a: E may be a mid-FY books_from (effective_edge) -- the FY is verified if it is E's FY or later, and
+    # its months start at E (nothing precedes books_from).
+    if fy < fy_start_of(edge):
         return await _finish_abort(session, run, "aborted_incomplete", "no_verified_span", now)
-    ends = month_ends(fy, min(fy_end_of(fy), as_on))
+    ends = month_ends(max(fy, edge), min(fy_end_of(fy), as_on))
     keys = [(LW, anchor_plan.as_on), (TB, anchor_plan.as_on), *[(LW, d) for d in ends], *[(TB, d) for d in ends]]
     snaps = await _snapshots(session, ws, keys)
     lw_anchor = snaps.get((LW, anchor_plan.as_on))

@@ -51,6 +51,7 @@ class B:
     coverage: list[dict]
     counters: dict
     early: dict | None = None
+    books_from: date = pf.BOOKS_FROM
 
 
 def _months(fy_start: date, n: int, books_from: date = pf.BOOKS_FROM) -> list[str]:
@@ -74,7 +75,7 @@ async def _ingest(app_client, b: B, objects: list[dict], *, run_id: str | None =
 
 async def _ack_fy(app_client, b: B, fy: date) -> None:
     row = next(r for r in b.coverage if r["fy_start"] == fy.isoformat())
-    for month in _months(fy, row["months_total"]):
+    for month in _months(fy, row["months_total"], b.books_from):
         r = await app_client.patch(f"/api/sync/{b.ws}/coverage", json={"fy_start": fy.isoformat(), "month": month},
                                    headers=b.headers)
         assert r.status_code == 200, r.text
@@ -88,14 +89,14 @@ async def _snap(app_client, b: B, report_type: str, as_on: date, *, at: datetime
     return r.json()
 
 
-def _anchor_as_on(edge: date) -> date:
-    return edge if edge == pf.BOOKS_FROM else edge - timedelta(days=1)
+def _anchor_as_on(edge: date, books_from: date = pf.BOOKS_FROM) -> date:
+    return edge if edge == books_from else edge - timedelta(days=1)
 
 
 async def setup_b(app_client, session, *, fake=None, edge: date = FY25, omit: tuple[str, ...] = (),
                   omit_guids: tuple[str, ...] = (), counters: dict | None = None, complete: bool = True,
                   ack: bool = True, snapshots: tuple[str, ...] = ("tb", "lw", "lw_anchor"),
-                  early_tb: bool = False) -> B:
+                  early_tb: bool = False, books_from: date = pf.BOOKS_FROM) -> B:
     """Bind FakeBooks B, first-sync it with the verified edge at ``edge`` (every FY from ``edge`` acked), complete
     the run (cursors = counters), and post the as-on TBs + the D9 anchor through the real endpoints."""
     fake = fake or pf.books()
@@ -104,13 +105,14 @@ async def setup_b(app_client, session, *, fake=None, edge: date = FY25, omit: tu
     uid, _, headers = await login_device(app_client, session)
     ws = await make_workspace(session, uid)
     r = await app_client.post("/api/sync/company", headers=headers, json={
-        "workspace_id": str(ws), "company_guid": cap.guid, "company_name": pf.B_NAME, "books_from": "20220401",
+        "workspace_id": str(ws), "company_guid": cap.guid, "company_name": pf.B_NAME,
+        "books_from": books_from.strftime("%Y%m%d"),
         "base_currency_name": "INR", "takeover": False})
     assert r.status_code == 200, r.text
     r = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "first_sync", "counters_at_start": counters},
                               headers=headers)
     assert r.status_code == 200, r.text
-    b = B(ws, uid, headers, cap, r.json()["run_id"], r.json()["coverage"], counters)
+    b = B(ws, uid, headers, cap, r.json()["run_id"], r.json()["coverage"], counters, books_from=books_from)
     if early_tb:                                  # the group TB captured before any master reached the cloud
         b.early = await _snap(app_client, b, "trial_balance", AS_ON, at=SNAP_AT - timedelta(minutes=30))
 
@@ -120,7 +122,7 @@ async def setup_b(app_client, session, *, fake=None, edge: date = FY25, omit: tu
     batches += await _ingest(app_client, b, vouchers)
     if ack:
         for row in b.coverage:
-            if date.fromisoformat(row["fy_start"]) >= edge:
+            if date.fromisoformat(row["fy_start"]) >= pf.fy_start(edge):
                 await _ack_fy(app_client, b, date.fromisoformat(row["fy_start"]))
     if complete:
         r = await app_client.patch(f"/api/sync/{ws}/runs/{b.run_id}", headers=headers, json={
@@ -131,9 +133,9 @@ async def setup_b(app_client, session, *, fake=None, edge: date = FY25, omit: tu
     if "lw" in snapshots:
         await _snap(app_client, b, "trial_balance_ledgerwise", AS_ON)
     if "lw_anchor" in snapshots:
-        await _snap(app_client, b, "trial_balance_ledgerwise", _anchor_as_on(edge), purpose="anchor")
+        await _snap(app_client, b, "trial_balance_ledgerwise", _anchor_as_on(edge, books_from), purpose="anchor")
     if "tb_anchor" in snapshots:
-        await _snap(app_client, b, "trial_balance", _anchor_as_on(edge), purpose="anchor")
+        await _snap(app_client, b, "trial_balance", _anchor_as_on(edge, books_from), purpose="anchor")
     return b
 
 
@@ -723,6 +725,37 @@ async def test_bisect_missing_month_ends_aborted_incomplete(app_client, session,
     assert (st["lines"], st["ladder"], st["last_parity"]) == ([], {}, None)
 
 
+async def test_bisect_first_fy_with_mid_year_books_from(app_client, session, engine):
+    """Review M2a: books begin 1 October 2022 (FakeBooks B with nothing before it). Bisecting that first FY runs
+    its months from books_from (Oct..Mar), anchored at the TB as-on books_from minus that day's lines (D9); a sale
+    missing in December diverges from 31-12-2022 -- October and November are clean."""
+    mid = date(2022, 10, 1)
+    fake = pf.books()
+    fake.edit_state(lambda s: s.update(vouchers={m: v for m, v in s["vouchers"].items() if v["date"] >= "20221001"}))
+    guid = _gst_sale_guid(pf.Capture(fake), date(2022, 12, 1), date(2022, 12, 31))
+    b = await setup_b(app_client, session, fake=fake, books_from=mid, edge=mid, omit_guids=(guid,),
+                      snapshots=("lw_anchor",))
+    ends = pf.month_ends(mid, date(2023, 3, 31))
+    for me in ends:
+        await _snap(app_client, b, "trial_balance_ledgerwise", me, purpose="bisect")
+    res = await parity(app_client, b, scope="bisect", fy_start="2022-04-01")
+    assert (res["status"], res["abort_reason"]) == ("suspect", None), res
+    assert res["bisect"]["months_evaluated"] == [d.isoformat() for d in ends]
+    assert res["bisect"]["first_diverging_month"] == "2022-12-31"
+    assert [(r["action"], r["params"]) for r in res["remediation"]] == [("refetch_month", {"month": "2022-12"})]
+    async with fresh(engine) as s:
+        run = await run_row(s, res["parity_run_id"])
+        lines = await line_rows(s, res["parity_run_id"])
+    assert (run["verified_from"], run["anchor_as_on"]) == (mid, mid)
+    verdicts: dict[date, set[str]] = {}
+    for l in lines:
+        verdicts.setdefault(l["as_on_date"], set()).add(l["verdict"])
+    assert sorted(verdicts) == ends
+    assert {"mismatch", "missing_in_db", "missing_in_tally"}.isdisjoint(verdicts[date(2022, 10, 31)] |
+                                                                      verdicts[date(2022, 11, 30)])
+    assert "mismatch" in verdicts[date(2022, 12, 31)]
+
+
 # --- persistence, restart, ops signal, sync-status -----------------------------------------------------------------
 
 
@@ -747,43 +780,120 @@ async def test_parity_runs_persist_across_requests_and_ladder_survives_restart(a
     assert [l for l in after["lines"] if l["run_id"] == before["runs"][0]["id"]] == before["lines"]
 
 
+def _ops_records(caplog) -> list[dict]:
+    return [json.loads(r.getMessage()) for r in caplog.records if r.name == "v2.ops.integrity"]
+
+
+def _assert_no_business_data(caplog, ledgers: list[dict]) -> None:
+    text_out = " ".join(r.getMessage() for r in caplog.records if r.name == "v2.ops.integrity")
+    for led in ledgers:
+        assert led["guid"] not in text_out and led["name"] not in text_out
+
+
 async def test_ops_signal_emitted_once_per_non_ok_run(app_client, session, engine, caplog):
+    """§10.10 / review I1 ruling: one integrity event per COMPUTED non-ok run (suspect, alert, hard_alert) -- an
+    `ok` run emits none, and so does a precondition abort (§10.1 "no alert")."""
     b, _ = await _missing_one_sale(app_client, session)
     caplog.set_level(logging.INFO, logger="v2.ops.integrity")
     suspect = await parity(app_client, b)
     behind = {"alt_vch_id": 1, "alt_mst_id": 1}
     aborted = await parity(app_client, b, counters_before=behind, counters_after=behind)
+    alert = await parity(app_client, b, remediation_done=[r["id"] for r in suspect["remediation"]])
+    assert (suspect["status"], aborted["status"], alert["status"]) == ("suspect", "aborted_behind", "alert")
     events = integrity_events(caplog)
     assert [(e["run_id"], e["status"]) for e in events] == \
-        [(suspect["parity_run_id"], "suspect"), (aborted["parity_run_id"], "aborted_behind")]
-    assert events[0]["cause_counts"] == {"voucher_missed_or_duplicated": 4}
-    assert events[0]["rung"] == 2 and events[0]["max_abs_diff_bucket"] in ("<₹1k", "<₹1L", "<₹1Cr", "≥₹1Cr")
-    assert (events[1]["mismatch_count"], events[1]["cause_counts"]) == (0, {})
+        [(suspect["parity_run_id"], "suspect"), (alert["parity_run_id"], "alert")]
+    assert _ops_records(caplog) == events                                    # nothing else on the channel
+    for e in events:
+        assert e["cause_counts"] == {"voucher_missed_or_duplicated": 4}
+        assert e["rung"] == 2 and e["max_abs_diff_bucket"] in ("<₹1k", "<₹1L", "<₹1Cr", "≥₹1Cr")
     async with fresh(engine) as s:
-        secrets = await rows(s, "SELECT guid, name FROM tally_ledgers WHERE workspace_id=:w", w=b.ws)
-    text_out = " ".join(r.getMessage() for r in caplog.records if r.name == "v2.ops.integrity")
-    for sec in secrets:
-        assert sec["guid"] not in text_out and sec["name"] not in text_out
+        _assert_no_business_data(caplog, await rows(s, "SELECT guid, name FROM tally_ledgers WHERE workspace_id=:w",
+                                                    w=b.ws))
 
     ok = await setup_b(app_client, session)
     caplog.clear()
     assert (await parity(app_client, ok))["status"] == "ok"
-    assert integrity_events(caplog) == []
+    assert _ops_records(caplog) == []
 
 
-async def test_sync_status_shows_ok_for_suspect(app_client, session, engine):
-    """§7.13: `suspect` is invisible -- the run row says suspect, last_parity / sync-status say ok."""
+async def test_computed_suspect_run_emits_exactly_one_ops_event(app_client, session, engine, caplog):
     b, _ = await _missing_one_sale(app_client, session)
+    caplog.set_level(logging.INFO, logger="v2.ops.integrity")
+    res = await parity(app_client, b)
+    async with fresh(engine) as s:
+        run = await run_row(s, res["parity_run_id"])
+    assert _ops_records(caplog) == [{
+        "workspace_id": str(b.ws), "run_id": res["parity_run_id"], "rung": 2, "status": "suspect",
+        "cause_counts": {"voucher_missed_or_duplicated": 4}, "mismatch_count": run["mismatch_count"],
+        "max_abs_diff_bucket": _ops_records(caplog)[0]["max_abs_diff_bucket"]}]
+    assert run["status"] == "suspect" and run["mismatch_count"] > 0
+
+
+async def test_every_abort_kind_emits_no_ops_event(app_client, session, engine, caplog):
+    """Review I1 ruling: `aborted_moving`, `aborted_behind`, `aborted_incomplete` and `discarded_stale` are "no
+    alert" (§10.1) -- zero events on `v2.ops.integrity` for any of them."""
+    b = await setup_b(app_client, session)
+    assert (await parity(app_client, b))["status"] == "ok"                     # records the D10 baseline
+    caplog.set_level(logging.INFO, logger="v2.ops.integrity")
+    moved = {"alt_vch_id": b.counters["alt_vch_id"] + 1, "alt_mst_id": b.counters["alt_mst_id"]}
+    statuses = [
+        (await parity(app_client, b, counters_before=b.counters, counters_after=moved))["status"],
+        (await parity(app_client, b, counters_before=moved, counters_after=moved))["status"],
+        (await parity(app_client, b, scope="bisect", fy_start="2025-04-01"))["status"],     # month-ends missing
+    ]
+    await _snap(app_client, b, "trial_balance", AS_ON, at=SNAP_AT + timedelta(minutes=5), cells=_pl_row_moved(b, "5"))
+    statuses.append((await parity(app_client, b))["status"])
+    assert statuses == ["aborted_moving", "aborted_behind", "aborted_incomplete", "discarded_stale"]
+    assert _ops_records(caplog) == []
+
+
+async def test_no_balance_sheet_verified_abort_leaves_the_d10_baseline(app_client, session, engine, caplog,
+                                                                       monkeypatch):
+    """Review M1 + M6: the engine's `no_balance_sheet_verified` guard (driven by making `bs_verified` report
+    nothing verified) is an abort like any other: its status and capture remediation, no lines, no ops event, and
+    the D10 baseline -- which this first run would have recorded -- stays unset; ladder / last_parity untouched."""
+    from v2.cloud.parity import engine as engine_mod
+    b = await setup_b(app_client, session)
+    monkeypatch.setattr(engine_mod, "bs_verified", lambda lines: False)
+    caplog.set_level(logging.INFO, logger="v2.ops.integrity")
+    res = await parity(app_client, b)
+    assert (res["status"], res["abort_reason"]) == ("aborted_incomplete", "no_balance_sheet_verified")
+    assert [(r["action"], r["params"]) for r in res["remediation"]] == \
+        [("capture_snapshot", {"report_type": "trial_balance_ledgerwise", "as_on": "2025-03-31"})]
+    assert _ops_records(caplog) == []
+    st = await whole_state(engine, b)
+    assert (st["runs"][-1]["status"], st["runs"][-1]["lines_compared"], st["lines"]) == ("aborted_incomplete", 0, [])
+    assert (st["baseline"], st["ladder"], st["last_parity"]) == (None, {}, None)
+
+
+async def test_sync_status_shows_ok_for_suspect(app_client, session, engine, clock):
+    """§7.13 / review I2 ruling: `suspect` is invisible. The run row says suspect; `last_parity` is written in its
+    `ok` form -- `checked_at` moves to this run, `mismatch_count` 0, and `run_id` stays the previous VISIBLE run's."""
+    b = await setup_b(app_client, session)
+    ok = await parity(app_client, b)
+    async with fresh(engine) as s:
+        before = (await sw_row(s, b.ws))["last_parity"]
+    assert (before["state"], before["run_id"]) == ("ok", ok["parity_run_id"])
+
+    clock.advance(minutes=5)
+    cells = b.cap.tb_cells("trial_balance_ledgerwise", AS_ON)          # Tally now shows ₹50 more Domestic Sales
+    row = next(c for c in cells if c["dspdispname"] == "Domestic Sales")
+    row["dspclcramta"] = f"{D(row['dspclcramta']) + 50:.2f}"
+    await _snap(app_client, b, "trial_balance_ledgerwise", AS_ON, at=SNAP_AT + timedelta(minutes=5), cells=cells)
     res = await parity(app_client, b)
     assert res["status"] == "suspect"
+
     async with fresh(engine) as s:
         run = await run_row(s, res["parity_run_id"])
         sw = await sw_row(s, b.ws)
-    assert run["status"] == "suspect"
-    assert (sw["ladder"]["state"], sw["last_parity"]["state"]) == ("suspect", "ok")
+    assert (run["status"], run["mismatch_count"]) == ("suspect", 1)
+    assert sw["ladder"]["state"] == "suspect"
+    assert sw["last_parity"] == {"state": "ok", "checked_at": "2026-09-25T06:35:00+00:00", "as_on": "2026-03-31",
+                                 "mismatch_count": 0, "verified_from": "2025-04-01", "run_id": ok["parity_run_id"]}
+    assert sw["last_parity"]["checked_at"] != before["checked_at"]
     status = (await app_client.get(f"/api/workspaces/{b.ws}/sync-status", headers=web_headers(b.uid))).json()
-    assert status["last_parity"]["state"] == "ok"
-    assert status["last_parity"]["mismatch_count"] == run["mismatch_count"] > 0
+    assert status["last_parity"] == sw["last_parity"]
 
 
 async def test_parity_sums_use_the_covering_index(app_client, session, engine):
