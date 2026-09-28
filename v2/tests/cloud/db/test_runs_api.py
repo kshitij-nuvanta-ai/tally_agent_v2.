@@ -398,6 +398,115 @@ async def test_incremental_completion_from_error_window_incomplete_moves_to_firs
     assert sw["cursor_alt_vch_id"] == 110 and sw["cursor_alt_mst_id"] == 55  # cursor still moves either way
 
 
+# --- Fix round 2 (controller ruling, re-review of I2): `error -> ready/first_sync` only once cursors exist ---
+
+
+async def test_backfill_completion_in_error_with_null_cursors_stays_error_and_first_sync_recovers(
+    app_client, session, clock
+):
+    """A first_sync that fails FATALLY before ever completing leaves the workspace `error` with NULL cursors.
+    A `backfill` completing afterward must NOT move the workspace to `ready` with NULL cursors — `backfill`
+    never sets a cursor (`cursor_on_completion` returns `None` for it), and `ready` with NULL cursors would
+    refuse both a new `first_sync` (nowhere left to recover from) and every `incremental` (I2's NULL-cursor
+    gate), wedging the workspace for good. It must stay `error`, exactly where F12 still allows a new
+    `first_sync` to recover."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 965, "alt_mst_id": 412}},
+        headers=headers,
+    )
+    first_run_id = r_open.json()["run_id"]
+    for fy_start, total in (("2025-04-01", 12), ("2026-04-01", 6)):
+        for month in _fy_months(fy_start, total):
+            await _ack(app_client, headers, ws, fy_start, month, run_id=first_run_id)
+
+    r_fail = await app_client.patch(
+        f"/api/sync/{ws}/runs/{first_run_id}", json={"status": "failed", "error_code": "company_mismatch"},
+        headers=headers,
+    )
+    assert r_fail.status_code == 200, r_fail.text
+    sw_after_fail = await _sw_row(session, ws)
+    assert sw_after_fail["sync_state"] == "error"
+    assert sw_after_fail["cursor_alt_vch_id"] is None and sw_after_fail["cursor_alt_mst_id"] is None
+
+    r_open_backfill = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "backfill"}, headers=headers)
+    assert r_open_backfill.status_code == 200, r_open_backfill.text
+    backfill_run_id = r_open_backfill.json()["run_id"]
+
+    r_complete_backfill = await app_client.patch(
+        f"/api/sync/{ws}/runs/{backfill_run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
+        headers=headers,
+    )
+    assert r_complete_backfill.status_code == 200, r_complete_backfill.text
+
+    sw_after_backfill = await _sw_row(session, ws)
+    assert sw_after_backfill["sync_state"] == "error"  # NOT ready — this is the fix
+    assert sw_after_backfill["cursor_alt_vch_id"] is None and sw_after_backfill["cursor_alt_mst_id"] is None
+
+    backfill_run = await _run_row(session, backfill_run_id)
+    assert backfill_run["status"] == "completed"  # the run itself still completes normally
+
+    # F12 recovery: a NEW first_sync is still accepted from `error` (cursors NULL) — this is exactly the
+    # recovery path the pre-fix bug would have closed off forever. Window coverage is already `complete` from
+    # the first attempt's acks, so no re-acking is needed for it to complete straight through.
+    r_open_2 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 965, "alt_mst_id": 412}},
+        headers=headers,
+    )
+    assert r_open_2.status_code == 200, r_open_2.text
+    second_run_id = r_open_2.json()["run_id"]
+    assert second_run_id != first_run_id
+
+    r_complete_2 = await app_client.patch(
+        f"/api/sync/{ws}/runs/{second_run_id}",
+        json={"status": "completed", "progress_done": 18, "progress_total": 18, "batches_declared": 0},
+        headers=headers,
+    )
+    assert r_complete_2.status_code == 200, r_complete_2.text
+
+    sw_final = await _sw_row(session, ws)
+    assert sw_final["sync_state"] == "ready"
+    assert sw_final["cursor_alt_vch_id"] == 965 and sw_final["cursor_alt_mst_id"] == 412
+
+
+async def test_first_sync_completing_in_error_state_sets_cursors_and_reaches_ready(app_client, session, clock):
+    """The existing F12 recovery path must stay green: a `first_sync` opened from `error` (NULL cursors) sets
+    the cursors on its own completion and reaches `ready` — unaffected by the new cursors-set guard, which only
+    restricts the generic `error` completion row for OTHER run kinds."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_state_row(session, ws, "error")  # a prior fatal failure; cursors already NULL by default
+
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 965, "alt_mst_id": 412}},
+        headers=headers,
+    )
+    assert r_open.status_code == 200, r_open.text
+    run_id = r_open.json()["run_id"]
+
+    sw_mid = await _sw_row(session, ws)
+    assert sw_mid["sync_state"] == "first_sync"  # F12: error -> first_sync on open
+
+    for fy_start, total in (("2025-04-01", 12), ("2026-04-01", 6)):
+        for month in _fy_months(fy_start, total):
+            await _ack(app_client, headers, ws, fy_start, month, run_id=run_id)
+
+    r_complete = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 18, "progress_total": 18, "batches_declared": 0},
+        headers=headers,
+    )
+    assert r_complete.status_code == 200, r_complete.text
+
+    sw = await _sw_row(session, ws)
+    assert sw["sync_state"] == "ready"
+    assert sw["cursor_alt_vch_id"] == 965 and sw["cursor_alt_mst_id"] == 412
+
+
 # --- §7.8 full_resync gating (D16) ------------------------------------------------------------------------
 
 

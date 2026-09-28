@@ -383,7 +383,17 @@ async def _apply_completion_transition(session: AsyncSession, sw: SyncWorkspace,
     # §8.2 window-driven transitions: `first_sync`'s own event, and (I2) the SAME `error -> ready / first_sync`
     # row for ANY OTHER run kind (incremental, backfill, single-FY full_resync) that completes while the
     # workspace is still `error` — not only `first_sync` runs.
-    if run.kind == "first_sync" or sw.sync_state == "error":
+    #
+    # Fix round 2 (controller ruling, re-review of I2): the `error -> ready/first_sync` row applies ONLY when
+    # the cursors are non-NULL AFTER this completion's own cursor update above (`incremental`/`first_sync`/a
+    # whole-company `full_resync` may have just set them here; an `incremental` opened after F12/I2 already
+    # had them set before this call). A `backfill` or single-FY `full_resync` never sets a cursor
+    # (`cursor_on_completion` returns `None` for both) — completing one in `error` with cursors STILL NULL (a
+    # first_sync that failed before ever completing) must leave the workspace `error`, not `ready` with NULL
+    # cursors, which would then refuse BOTH a new `first_sync` (F12's NULL-cursor guard, inverted — it only
+    # allows first_sync FROM `error`) and every `incremental` (I2's own NULL-cursor gate) forever.
+    cursors_set = sw.cursor_alt_vch_id is not None and sw.cursor_alt_mst_id is not None
+    if run.kind == "first_sync" or (sw.sync_state == "error" and cursors_set):
         complete = await _window_complete(session, sw, clock)
         if sw.sync_state == "first_sync":
             if complete and (sw.sync_state, "first_sync_completed_window_complete") in state.TRANSITIONS:
