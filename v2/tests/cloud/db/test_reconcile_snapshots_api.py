@@ -7,6 +7,8 @@ import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from v2.cloud.clock import FixedClock
 from v2.cloud.ingest import snapshots as snap_mod
 from v2.cloud.models import SyncWorkspace
@@ -447,6 +449,97 @@ async def test_snapshot_newer_wins_under_concurrent_writes(app_client, session, 
     async with fresh(engine) as s:
         snap = await one(s, "SELECT captured_at FROM tally_report_snapshots WHERE workspace_id=:w", w=ws)
         assert snap["captured_at"] == datetime.fromisoformat("2026-09-25T17:00:00+05:30")
+
+
+_NEWER_CAPTURED_AT = "2026-09-25T17:00:00+05:30"
+_OLDER_CAPTURED_AT = "2026-09-25T16:00:00+05:30"
+
+
+@pytest.mark.parametrize("a_capture, b_capture, want_a, want_b", [
+    # A commits FIRST (holding the row lock while B blocks), B's conflicting write resolves only after A commits.
+    ("newer", "older", {"stored": True, "replaced": False}, {"stored": False, "replaced": False}),
+    ("older", "newer", {"stored": True, "replaced": False}, {"stored": True, "replaced": True}),
+], ids=["newer-commits-first-then-older-blocked", "older-commits-first-then-newer-blocked"])
+async def test_snapshot_forced_order_concurrency_both_orders(app_client, session, engine, a_capture, b_capture,
+                                                              want_a, want_b):
+    """Fix round 2 (re-review verdict on I1): the barrier-based test above exercises ONE real interleaving per
+    run, with nothing controlling which INSERT actually reaches Postgres first -- it does not demonstrably
+    exercise "older lands first, newer updates it" versus "newer lands first, older is skipped" SEPARATELY. This
+    test forces each order explicitly: transaction A's `store()` call is left UNCOMMITTED, so it holds the
+    row-lock on the about-to-be-created unique key (there being no prior row for this `as_on_date`); a second
+    transaction B's `store()` call, on the SAME key, then blocks in Postgres waiting for A's lock -- proven by
+    a short timeout that must expire while B is still pending. Only once A commits does B's write resolve, and
+    at that point Postgres re-evaluates B's `WHERE captured_at < excluded.captured_at` against A's
+    JUST-COMMITTED value. Parametrized both ways; every response field is asserted exactly (never `in (True,
+    False)`), and the final stored `captured_at` is always the NEWER capture regardless of commit order."""
+    ws, headers, run_id = await _b_with_masters(app_client, session)
+    cells = _tb_cells()
+    bodies = {
+        "newer": SnapshotRequest.model_validate(_snapshot_body(captured_at=_NEWER_CAPTURED_AT, cells=cells)),
+        "older": SnapshotRequest.model_validate(_snapshot_body(captured_at=_OLDER_CAPTURED_AT, cells=cells)),
+    }
+    a_body, b_body = bodies[a_capture], bodies[b_capture]
+
+    async with fresh(engine) as sa:
+        sw_a = await sa.get(SyncWorkspace, ws)
+        result_a = await snap_mod.store(sa, sw_a, a_body, FixedClock(datetime.now(timezone.utc)))
+        # A's transaction is left open (no commit yet): its INSERT holds the row lock on this (ws, report_type,
+        # as_on_date) key -- there is no prior row, so this is a genuine first-writer lock, not a SELECT FOR
+        # UPDATE against something already committed.
+
+        async def run_b() -> dict:
+            async with fresh(engine) as sb:
+                sw_b = await sb.get(SyncWorkspace, ws)
+                r = await snap_mod.store(sb, sw_b, b_body, FixedClock(datetime.now(timezone.utc)))
+                await sb.commit()
+                return r
+
+        b_task = asyncio.create_task(run_b())
+        with pytest.raises(asyncio.TimeoutError):                  # B must genuinely block on A's uncommitted lock
+            await asyncio.wait_for(asyncio.shield(b_task), timeout=0.3)
+        assert not b_task.done()
+
+        await sa.commit()                                          # release the lock -- B now resolves
+        result_b = await asyncio.wait_for(b_task, timeout=10)
+
+    assert result_a["stored"] == want_a["stored"] and result_a["replaced"] == want_a["replaced"]
+    assert result_b["stored"] == want_b["stored"] and result_b["replaced"] == want_b["replaced"]
+
+    async with fresh(engine) as s:
+        snap = await one(s, "SELECT captured_at FROM tally_report_snapshots WHERE workspace_id=:w", w=ws)
+        assert snap["captured_at"] == datetime.fromisoformat(_NEWER_CAPTURED_AT)   # the newer one always wins
+
+
+async def test_snapshot_noop_response_describes_stored_row_not_rejected_body(app_client, session, engine):
+    """Fix round 2 (re-review verdict on I1): pins that the no-op response describes what IS stored (X), never
+    the rejected incoming body (Y) -- `test_older_capture_does_not_replace` couldn't tell the two apart because
+    it posts IDENTICAL cells twice. Here X (18 rows, nets to 0.00) and Y (the same capture with its forex row
+    stripped -- 17 rows, nets to 183.87, LESSONS rule 29(b)) are genuinely different, so a response that echoed
+    Y's numbers instead of X's would be caught."""
+    ws, headers, run_id = await _b_with_masters(app_client, session)
+    x_cells = _tb_cells()                                            # X: the real, full capture
+    y_cells = [c for c in _tb_cells() if c["dspdispname"] != "Unadjusted Forex Gain/Loss"]   # Y: differs from X
+
+    r1 = await _post_snapshot(app_client, ws, headers, _snapshot_body(captured_at=_NEWER_CAPTURED_AT, cells=x_cells))
+    assert r1.status_code == 200, r1.text
+    assert r1.json() == {"stored": True, "replaced": False, "row_count": 18,
+                         "synthetic_rows": ["Opening Stock", "Unadjusted Forex Gain/Loss"], "imbalance": "0.00",
+                         "warnings": []}
+
+    r2 = await _post_snapshot(app_client, ws, headers, _snapshot_body(captured_at=_OLDER_CAPTURED_AT, cells=y_cells))
+    assert r2.status_code == 200, r2.text
+    out2 = r2.json()
+    assert out2["stored"] is False and out2["replaced"] is False
+    # Echoes X (the stored row), never Y (the rejected, older, different body):
+    assert out2["row_count"] == 18                                    # NOT Y's 17
+    assert out2["synthetic_rows"] == ["Opening Stock", "Unadjusted Forex Gain/Loss"]   # NOT Y's single entry
+    assert out2["imbalance"] == "0.00"                                 # NOT Y's "183.87"
+
+    async with fresh(engine) as s:
+        snap = await one(s, "SELECT captured_at, cells, row_count, imbalance FROM tally_report_snapshots "
+                            "WHERE workspace_id=:w", w=ws)
+        assert snap["captured_at"] == datetime.fromisoformat(_NEWER_CAPTURED_AT)
+        assert snap["cells"] == x_cells and snap["row_count"] == 18 and snap["imbalance"] == 0
 
 
 # --- I5: empty / primary-less TB -> NULL imbalance, never 0 -------------------------------------------------------
