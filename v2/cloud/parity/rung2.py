@@ -33,9 +33,20 @@ def primary_group_rows(rows: list[TbRow]) -> dict[str, Decimal]:
 
 def rung2(ledgers: list[LedgerIn], rung1_lines: list[Line], forex_lines: list[Line], group_rows: dict[str, Decimal],
           opening_stock: Decimal | None, stock_bearing_primary: str, nominal_tb: dict[str, Decimal], sums: Sums,
-          unresolved_nominal: list[str], tol: Decimal, *, ledgerwise_flags: Mapping[str, str] | None) -> list[Line]:
+          unresolved_nominal: list[str], tol: Decimal, *, ledgerwise_flags: Mapping[str, str] | None,
+          group_anchors: Mapping[str, Decimal] | None = None,
+          group_unrealised: Mapping[str, Decimal] | None = None) -> list[Line]:
     """``nominal_tb`` must come from a ledger-level TB: ``ledgerwise_flags`` is that snapshot's ``request_flags``
-    and anything but ``ISLEDGERWISE = Yes`` raises ``ValueError("not a ledger-level TB")``."""
+    and anything but ``ISLEDGERWISE = Yes`` raises ``ValueError("not a ledger-level TB")``.
+
+    **Group-anchor route** (controller ruling, 10c carry; §10.4 "rung 2 carries the check at group level", §15.5
+    row 12). When a balance-sheet group has members with no ledger-level anchor (rung-1 ``no_ledger_anchor``) and
+    ``group_anchors`` is given -- the group TB as-on E−1, first-occurrence rows, already net of that TB's Opening
+    Stock and of our books_from day-one lines (the caller's job) -- the group is compared as
+    ``anchor_g + Σ countable lines of its live ledgers in [E, as_on] + unrealised_g + Opening Stock`` (§10.6). A group
+    absent from the anchor TB anchors at 0.00 (Tally omits zero rows). ``group_unrealised[g]`` is the forex
+    revaluation attributable to g; a group holding forex ledgers with no such entry can't be split and stays
+    ``not_applicable`` (``forex_unsplit``) rather than be compared off by the revaluation."""
     require_ledgerwise(ledgerwise_flags)
     lines: list[Line] = []
 
@@ -68,6 +79,16 @@ def rung2(ledgers: list[LedgerIn], rung1_lines: list[Line], forex_lines: list[Li
         if nature in BS_NATURES:
             ledger_lines = [bs_line.get(l.guid) for l in own]
             if any(x is None or x.our is None for x in ledger_lines):
+                if group_anchors is not None:
+                    if any(l.is_forex for l in own) and group not in (group_unrealised or {}):
+                        lines.append(Line("group", None, group, None, tally, None, "not_applicable", "forex_unsplit"))
+                        continue
+                    our = group_anchors.get(group, ZERO) + sum((sums.total.get(l.guid, ZERO) for l in own), ZERO)
+                    our += (group_unrealised or {}).get(group, ZERO)
+                    if group == stock_bearing_primary and opening_stock is not None:
+                        our += opening_stock
+                    lines.append(Line("group", None, group, our, tally, tally - our, compare(our, tally, tol), None))
+                    continue
                 cause = next((x.cause for x in ledger_lines if x is not None and x.our is None), "no_ledger_line")
                 lines.append(Line("group", None, group, None, tally, None, "not_applicable", cause))
                 continue

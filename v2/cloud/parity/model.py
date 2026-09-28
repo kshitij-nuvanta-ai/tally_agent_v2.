@@ -13,7 +13,7 @@ from typing import Iterable
 
 from v2.cloud.clock import fy_start_of
 from v2.contract.parse import name as parse_name
-from v2.contract.tally_rules import PL_ACCOUNT_LEDGER
+from v2.contract.tally_rules import PL_ACCOUNT_LEDGER, PRIMARY_NATURE
 
 TOL = Decimal("1.00")
 ZERO = Decimal("0")
@@ -128,6 +128,24 @@ def compare(our: Decimal, tally: Decimal, tol: Decimal) -> str:
     return "match" if abs(tally - our) <= tol else "mismatch"
 
 
+def has_problem(lines: Iterable[Line]) -> bool:
+    """Some line is a mismatch or a missing_* -- the ladder's ``had_mismatch`` (§10.8)."""
+    return any(l.verdict in PROBLEM_VERDICTS for l in lines)
+
+
+def bs_verified(lines: Iterable[Line]) -> bool:
+    """At least one balance-sheet primary group was actually compared and agreed. Every verified balance-sheet
+    figure -- rung-1 ledgers or the group-anchor route (§10.4 "rung 2 carries the check at group level") -- rolls up
+    into one; a run where every balance-sheet ledger AND group is ``not_applicable`` verified nothing."""
+    return any(l.scope == "group" and PRIMARY_NATURE.get(l.name) in BS_NATURES and l.verdict in _AGREED
+               for l in lines)
+
+
+_AGREED = frozenset({"match", "match_revalued"})
+
+
 def is_clean(lines: Iterable[Line]) -> bool:
-    """No line is a mismatch or a missing_*: the run's lines support status ``ok`` (§10.8)."""
-    return not any(l.verdict in PROBLEM_VERDICTS for l in lines)
+    """The run's lines support status ``ok`` (§10.8): no mismatch / missing_*, AND some balance-sheet figure was
+    verified at either rung (controller ruling, 10c carry: never ``ok`` when nothing balance-sheet was checked)."""
+    lines = list(lines)
+    return not has_problem(lines) and bs_verified(lines)

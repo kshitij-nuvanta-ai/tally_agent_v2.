@@ -153,3 +153,21 @@ def test_pl_account_with_expression_balance_is_never_a_forex_line():     # compa
     pl = replace(USD, guid="pl", name="Profit & Loss A/c", primary_group=None, nature=None)
     lines, total = forex_lines([pl], {}, SUMS, {}, None, TOL)
     assert (lines, total) == ([], D("0"))
+
+
+def test_forex_ledger_absent_from_the_tb_is_zero_never_the_mirrored_closing():
+    """10c carry (10a must-fix): absent from the ledger-level TB means 0.00 there -- rung 1's order. The mirrored
+    closing is the CURRENT period's figure and is wrong for a bisect month-end or a past FY as-on."""
+    (line,), _ = forex_lines([USD], {"usd": D("0")}, SUMS, {}, None, TOL)
+    assert line.tally == D("0.00")
+    assert line.tally != USD.mirrored_closing
+    assert (line.diff, line.verdict, line.cause) == (D("133113.72"), "mismatch", "forex_revaluation_unexplained")
+
+
+def test_zero_diff_under_an_accepted_set_is_a_plain_match():
+    """10c: an E−1 anchor row is already Tally's revalued figure, so with no forex line since the anchor the ledger
+    agrees exactly -- `match`, not `match_revalued` carrying 0.00 (§15.5 row 1: BS `match`)."""
+    sums = Sums(total={}, face={}, face_complete={}, fy_total={})
+    usd = replace(USD, opening_fx=D("-1609.71"))
+    (line,), total = forex_lines([usd], {"usd": D("-132929.85")}, sums, {"usd": D("-132929.85")}, D("0"), TOL)
+    assert (line.verdict, line.unrealised, line.diff, total) == ("match", None, D("0.00"), D("0"))

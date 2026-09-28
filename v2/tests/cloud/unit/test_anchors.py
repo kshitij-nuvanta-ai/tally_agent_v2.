@@ -10,6 +10,7 @@ from v2.cloud.parity.anchors import AnchorPlan, anchor_amounts, plan, require_le
 from v2.cloud.parity.model import TbRow
 from v2.tests.cloud import parity_realdata as prd
 from v2.tests.cloud import realdata
+LW = {"ISLEDGERWISE": "Yes"}
 
 
 def test_anchor_is_tb_as_on_day_before_verified_edge():
@@ -34,7 +35,7 @@ def test_real_a_books_start_anchor_skips_opening_stock_row():           # G1 cap
     index = _a_index()
     rows = prd.tb("s1_A_tb_ledger_asof_2025-04-01.xml")
     assert [r.name for r in rows][0] == "Opening Stock"
-    anchors, unresolved = anchor_amounts(rows, index, {})
+    anchors, unresolved = anchor_amounts(rows, index, {}, ledgerwise_flags=LW)
     by_name = {index.resolve("ledger", n): n for n in ("Capital Account", "HDFC Bank - Current A/c",
                                                        "SBI Savings A/c")}
     assert {by_name[g]: a for g, a in anchors.items()} == {
@@ -47,14 +48,14 @@ def test_books_from_line_sums_are_subtracted_incl_ledgers_absent_from_tb():
     index = _a_index()
     hdfc, cash = index.resolve("ledger", "HDFC Bank - Current A/c"), index.resolve("ledger", "Cash")
     anchors, _ = anchor_amounts(prd.tb("s1_A_tb_ledger_asof_2025-04-01.xml"), index,
-                                {hdfc: D("-1000.00"), cash: D("1000.00")})
+                                {hdfc: D("-1000.00"), cash: D("1000.00")}, ledgerwise_flags=LW)
     # TB as-on books_from already includes day-one lines; the anchor is the balance BEFORE them
     assert anchors[hdfc] == D("501000.00") and anchors[cash] == D("-1000.00")
 
 
 def test_tb_row_resolving_to_no_ledger_is_returned_unresolved():
     index = _a_index()
-    anchors, unresolved = anchor_amounts([TbRow("Ghost Ledger", D("5.00")), TbRow("Cash", D("1.00"))], index, None)
+    anchors, unresolved = anchor_amounts([TbRow("Ghost Ledger", D("5.00")), TbRow("Cash", D("1.00"))], index, None, ledgerwise_flags=LW)
     assert unresolved == ["Ghost Ledger"] and list(anchors.values()) == [D("1.00")]
 
 
@@ -75,3 +76,11 @@ def test_require_ledgerwise_accepts_only_isledgerwise_yes():
             require_ledgerwise(prd.request_flags(capture))
     with pytest.raises(ValueError, match="not a ledger-level TB"):
         require_ledgerwise(None)
+
+
+def test_anchor_tb_must_be_ledger_level():
+    """10c carry: `require_ledgerwise` guards the anchor TB too, not only rung 2's nominal TB (D29)."""
+    index = NameIndex.from_rows([("ledger", "cash", "Cash", False)])
+    for flags in ({"EXPLODEFLAG": "Yes"}, {}, None, {"ISLEDGERWISE": "No"}):
+        with pytest.raises(ValueError, match="not a ledger-level TB"):
+            anchor_amounts([TbRow("Cash", D("1.00"))], index, None, ledgerwise_flags=flags)

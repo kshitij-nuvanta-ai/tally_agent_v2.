@@ -61,11 +61,14 @@ def resolve_rows(rows: list[TbRow], index: NameIndex) -> tuple[dict[str, Decimal
 
 
 def anchor_amounts(ledgerwise_rows: list[TbRow], index: NameIndex,
-                   books_from_line_sums: dict[str, Decimal] | None) -> tuple[dict[str, Decimal], list[str]]:
-    """The per-ledger anchor. ``books_from_line_sums`` (only for the ``E = books_from`` plan): Σ our countable
+                   books_from_line_sums: dict[str, Decimal] | None, *,
+                   ledgerwise_flags: Mapping[str, str] | None) -> tuple[dict[str, Decimal], list[str]]:
+    """The per-ledger anchor. ``ledgerwise_flags`` is the anchor snapshot's ``request_flags``: anything but
+    ``ISLEDGERWISE = Yes`` raises ``ValueError("not a ledger-level TB")`` (10c carry: the anchor is guarded too). ``books_from_line_sums`` (only for the ``E = books_from`` plan): Σ our countable
     lines dated ``books_from`` per ledger, subtracted -- including for a ledger absent from the TB (its balance at
     the end of day one is 0, so its anchor is minus its day-one lines). A ledger absent from both has anchor 0 and
     is simply not in the dict (§10.4)."""
+    require_ledgerwise(ledgerwise_flags)
     anchors, unresolved = resolve_rows(ledgerwise_rows, index)
     for guid, amount in (books_from_line_sums or {}).items():
         anchors[guid] = anchors.get(guid, ZERO) - amount

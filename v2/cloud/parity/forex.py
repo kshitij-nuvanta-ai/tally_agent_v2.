@@ -60,16 +60,18 @@ def forex_lines(forex_ledgers: list[LedgerIn], anchors: dict[str, Decimal] | Non
 
     Only live-in-capture, balance-sheet, non-``Profit & Loss A/c`` ledgers are forex lines; rung 1 reports the rest
     (``missing_in_tally``, ``pl_account`` -- company B's P&L A/c master carries an expression balance, so D30 marks
-    it forex -- ``unclassified_group``). Tally's figure is the ledger-level TB row; a ledger absent from it falls
-    back to the mirrored closing, else 0.00 (§10.4)."""
+    it forex -- ``unclassified_group``). Tally's figure is the ledger-level TB row; a ledger absent from it is 0.00
+    (§10.4, Tally omits zero rows)."""
     ledgers = [l for l in forex_ledgers if l.in_capture and l.nature in BS_NATURES and not is_pl_account(l)]
     if anchors is None:
         return [Line("ledger", l.guid, l.name, None, None, None, "not_applicable", "no_ledger_anchor")
                 for l in ledgers], ZERO
 
     ours = {l.guid: anchors.get(l.guid, ZERO) + sums.total.get(l.guid, ZERO) for l in ledgers}
-    tally = {l.guid: tb_by_guid[l.guid] if l.guid in tb_by_guid
-             else (l.mirrored_closing if l.mirrored_closing is not None else Decimal("0.00")) for l in ledgers}
+    # Controller ruling (10c carry, 10a must-fix): a forex ledger absent from the ledger-level TB is 0.00 there --
+    # the same order rung 1 uses (Tally omits zero rows) -- never the mirrored (current-period) closing, which is the
+    # wrong figure for any other as-on date (month-bisect, past FY).
+    tally = {l.guid: tb_by_guid.get(l.guid, Decimal("0.00")) for l in ledgers}
     raw = {g: tally[g] - ours[g] for g in ours}
     set_ok = set_rule(raw, unadjusted, tol)
 
@@ -84,6 +86,10 @@ def forex_lines(forex_ledgers: list[LedgerIn], anchors: dict[str, Decimal] | Non
                     our_fx=our_fx, tally_fx=l.closing_fx)
         if cause == "forex_face_mismatch":
             lines.append(Line(**base, verdict="mismatch", cause=cause))
+        elif set_ok and raw[g] == 0:
+            # 10c: nothing to revalue since the anchor (an E−1 anchor row is already Tally's revalued figure) --
+            # a plain match, not a `match_revalued` carrying 0.00.
+            lines.append(Line(**base, verdict="match", cause=None))
         elif set_ok:
             lines.append(Line(**base, verdict="match_revalued", cause=None, unrealised=raw[g]))
             total += raw[g]

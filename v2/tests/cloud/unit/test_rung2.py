@@ -48,7 +48,7 @@ def test_primary_group_first_occurrence_only():                          # p16_A
 
 def test_opening_stock_added_only_to_stock_bearing_group():
     ledgers = [L("cash", closing=D("-10")), L("fa", primary="Fixed Assets", closing=D("-20"))]
-    r1 = rung1(ledgers, {}, S({"cash": D("-10"), "fa": D("-20")}), {}, [], TOL)
+    r1 = rung1(ledgers, {}, S({"cash": D("-10"), "fa": D("-20")}), {}, [], TOL, ledgerwise_flags=LW)
     lines = rung2(ledgers, r1, [], {"Current Assets": D("-35"), "Fixed Assets": D("-20")}, D("-25"),
                   "Current Assets", {}, S(), [], TOL, ledgerwise_flags=LW)
     g = _groups(lines)
@@ -61,7 +61,7 @@ def test_bs_group_includes_accepted_forex_unrealised():                  # §10.
             closing_fx_rate=D("82.58"), opening_fx=D("0"))
     sums = Sums(total={"usd": D("-133113.72")}, face={"usd": D("-1609.71")}, face_complete={"usd": True},
                 fy_total={"usd": D("-133113.72")})
-    r1 = rung1([usd], {"usd": D("0")}, sums, {"usd": D("-132929.85")}, [], TOL)
+    r1 = rung1([usd], {"usd": D("0")}, sums, {"usd": D("-132929.85")}, [], TOL, ledgerwise_flags=LW)
     fl, total = forex_lines([usd], {"usd": D("0")}, sums, {"usd": D("-132929.85")}, D("-183.87"), TOL)
     lines = rung2([usd], r1, fl, {"Current Assets": D("-132929.85")}, None, "Current Assets", {}, sums, [], TOL,
                   ledgerwise_flags=LW)
@@ -105,7 +105,7 @@ def test_nominal_tb_row_unresolved_missing_in_db():
 
 def test_group_mismatch_with_all_ledgers_matching_is_group_walk_wrong():
     a, b = L("a", closing=D("-10")), L("b", closing=D("-20"))
-    r1 = rung1([a, b], {}, S({"a": D("-10"), "b": D("-20")}), {}, [], TOL)
+    r1 = rung1([a, b], {}, S({"a": D("-10"), "b": D("-20")}), {}, [], TOL, ledgerwise_flags=LW)
     assert all(l.verdict == "match" for l in r1)
     lines = rung2([a, b], r1, [], {"Current Assets": D("-50")}, None, "Current Assets", {}, S(), [], TOL,
                   ledgerwise_flags=LW)
@@ -115,7 +115,7 @@ def test_group_mismatch_with_all_ledgers_matching_is_group_walk_wrong():
 
 def test_group_mismatch_with_a_ledger_mismatching_has_no_group_cause():
     a = L("a", closing=D("-10"))
-    r1 = rung1([a], {}, S({"a": D("-15")}), {}, [], TOL)
+    r1 = rung1([a], {}, S({"a": D("-15")}), {}, [], TOL, ledgerwise_flags=LW)
     lines = rung2([a], r1, [], {"Current Assets": D("-10")}, None, "Current Assets", {}, S(), [], TOL,
                   ledgerwise_flags=LW)
     g = _groups(lines)["Current Assets"]
@@ -124,14 +124,14 @@ def test_group_mismatch_with_a_ledger_mismatching_has_no_group_cause():
 
 def test_group_absent_from_tb_with_ledgers_is_compared_against_zero():
     fa = L("fa", primary="Fixed Assets", closing=D("0"))
-    r1 = rung1([fa], {}, S({"fa": D("-5")}), {}, [], TOL)
+    r1 = rung1([fa], {}, S({"fa": D("-5")}), {}, [], TOL, ledgerwise_flags=LW)
     g = _groups(rung2([fa], r1, [], {}, None, "Current Assets", {}, S(), [], TOL, ledgerwise_flags=LW))
     assert (g["Fixed Assets"].tally, g["Fixed Assets"].verdict) == (D("0"), "mismatch")
 
 
 def test_bs_group_with_no_ledger_anchor_is_not_applicable():             # never `match` without an anchor
     a = L("a", closing=D("-10"))
-    r1 = rung1([a], None, S({"a": D("-10")}), {}, [], TOL)
+    r1 = rung1([a], None, S({"a": D("-10")}), {}, [], TOL, ledgerwise_flags=LW)
     g = _groups(rung2([a], r1, [], {"Current Assets": D("-10")}, None, "Current Assets", {}, S(), [], TOL,
                       ledgerwise_flags=LW))["Current Assets"]
     assert (g.verdict, g.cause) == ("not_applicable", "no_ledger_anchor")
@@ -209,3 +209,59 @@ def test_real_b_2023_forex_sale_missing_is_caught():                      # §15
     assert (usd_line.verdict, usd_line.cause) == ("mismatch", "forex_revaluation_unexplained")
     export_line = next(l for l in result.rung2 if l.scope == "ledger" and l.name == "Export Sales")
     assert export_line.verdict == "mismatch"                              # full base on the INR side
+
+
+# --- 10c carry: the group-anchor route (§10.4 "rung 2 carries the check at group level", §15.5 row 12) -------------
+
+def _no_anchor_r1(ledgers, sums):
+    return rung1(ledgers, None, sums, {}, [], TOL, ledgerwise_flags=LW)
+
+
+def test_group_anchor_route_compares_the_bs_group_when_no_ledger_anchor_exists():
+    a, b = L("a"), L("b")
+    fa = L("fa", primary="Fixed Assets")
+    sums = S({"a": D("-10"), "b": D("-20"), "fa": D("-5")})
+    r1 = _no_anchor_r1([a, b, fa], sums)
+    assert {l.verdict for l in r1} == {"not_applicable"} and {l.cause for l in r1} == {"no_ledger_anchor"}
+    g = _groups(rung2([a, b, fa], r1, [], {"Current Assets": D("-155"), "Fixed Assets": D("-5")}, D("-25"),
+                      "Current Assets", {}, sums, [], TOL, ledgerwise_flags=LW,
+                      group_anchors={"Current Assets": D("-100")}))
+    # anchor −100 + lines −30 + Opening Stock −25 = −155; Fixed Assets is absent from the anchor TB -> 0 + −5
+    assert (g["Current Assets"].our, g["Current Assets"].verdict, g["Current Assets"].cause) == \
+        (D("-155"), "match", None)
+    assert (g["Fixed Assets"].our, g["Fixed Assets"].verdict) == (D("-5"), "match")
+    assert is_clean(r1 + list(g.values()))
+
+
+def test_group_anchor_route_catches_a_missing_line_at_group_level():
+    a = L("a")
+    sums = S({"a": D("-10")})
+    g = _groups(rung2([a], _no_anchor_r1([a], sums), [], {"Current Assets": D("-160")}, None, "Current Assets",
+                      {}, sums, [], TOL, ledgerwise_flags=LW, group_anchors={"Current Assets": D("-100")}))
+    assert (g["Current Assets"].diff, g["Current Assets"].verdict) == (D("-50"), "mismatch")
+
+
+def test_group_anchor_route_forex_member_without_a_split_is_not_applicable():
+    usd = L("usd", is_forex=True)
+    sums = S({"usd": D("-100")})
+    fl, _ = forex_lines([usd], None, sums, {}, None, TOL)
+    kwargs = dict(ledgerwise_flags=LW, group_anchors={"Current Assets": D("0")})
+    g = _groups(rung2([usd], [], fl, {"Current Assets": D("-120")}, None, "Current Assets", {}, sums, [], TOL,
+                      **kwargs))["Current Assets"]
+    assert (g.verdict, g.cause) == ("not_applicable", "forex_unsplit")
+    g = _groups(rung2([usd], [], fl, {"Current Assets": D("-120")}, None, "Current Assets", {}, sums, [], TOL,
+                      group_unrealised={"Current Assets": D("-20")}, **kwargs))["Current Assets"]
+    assert (g.our, g.verdict) == (D("-120"), "match")
+
+
+def test_never_clean_when_no_balance_sheet_figure_was_verified():
+    """10c carry: `is_clean` (and so status `ok`) needs a verified balance-sheet figure at either rung -- every
+    BS ledger and group `not_applicable` (no ledger anchor, no group anchor) verified nothing."""
+    a = L("a")
+    sums = S({"a": D("-10")})
+    r1 = _no_anchor_r1([a], sums)
+    r2 = rung2([a], r1, [], {"Current Assets": D("-10")}, None, "Current Assets", {}, sums, [], TOL,
+               ledgerwise_flags=LW)
+    lines = r1 + r2
+    assert not any(l.verdict in ("mismatch", "missing_in_db", "missing_in_tally") for l in lines)
+    assert not is_clean(lines)

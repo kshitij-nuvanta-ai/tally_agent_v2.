@@ -139,7 +139,8 @@ def case_a() -> Case:
     facts = _line_facts(_parse_vouchers(realdata.a_vouchers("p16_A_vouchers_fy.xml")), index)
     day_one = build_sums([f for f in facts if f.voucher_date == anchor_plan.subtract_lines_dated],
                          verified_edge=books_from, as_on=books_from).total
-    anchors, anchor_unresolved = anchor_amounts(tb("s1_A_tb_ledger_asof_2025-04-01.xml"), index, day_one)
+    anchors, anchor_unresolved = anchor_amounts(tb("s1_A_tb_ledger_asof_2025-04-01.xml"), index, day_one,
+                                                ledgerwise_flags=request_flags("s1_A_tb_ledger_asof_2025-04-01.xml"))
     ledgerwise, lw_unresolved = resolve_rows(tb("p17_A_tb_exploded_isledgerwise.xml"), index)
     ledger_ins = []
     for l in ledgers:
@@ -186,7 +187,7 @@ def case_b_2023_dataset_anchor() -> Case:
 
 def run(case: Case, tol: Decimal = TOL) -> Result:
     r1 = rung1(case.ledgers, case.anchors, case.sums, case.ledgerwise_tb,
-               [*case.anchor_unresolved, *case.ledgerwise_unresolved], tol)
+               [*case.anchor_unresolved, *case.ledgerwise_unresolved], tol, ledgerwise_flags=case.ledgerwise_flags)
     forex_ledgers = [l for l in case.ledgers if l.is_forex]
     fl, total = fx.forex_lines(forex_ledgers, case.anchors, case.sums, case.ledgerwise_tb, case.unadjusted, tol)
     r2 = rung2(case.ledgers, r1, fl, case.group_rows, case.opening_stock, STOCK_BEARING_PRIMARY,

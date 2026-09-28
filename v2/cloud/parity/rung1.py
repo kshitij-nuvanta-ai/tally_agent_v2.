@@ -11,7 +11,9 @@ nature NULL -> ``unclassified_group``; nominal -> ``nominal`` (never ``match``);
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Mapping
 
+from v2.cloud.parity.anchors import require_ledgerwise
 from v2.cloud.parity.model import NOMINAL_NATURES, ZERO, LedgerIn, Line, Sums, compare, is_pl_account
 
 
@@ -30,7 +32,11 @@ def computed(l: LedgerIn, anchors: dict[str, Decimal], sums: Sums) -> Decimal:
 
 
 def rung1(ledgers: list[LedgerIn], anchors: dict[str, Decimal] | None, sums: Sums,
-          ledgerwise_tb: dict[str, Decimal], unresolved_tb_names: list[str], tol: Decimal) -> list[Line]:
+          ledgerwise_tb: dict[str, Decimal], unresolved_tb_names: list[str], tol: Decimal, *,
+          ledgerwise_flags: Mapping[str, str] | None) -> list[Line]:
+    """``ledgerwise_tb`` must come from a ledger-level TB: ``ledgerwise_flags`` is that snapshot's ``request_flags``
+    and anything but ``ISLEDGERWISE = Yes`` raises ``ValueError("not a ledger-level TB")`` (10c carry)."""
+    require_ledgerwise(ledgerwise_flags)
     lines: list[Line] = []
     for l in ledgers:
         if not l.in_capture:
