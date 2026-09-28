@@ -1,5 +1,5 @@
-"""V2 cloud FastAPI app factory (S1 spec §6.1, A13). Port 8100 (V2Settings.port); mounts the agent-auth and
-devices routers (S1 task 4) — later tasks add ``sync``/``web_sync`` routers here."""
+"""V2 cloud FastAPI app factory (S1 spec §6.1, A13). Port 8100 (V2Settings.port); mounts the agent-auth,
+devices (S1 task 4) and sync (S1 task 5) routers — later tasks add ``web_sync`` here."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from v2.cloud.api import agent_auth, devices
+from v2.cloud.api import agent_auth, devices, sync
 from v2.cloud.auth.rate_limit import SlidingWindow
 from v2.cloud.clock import Clock, SystemClock
 from v2.cloud.config import V2Settings
@@ -51,6 +51,7 @@ def create_app(settings: V2Settings | None = None, clock: Clock | None = None) -
     install_error_handler(app)
     app.include_router(agent_auth.router)
     app.include_router(devices.router)
+    app.include_router(sync.router)
 
     @app.get("/api/v2/health")
     async def health() -> dict:
