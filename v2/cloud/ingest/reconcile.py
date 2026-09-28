@@ -59,10 +59,15 @@ def _refetch(present_by_guid: dict[str, int], stored: dict[str, int]) -> list[st
 
 
 async def _stored_alters(session: AsyncSession, t, ws_id: uuid.UUID, guids: list[str]) -> dict[str, int]:
+    """Fix round 1, I2: a stored-but-``is_deleted`` row must NOT count as "known" -- if it did, a `present`
+    GUID whose only stored copy was (wrongly, or by a stale reconcile) soft-deleted would never be refetched,
+    and the S1-R8 reversibility guarantee (a re-sent voucher/master comes back live) would only fire if the
+    agent happened to resend it anyway. Treating it as unknown puts it in `refetch` on the very next reconcile
+    that lists it, regardless of its alter_id."""
     if not guids:
         return {}
     rows = (await session.execute(select(t.c.guid, t.c.alter_id).where(
-        t.c.workspace_id == ws_id, t.c.guid.in_(guids)))).all()
+        t.c.workspace_id == ws_id, t.c.guid.in_(guids), t.c.is_deleted.is_(False)))).all()
     return {g: a for g, a in rows}
 
 
@@ -155,6 +160,13 @@ async def reconcile(session: AsyncSession, sw: SyncWorkspace, device: AgentDevic
                     clock: Clock) -> dict:
     run_id = _parse_run_id(body.run_id)
     await require_open_run(session, sw, device, run_id)          # 403 wrong_workspace / 409 run_closed
+
+    # Fix round 1, controller ruling I3: `present_count` exists to catch a truncated upload (a list cut short by
+    # a transport error, a bug, a size limit) BEFORE it silently soft-deletes real rows -- D28's guard alone
+    # only catches a truncation large enough to cross its thresholds. Refused before any read of the scope, so
+    # nothing is ever soft-deleted on a mismatch.
+    if len(body.present) != body.present_count:
+        raise ApiError(422, "reconcile_list_incomplete", present=len(body.present), present_count=body.present_count)
 
     present_by_guid = {p.guid: p.alter_id for p in body.present}
     if body.scope.kind == "vouchers":
