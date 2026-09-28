@@ -1,13 +1,15 @@
-"""Device-token sync routes (S1 spec §7.5-§7.15). Task 5 landed ``POST /api/sync/company``; task 6 adds the
-``{ws}``-scoped heartbeat/state/relink routes. Later tasks add runs, batches, coverage, reconcile, snapshots,
-parity.
+"""Device-token sync routes (S1 spec §7.5-§7.15). Task 5 landed ``POST /api/sync/company``; task 6 added the
+``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10). Later tasks add
+batches, reconcile, snapshots, parity.
 """
 from __future__ import annotations
 
 import uuid
+from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +18,7 @@ from v2.cloud.auth.passwords import verify_password
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice
-from v2.cloud.sync import state
+from v2.cloud.sync import coverage, runs, state
 from v2.cloud.sync.binding import BindRequest, bind
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -125,3 +127,95 @@ async def relink(
         "restore_reason": sw.restore_reason,
         "previous_company_guids": sw.previous_company_guids,
     }
+
+
+# --- §7.7 helper reused by the runs routes below (coverage JSON, same shape as state._coverage_json) ---------
+
+
+async def _coverage_json(session: AsyncSession, workspace_id: uuid.UUID) -> list[dict]:
+    return await state._coverage_json(session, workspace_id)
+
+
+# --- §7.8 runs ---------------------------------------------------------------------------------------------
+
+
+@router.post("/{ws}/runs")
+async def post_run(
+    ws: uuid.UUID,
+    body: runs.RunCreate,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    device, sw = bound
+    clock = request.app.state.clock
+    run = await runs.open_run(session, sw, device, body, clock)
+    await session.commit()
+    return {
+        "run_id": str(run.id),
+        "kind": run.kind,
+        "status": run.status,
+        "scope": run.scope,
+        "command_id": str(run.command_id) if run.command_id else None,
+        "counters_at_start": run.counters_at_start,
+        "coverage": await _coverage_json(session, sw.workspace_id),
+    }
+
+
+@router.patch("/{ws}/runs/{run_id}")
+async def patch_run_route(
+    ws: uuid.UUID,
+    run_id: uuid.UUID,
+    body: runs.RunPatch,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    device, sw = bound
+    clock = request.app.state.clock
+    run = await runs.patch_run(session, sw, device, run_id, body, clock)
+    await session.commit()
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "cursors": {"alt_vch_id": sw.cursor_alt_vch_id, "alt_mst_id": sw.cursor_alt_mst_id},
+        "sync_state": sw.sync_state,
+        "cursor_after": run.cursor_after,
+    }
+
+
+# --- §7.10 coverage ------------------------------------------------------------------------------------------
+
+
+class CoveragePatchRequest(BaseModel):
+    fy_start: str = Field(..., min_length=1, max_length=20)
+    month: str | None = Field(None, max_length=10)
+    run_id: uuid.UUID | None = None
+    action: Literal["add_fy"] | None = None
+
+    @model_validator(mode="after")
+    def _month_required_unless_add_fy(self) -> "CoveragePatchRequest":
+        if self.action is None and not self.month:
+            raise ValueError("month is required unless action='add_fy'")
+        return self
+
+
+@router.patch("/{ws}/coverage")
+async def patch_coverage(
+    ws: uuid.UUID,
+    body: CoveragePatchRequest,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    device, sw = bound
+    clock = request.app.state.clock
+    fy_start = date.fromisoformat(body.fy_start)
+
+    if body.action == "add_fy":
+        result = await coverage.add_fy(session, sw, fy_start, clock)
+    else:
+        result = await coverage.ack_month(session, sw, fy_start, body.month, clock)
+
+    await session.commit()
+    return result

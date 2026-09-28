@@ -24,6 +24,11 @@ SPEC_8_2_TRANSITIONS = [
     # bind -> awaiting_first_connection" row and the "any -> device revoked/taken over -> unchanged" row are
     # not `transition()` calls (no prior state / no state change), so they're not listed here.
     ("awaiting_first_connection", "first_sync_opened", "first_sync"),
+    # Task 7 / F12 (controller ruling): a failed first_sync leaves the workspace `error`; the spec's own §8.2
+    # table has no `error -> first_sync` row, but refusing a NEW first_sync from `error` (while cursors are
+    # still NULL — a first sync has never completed) would leave the workspace stuck forever. `runs.open_run`
+    # only fires this event under that NULL-cursor guard.
+    ("error", "first_sync_opened", "first_sync"),
     ("first_sync", "first_sync_completed_window_complete", "ready"),
     ("first_sync", "fatal", "error"),
     ("error", "run_completed_window_complete", "ready"),

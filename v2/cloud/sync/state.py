@@ -22,6 +22,10 @@ STATES = ("awaiting_first_connection", "first_sync", "ready", "error", "restore_
 
 TRANSITIONS: dict[tuple[str, str], str] = {
     ("awaiting_first_connection", "first_sync_opened"): "first_sync",
+    # Task 7 / F12 (controller ruling): a failed first_sync leaves the workspace `error`; refusing a NEW
+    # first_sync there (while cursors are still NULL — a first sync has never completed) would leave it stuck.
+    # `runs.open_run` only fires this event when that NULL-cursor guard holds.
+    ("error", "first_sync_opened"): "first_sync",
     ("first_sync", "first_sync_completed_window_complete"): "ready",
     ("first_sync", "fatal"): "error",
     ("error", "run_completed_window_complete"): "ready",
