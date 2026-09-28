@@ -103,15 +103,17 @@ def classify(lines: list[Line], ctx: Context) -> tuple[list[Line], list[Remediat
         remediations.append(_remediation("refetch_masters", {}))
         remaining = [i for i in remaining if i not in anchor_idxs]
 
-    # Row 6: exactly one ledger differs -> ledger_gap.
-    if len(remaining) == 1:
-        i = remaining[0]
+    # Row 6: one ledger differs -> ledger_gap. Controller ruling (review I4): this is also the fallback for any
+    # mismatch no earlier signature consumed (>= 2 leftover diffs that neither net to zero nor match the
+    # anchor-wrong pattern) -- classify never returns an unlabelled mismatch. Each ledger gets its own
+    # refetch_ledger_vouchers remediation.
+    for i in remaining:
         _set(i, "ledger_gap")
         remediations.append(_remediation("refetch_ledger_vouchers", {
             "ledger_guid": result[i].guid,
             "fy_start": ctx.fy_start.isoformat(),
         }))
-        remaining = []
+    remaining = []
 
     # Row 7: forex face mismatch / unexplained revaluation (ruling F4 -- reachable only along the matching forex.py
     # path) -> forex_gap, refetch that ledger's vouchers.

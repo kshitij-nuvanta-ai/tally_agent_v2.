@@ -39,6 +39,31 @@ def test_multi_line_event_counts_causes_and_worst_bucket():
     assert ev["max_abs_diff_bucket"] == "<₹1Cr"          # worst diff is Rs 1,00,000.00
 
 
+def test_clean_forex_revaluation_does_not_inflate_the_magnitude_bucket():
+    # Review I3 / controller ruling: max_abs_diff_bucket counts ONLY `mismatch` verdicts. A match_revalued forex
+    # line's `diff` is the (accepted, expected) revaluation, not a problem -- a clean run must report the zero
+    # bucket, not the forex ledger's revaluation magnitude.
+    lines = [
+        Line("ledger", "usd_party", "USD Party", D("-133113.72"), D("-132929.85"), D("183.87"),
+             "match_revalued", None, unrealised=D("183.87")),
+        Line("ledger", "bank", "Bank", D("-10.00"), D("-10.00"), D("0.00"), "match", None),
+    ]
+    ev = integrity_event("ws-4", "run-4", 1, "ok", lines)
+    assert ev["mismatch_count"] == 0
+    assert ev["cause_counts"] == {}
+    assert ev["max_abs_diff_bucket"] == "<₹1k"
+
+
+def test_large_clean_revaluation_does_not_leak_into_the_bucket_either():
+    # Same ruling, but with a revaluation big enough (Rs 18,387.00) to cross the <₹1k boundary -- proves the
+    # filter, not just a coincidence of a small fixture amount (183.87 stays under ₹1k either way).
+    lines = [Line("ledger", "usd_party", "USD Party", D("-100000.00"), D("-118387.00"), D("18387.00"),
+                  "match_revalued", None, unrealised=D("18387.00"))]
+    ev = integrity_event("ws-5", "run-5", 1, "ok", lines)
+    assert ev["mismatch_count"] == 0
+    assert ev["max_abs_diff_bucket"] == "<₹1k"
+
+
 def test_quarantine_event_carries_no_business_data():
     ev = quarantine_event("ws-3", {"unbalanced_voucher": 2, "invalid_date": 1})
     assert ev == {"workspace_id": "ws-3", "event": "quarantine",

@@ -70,11 +70,17 @@ def test_equal_and_opposite_four_ledger_gst_set_is_voucher_missed_or_duplicated(
     assert [r.action for r in rem] == ["month_bisect"]
 
 
-def test_mismatches_not_netting_to_zero_do_not_match_the_pair_signature():
+def test_mismatches_not_netting_to_zero_fall_back_to_ledger_gap_per_ledger():
+    # Review I4 / controller ruling: a set that neither nets to zero nor matches the anchor-wrong pattern is not
+    # left unlabelled -- every leftover mismatch gets ledger_gap with its own per-ledger remediation.
     lines = [ledger_line("a", D("5000.00")), ledger_line("b", D("3000.00"))]
     out, rem = classify(lines, ctx())
     assert not any(l.cause == "voucher_missed_or_duplicated" for l in out)
     assert not any(r.action == "month_bisect" for r in rem)
+    assert {l.cause for l in out} == {"ledger_gap"}
+    actions = sorted((r.action, r.params["ledger_guid"]) for r in rem)
+    assert actions == [("refetch_ledger_vouchers", "a"), ("refetch_ledger_vouchers", "b")]
+    assert all(r.params["fy_start"] == FY_START.isoformat() for r in rem)
 
 
 def test_three_bs_ledgers_diff_like_their_anchor_rows_is_anchor_wrong():

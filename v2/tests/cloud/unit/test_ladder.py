@@ -64,6 +64,37 @@ def test_after_confirmed_fy_resync_still_mismatch_is_hard_alert():
     assert out["state"] == "hard_alert"
 
 
+def test_persistent_no_remediation_mismatch_climbs_to_alert_and_becomes_visible():
+    # Review I1 / controller ruling: a flag_filter_inverted-style cause carries NO remediation (classify() returns
+    # issued_ids=[] for it). Without the fix this mismatch sits in invisible `suspect` forever, since
+    # `remediation_done` can never cover an empty pending list. The fix: no remediation issued counts as
+    # "remediation done" by default, so a persistent mismatch still climbs the §10.8 ladder on run count alone.
+    run1 = step(OK, had_mismatch=True, remediation_done=[], issued_ids=[],
+                confirmed_fy_resync_completed=False, fy_for_offer=FY)
+    assert run1["state"] == "suspect" and run1["heal_attempts"] == 0 and run1["pending_remediation_ids"] == []
+    assert visible_state(run1) == "ok"                      # still invisible after the first mismatch
+
+    run2 = step(run1, had_mismatch=True, remediation_done=[], issued_ids=[],
+                confirmed_fy_resync_completed=False, fy_for_offer=FY)
+    assert run2["state"] == "alert" and run2["heal_attempts"] == 1
+    assert visible_state(run2) == "alert"                    # now visible
+
+
+def test_hard_alert_stays_hard_alert_even_with_remediation_done():
+    # Review I2 / controller ruling: hard_alert is lowered ONLY by a clean ok run -- not by remediation.
+    hard = {"state": "hard_alert", "heal_attempts": 2, "resync_offered_fy": FY, "pending_remediation_ids": ["r4"]}
+    out = step(hard, had_mismatch=True, remediation_done=["r4"], issued_ids=["r5"],
+               confirmed_fy_resync_completed=False, fy_for_offer=FY)
+    assert out["state"] == "hard_alert"
+
+
+def test_hard_alert_clears_to_ok_on_a_clean_run():
+    hard = {"state": "hard_alert", "heal_attempts": 2, "resync_offered_fy": FY, "pending_remediation_ids": ["r4"]}
+    out = step(hard, had_mismatch=False, remediation_done=[], issued_ids=[],
+               confirmed_fy_resync_completed=False, fy_for_offer=FY)
+    assert out == {"state": "ok", "heal_attempts": 0, "resync_offered_fy": None, "pending_remediation_ids": []}
+
+
 def test_visible_state_hides_suspect():
     suspect = {"state": "suspect", "heal_attempts": 0, "resync_offered_fy": None, "pending_remediation_ids": []}
     assert visible_state(suspect) == "ok"

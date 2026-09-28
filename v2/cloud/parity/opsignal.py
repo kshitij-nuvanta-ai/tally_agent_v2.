@@ -36,7 +36,9 @@ def integrity_event(ws_id: str, run_id: str, rung: int, status: str, lines: list
     for l in problems:
         if l.cause:
             cause_counts[l.cause] = cause_counts.get(l.cause, 0) + 1
-    diffs = [abs(l.diff) for l in lines if l.diff is not None]
+    # Review I3 / controller ruling: only `mismatch` verdicts feed the magnitude. `match_revalued` forex lines
+    # carry their revaluation in `diff` even on a clean run (D4/C47) and would otherwise report a false magnitude.
+    diffs = [abs(l.diff) for l in lines if l.verdict == "mismatch" and l.diff is not None]
     max_abs_diff_bucket = bucket(max(diffs)) if diffs else bucket(Decimal("0"))
     return {
         "workspace_id": ws_id,

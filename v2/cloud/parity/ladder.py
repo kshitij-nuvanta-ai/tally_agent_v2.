@@ -24,6 +24,12 @@ def step(prev: dict, *, had_mismatch: bool, remediation_done: list[str], issued_
     heal_attempts = prev.get("heal_attempts", 0)
     resync_offered_fy = prev.get("resync_offered_fy")
 
+    if prev_state == "hard_alert":
+        # Review I2 / controller ruling: hard_alert is lowered ONLY by a clean ok run (§10.8) -- that's the
+        # had_mismatch=False branch above. Any mismatching run, remediated or not, leaves it sticky at hard_alert.
+        return {"state": "hard_alert", "heal_attempts": heal_attempts, "resync_offered_fy": resync_offered_fy,
+                "pending_remediation_ids": list(issued_ids)}
+
     if confirmed_fy_resync_completed:
         # A confirmed single-FY resync completed and the very next run still mismatches -> hard_alert + (the
         # caller's) engineering-flag ops signal. The ladder itself never triggered that resync (decision 12).
@@ -34,7 +40,10 @@ def step(prev: dict, *, had_mismatch: bool, remediation_done: list[str], issued_
         return {"state": "suspect", "heal_attempts": 0, "resync_offered_fy": None,
                 "pending_remediation_ids": list(issued_ids)}
 
-    remediation_confirmed = bool(prev_pending) and all(pid in remediation_done for pid in prev_pending)
+    # Review I1 / controller ruling: if the previous run issued NO remediation (pending list empty), the next
+    # run counts as "remediation done" by default -- a persistent mismatch with nothing to remediate still climbs
+    # the ladder on the §10.8 run count, instead of sitting in invisible `suspect` forever.
+    remediation_confirmed = (not prev_pending) or all(pid in remediation_done for pid in prev_pending)
     if not remediation_confirmed:
         # No proof the previously issued remediation ran: keep the state, reissue the same remediation.
         return {"state": prev_state, "heal_attempts": heal_attempts, "resync_offered_fy": resync_offered_fy,
