@@ -19,43 +19,54 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-28 — **S1 build: Tasks P, 0–10 ✅; Task 11 (maintenance + `purge`) 🟡**)
+## ▶ Resume here (updated 2026-09-28 end of day — **S1: Tasks P, 0–10 ✅; Task 11 built, IN REVIEW; stopped for the day**)
 
-**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `c1cdd21` (S1 Task 10c review fix).
-**Not pushed** (no upstream). `feat/bi-s0-probe-harness` is pushed but 9 commits behind local (`dd81030`).
-**v2 suite: 1703 passed** at `c1cdd21` (DB tests included) (pre-flight baseline 1002 at `dd81030` — this is the Task 15 regression
-baseline, not 917/973). **Tally:** open on company B only, tally.ini `Load=100000`.
+**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `db3632a` (S1 Task 11) + this
+tracker commit. **Not pushed** (no upstream) — push only when the user says so. `feat/bi-s0-probe-harness` is pushed
+but 9 commits behind local (`dd81030`). **v2 suite: 1714 passed** at `db3632a` (DB tests included; `logs/v2-s1-task11.log`).
+Task 15 regression baseline = 1002 (pre-flight at `dd81030`). **Tally:** open on company B only, tally.ini `Load=100000`.
 
-**S1 plan:** `docs/plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15; commit `e62d5d3`). Build runs
-subagent-driven; the SDD ledger is `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/progress.md` (pre-flight rulings
-F1–F25 + T-items in `preflight-scan.md` are adopted and override the plan text where they differ). Per-task status is
-in §4 "S1 plan tasks" below.
+**Before continuing tomorrow:**
+1. **Postgres** was started 2026-09-28 with `pg_ctl` (user-approved, session-only; stops at reboot). Check
+   `pg_isready -h localhost -p 5432`; if down, restart the same way:
+   `/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D /opt/homebrew/var/postgresql@16 -l logs/postgres-5432-<date>.log -o "-p 5432" start -w`.
+   DB tests use `TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test` only.
+2. **Read the SDD ledger first:** `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/progress.md` — every task's commits,
+   every ruling, every deferred minor and every item carried between tasks. Trust it and `git log` over memory.
 
-**Done 2026-09-25:** Task P (pre-flight, `logs/v2-s1-preflight.log`); Task 0 live read-only captures G1–G5
-(`ce2a8dc` tool, `dd81030` data; G2: a forex ledger's ledger-level TB row is a **plain** INR number, so parity uses the
-§10.5 plain path; G6 not captured → B-2023 books-start anchor from the dataset, A5); Task 1 `v2/contract`
-(`39490e7`, review clean); Task 2 `v2/cloud` skeleton (`151c205`, review clean). Deferred minors are listed in the SDD
-ledger; one is **carried to Task 8b** (strip U+0004 from name fields on both sides of every name match).
-
-**Task 3 ✅ 2026-09-28:** migration `v2_001` (21 tables), own chain `alembic_version_v2`, `python -m v2.cloud migrate|downgrade`,
-DB harness with stand-in `users`/`workspaces` + real `teardown_v2` (`564cd8e`; review fix `d8cb681`). **Task 4 ✅ 2026-09-28:** device auth (separate-secret device JWT, rotating hashed refresh with reuse→revoke, atomic
-conditional-UPDATE rotation, failed-only login limit + window sweep, validated bodies, `/api/devices`, §8.1 chain) —
-`b49d52b`, `f95cbd3`, `c6f65fd`. **Task 5 ✅ 2026-09-28:** binding (`POST /api/sync/company`, `GET /api/agent/workspaces`,
-one active device, take-over, re-bind-when-empty, coverage rows at bind) — `baaebc4`, `78d0004`. **Task 6 ✅ 2026-09-28:**
-heartbeat, `/state`, server→agent commands, restore detection (D17), re-link, `sync-status` — `430e1f6`, `0d94999`.
-**Task 7 ✅ 2026-09-28:** runs, server cursors (D15), D16 resync commands, FY coverage + both edges, backfill copy —
-`c28fe43`, `e5f4c44`, `024c178`. **Postgres:** DB tests
-need `TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test`; on 2026-09-28 the user approved
-starting Homebrew postgresql@16 with `pg_ctl`, session-only (stops at reboot) — restart it the same way after a reboot.
+**Where Task 11 stopped:** built and committed (`db3632a` — maintenance slices: raw purge Q22, parity retention Q21
+protecting `last_parity`'s run and the ladder's `last_run_id`, batch-log retention, storage estimate/alert Q23 with
+`AVG_ROW_BYTES` measured on the real 8c ingest; `python -m v2.cloud purge [--workspace] [--now]`). A task review was
+dispatched at end of day; its result lands in `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/task-11-review.md` (if that
+file is missing, re-dispatch the review on `review-5307996..db3632a.diff`). Open questions the review was asked:
+- **Possible cross-task defect (Task 8c):** JSONB `raw=None` binds as JSON `'null'`, not SQL `NULL` — the builder found
+  and fixed it in the purge UPDATE and suspects `v2/cloud/ingest/store.py`'s bulk insert does the same, which would break
+  the FY−2 "stored with raw = NULL" rule (spec §4.9/§14.20). If confirmed → fix in Task 11's fix round.
+- Whether the three copies of the "window FYs" rule (store, `coverage.backfill`, `sync_status`) were really unified
+  (controller ruling 3) or only the purge reuses `store.raw_window_fys`.
+- The storage-estimate sub-step is deliberately not time-gated — judge vs D20.
 
 **Next concrete steps, in order:**
-1. Task 11 (maintenance slices + `purge` CLI; carried: parity retention Q21; preflight F18 SliceReport done in Task 6, F19
-   AVG_ROW_BYTES measured on the 8c ingest). Never run the v2 DB tests and the current app's DB suite concurrently (A2).
-2. Tasks 12 → 15 in plan order, review after each; update §4 here as each task lands.
-3. The user reviews S1 spec §2.2 (D1–D32), §17.2 (D5, D21, Q6, Q5) and plan ambiguities A1–A18 when convenient.
-4. Push `feat/bi-s1-cloud` only when the user says so.
+1. Finish Task 11: read `task-11-review.md` → fix round (resume a fresh implementer with the brief + report + findings)
+   → scoped re-review → mark Task 11 ✅ + S1.23 ✅ here.
+2. **Task 12** — real-data parity (A, B) through the whole API + FakeBooks end-to-end + restart round-trips. Biggest
+   unknown. Preflight rulings F4, F7, F9, F13, T12 apply; recommend a cheap read-only **G6** capture (B ledgerwise TB as-on
+   2022-04-01) first so B's books-start anchor is a real Tally figure, not the dataset (A5).
+3. **Task 13** whole-branch review (most capable model) with the ledger's deferred-minor list → one fix wave.
+4. **Task 14** S0 hardening minors (M2, M3, M7, M8 before any tier-C A re-run). **Task 15** final verification + docs:
+   the spec edits queued from today's rulings (§11 new codes; §7.5 D7 on any displacement; D30 = the ledger's own
+   balances; §10.1/§10.6 custom top-level groups; §4.2 `ladder.pending_remediation_ids`; §17.1 login-lockout risk;
+   stored `last_heartbeat` shape; passlib warning; S2 contract: agent sends Tally's current-period end as `as_on`).
+5. The user reviews S1 spec §2.2 (D1–D32), §17.2 (D5, D21, Q6, Q5), plan ambiguities A1–A18 and today's rulings
+   (change log below) when convenient.
 
 ---
+
+### Previous resume notes (2026-09-28 midday, Tasks 3–7 — superseded by the block above)
+
+**Task 3 ✅ 2026-09-28:** migration `v2_001` (21 tables) — `564cd8e`, `d8cb681`. **Task 4 ✅:** device auth — `b49d52b`,
+`f95cbd3`, `c6f65fd`. **Task 5 ✅:** binding — `baaebc4`, `78d0004`. **Task 6 ✅:** heartbeat/state/restore/sync-status —
+`430e1f6`, `0d94999`. **Task 7 ✅:** runs/cursors/coverage — `c28fe43`, `e5f4c44`, `024c178`. Details: §4 and the change log.
 
 ### Previous resume notes (2026-09-25, S1 spec written — superseded by the block above)
 
@@ -683,7 +694,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 8a/8b/8c | Ingest — parse/validate + rung 0; name → GUID + derivations; store/pipeline/`/batches` | ✅ 2026-09-28 | **8a ✅ 2026-09-28** (`bec2334` + review fixes `4ceff93`, `be371dc`; 1439 green, `logs/v2-s1-task8a-fix2.log`); **8b ✅ 2026-09-28** (`551413d` + test fix `390e241`; 1466 green, `logs/v2-s1-task8b-fix1.log`); **8c ✅** (`f0b837a` + review fix `47c667b`; 1513 green, `logs/v2-s1-task8c-fix1.log`) |
 | 9 | Reconcile + snapshots | ✅ 2026-09-28 | `77d7b38` + review fixes `4337e43`, `626d774`; 1557 green (`logs/v2-s1-task9-fix2.log`) |
 | 10a/10b/10c | Parity core (anchors, rung 1, C47, rung 2); classifier/ladder/bisect; engine + `/parity` | ✅ 2026-09-28 | **10a ✅ 2026-09-28** (`f6312e0`, review clean first pass; 1618 green, `logs/v2-s1-task10a.log`; real A FY 2025-26 + B 2023-03-31 all diffs 0.00, USD party `match_revalued` 183.87); **10b ✅ 2026-09-28** (`5e4b09f` + review fixes `1117781`, `485c299`; 1651 green, `logs/v2-s1-task10b-fix2.log`); **10c ✅** (`5dde418`, `7aec62c` + review fix `c1cdd21`; 1703 green, `logs/v2-s1-task10c-fix1.log`) |
-| 11 | Maintenance slices + `purge` CLI | 🟡 | started 2026-09-28 |
+| 11 | Maintenance slices + `purge` CLI | 🟡 | built `db3632a` (1714 green, `logs/v2-s1-task11.log`); task review dispatched end of day 2026-09-28 → `task-11-review.md`; fix round + re-review pending |
 | 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | ⬜ | |
 | 13 | Whole-branch code review → `docs/code-review-bi-s1-<date>.md`, fix round | ⬜ | |
 | 14 | S1 hardening backlog from S0 (probe harness) | ⬜ | |
@@ -818,3 +829,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-28 | **S1 Task 10a ✅ — parity matches Tally on real data.** Pure parity core: anchors (D9), rung 1, forex C47/D4 (face check only when FY(as_on) = the mirrored period, F3), rung 2 — `f6312e0`, 1618 green, review clean on the first pass. **Company A FY 2025-26: every ledger and group diff 0.00. Company B as-on 31-03-2023: every diff 0.00; USD party `match_revalued` 183.87 against the TB's −183.87 `Unadjusted Forex Gain/Loss` row** (B anchor from the dataset, A5 — G6 not captured). The reviewer recomputed 10 ledgers/groups from the raw XML independently. **Controller ruling (spec gap):** the no-ledger-anchor route needs a group-level anchor (group TB as-on E−1) for rung 2 to "carry the check" (§10.4) — added to 10c, and a run that verified no balance-sheet figure must never report `ok`. Carried to 10c: forex absent-from-TB = 0.00; guard the anchor + rung-1 TBs; past-FY figures from that date's ledgerwise TB. S1.20, S1.21 🟡 (DB wiring in 10c). Next: 10b. |
 | 2026-09-28 | **S1 Task 10b ✅** — pure cause classifier (§10.7; F5 ≥2-ledger net-to-zero signature incl. a 4-ledger GST case; F7 optional-only flag faults; F4 forex_gap vs face mismatch), escalation ladder (never starts a resync — decision 12), month-bisect, ops-signal builders with no business data (decision 14) incl. the D12 quarantine event — `5e4b09f`, 1645 green. Review: 4 Important — unlabelled mismatches left with no cause; the ladder could stall invisibly in `suspect` when no remediation existed; `hard_alert` dropped back a level; a clean forex run reported a false magnitude. **Controller rulings:** leftover mismatches → `ledger_gap` + per-ledger re-read; no-remediation runs count as done so the ladder always climbs; `hard_alert` cleared only by a clean run; magnitude from `mismatch` verdicts only (`1117781`). Re-review: a clean run still reported `<₹1k` → now null (`485c299`). 1651 green. S1.22, S1.24 🟡 (wiring in 10c). Spec note for Task 15: `ladder` column gains `pending_remediation_ids`. Next: 10c. |
 | 2026-09-28 | **S1 Task 10c ✅ — Task 10 (parity) complete.** Parity engine wired to the DB: `POST /parity`, §10.1 preconditions in order, `last_parity`, ladder persistence, ops events, D12 quarantine event, group-level anchor route, imbalance recomputed at parity time — `5dde418`, `7aec62c`, 1699 green. **Spec changed (controller ruling, `2f7879c`):** §10.5(b) uses the change of the cumulative `Unadjusted Forex Gain/Loss` row since E (the E−1 anchor is already revalued; the as-on row alone would falsely reject every run with E > books_from). The reviewer checked every FakeBooks / harness edit: all model live B or remove fake artefacts, none tunes data to the engine. Review: 2 Important — precondition aborts emitted integrity events (spec: no alert; would flood on routine `aborted_moving`) → computed non-ok runs only; `suspect` leaked via `last_parity.mismatch_count` → shown as `ok` with 0 and the last visible run id. Also fixed (controller pulled in): an aborted run moved + committed the D10 baseline; bisect always aborted for a mid-year first FY (`c1cdd21`). Re-review clean. 1703 green. S1.20–S1.22, S1.24 ✅; S1.23 🟡 (retention → Task 11). Note for S2: outside bisect, the agent must always send Tally's current-period end as `as_on`. Next: Task 11. |
+| 2026-09-28 | **End of day — S1 Tasks 3–10 ✅ today; Task 11 built, in review.** Task 11 `db3632a`: maintenance slices (raw purge, parity retention protecting `last_parity`'s run + ladder run, batch-log retention, storage estimate with `AVG_ROW_BYTES` measured on the real 8c ingest) + `purge` CLI; 1714 green. **Found by the builder:** JSONB `raw=None` is stored as JSON `'null'`, not SQL `NULL` (fixed in the purge; suspected in Task 8c's `store.py` too — in review). Stopped here at the user's request; review result → `task-11-review.md`. Resume: see the "Resume here" block (Postgres restart note, SDD ledger, Tasks 11 finish → 12 → 15). |
