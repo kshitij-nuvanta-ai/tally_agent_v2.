@@ -19,11 +19,11 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-28 — **S1 build: Tasks P, 0, 1, 2 ✅; Task 3 (migration `v2_001`) 🟡 starting**)
+## ▶ Resume here (updated 2026-09-28 — **S1 build: Tasks P, 0–3 ✅; next Task 4 (device auth)**)
 
-**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `151c205` (S1 Task 2).
+**Branch** `feat/bi-s1-cloud` (cut from `feat/bi-s0-probe-harness` at `dd81030`), HEAD `d8cb681` (S1 Task 3 review fix).
 **Not pushed** (no upstream). `feat/bi-s0-probe-harness` is pushed but 9 commits behind local (`dd81030`).
-**v2 suite: 1193 passed** at `151c205` (pre-flight baseline 1002 at `dd81030` — this is the Task 15 regression
+**v2 suite: 1202 passed** at `d8cb681` (DB tests included) (pre-flight baseline 1002 at `dd81030` — this is the Task 15 regression
 baseline, not 917/973). **Tally:** open on company B only, tally.ini `Load=100000`.
 
 **S1 plan:** `docs/plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15; commit `e62d5d3`). Build runs
@@ -37,13 +37,15 @@ in §4 "S1 plan tasks" below.
 (`39490e7`, review clean); Task 2 `v2/cloud` skeleton (`151c205`, review clean). Deferred minors are listed in the SDD
 ledger; one is **carried to Task 8b** (strip U+0004 from name fields on both sides of every name match).
 
-**Blocker for Task 3:** it needs Postgres (`TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test`,
-Homebrew postgresql@16 on :5432). On 2026-09-25 the user declined starting it, so the build paused before Task 3.
+**Task 3 ✅ 2026-09-28:** migration `v2_001` (21 tables), own chain `alembic_version_v2`, `python -m v2.cloud migrate|downgrade`,
+DB harness with stand-in `users`/`workspaces` + real `teardown_v2` (`564cd8e`; review fix `d8cb681`). **Postgres:** DB tests
+need `TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test`; on 2026-09-28 the user approved
+starting Homebrew postgresql@16 with `pg_ctl`, session-only (stops at reboot) — restart it the same way after a reboot.
 
 **Next concrete steps, in order:**
-1. Postgres up on :5432 (user's call how), then dispatch Task 3 (migration `v2_001`, own Alembic chain, DB harness —
-   plan ambiguity A2: the v2 harness must never break the current DB suite's `drop_all`; never run both concurrently).
-2. Tasks 4 → 15 in plan order, review after each; update §4 here as each task lands.
+1. Task 4 (device auth — tokens, rate limits, login/refresh/logout, `/api/devices`). Never run the v2 DB tests and the
+   current app's DB suite concurrently (A2).
+2. Tasks 5 → 15 in plan order, review after each; update §4 here as each task lands.
 3. The user reviews S1 spec §2.2 (D1–D32), §17.2 (D5, D21, Q6, Q5) and plan ambiguities A1–A18 when convenient.
 4. Push `feat/bi-s1-cloud` only when the user says so.
 
@@ -559,7 +561,7 @@ because its Bank/Cash rows carry the known-corrupt seed sign. Replaced by `Sundr
 |---|---|---|---|---|---|
 | Design | Part 1 brainstorm design | — | `specs/2026-09-21-bi-part1-sync-design.md` | — | ✅ 2026-09-21 |
 | **S0** | `v2/` scaffold + live-Tally probes 0–25 + real fixtures in `v2/tests/fixtures/sync/` | — | `specs/2026-09-22-bi-s0-probes-design.md` | `plans/2026-09-22-bi-s0-probes-plan.md` (part 1 ✅), `plans/2026-09-22-bi-s0-probes-plan-part2.md` (part 2, 13 tasks), `plans/2026-09-23-bi-s0-company-b-loader.md` (part 3, 9 tasks, ✅ built), `.superpowers/sdd/2026-09-24-bi-s0-probes-plan-part4/` (part 4, probes 5+21, ✅ built + run live), `docs/plans/2026-09-24-bi-s0-probes-plan-part5.md` (part 5, probes 11/14/15/16B/18B + 16A/17A/18A re-run, ✅ built + run live), `docs/plans/2026-09-25-bi-s0-probes-plan-part6.md` (part 6, probes 3B/23B/25B + R9, 11 under C46, company C + probe 24, ✅ built + run live + docs) | ✅ **Closed 2026-09-25: the S0 exit gate PASSED with recorded exceptions.** See `docs/bi-s0-exit-gate-2026-09-25.md` § "Final verdict". Items 1–7 all PASS: item 3 by `e8420f1`, item 5 by `9830e97`, item 7 by `bb71f83` + the review fixes `86df230`/`b92a659`. Exceptions: (a) `CLAUDE.md` `dc9bf02`; (b) Educational/Wine only, R8 open; (c) 9/20 ⏭ tier C; (d) 11 B/16 B need an expression-form balance parser; (e) M4 pre-forex B verdicts; (f) part-2 retro M1–M10 and (g) C47 review M1–M6 deferred to S1 hardening; (h) logs local only. **Next: the S1 spec.** **Previous status (superseded 2026-09-25, S0 exit gate):** 🟡 **Plan part 7 done 2026-09-25** (`docs/plans/2026-09-25-bi-s0-probes-plan-part7.md`). Probe 22 **CONFIRMED** (forex INR base stated in the export; decision 15 holds); C36 lifted (USD sales 101/102 loaded as forex); new Ruling C47 (forex ledger at the latest voucher rate); 21 B + 18 B re-run CONFIRMED. **Every tier-B probe now has an outcome.** Remaining for S0: the §10 exit-gate check, then the S1 spec. Open: probes 16 B / 11 need expression-form balance parsing before any re-run. Timing probes ⏭ (Q29). **Previous status (superseded 2026-09-25, plan part 7):** 🟡 **Plan part 6 done 2026-09-25.** 3 B CONFIRMED, 23 B CONFIRMED, 25 B DIFFERENT (R9 CONFIRMED — duplicate ledger name refused), 11 re-run DIFFERENT (ledger AND stock master openings are current-period), company C (100001) created + `setup-c`, 24 CONFIRMED (security/TallyVault export unchanged; pending prompt = empty company list). Review `docs/code-review-bi-s0-part6-2026-09-25.md` (minors M1–M8 deferred). **Every built probe has now run live.** Remaining for S0: probe 22 BLOCKED (C36, USD-sales write shape), the §10 exit-gate check, then the S1 spec. Timing probes 9/20/21-timing ⏭ (Q29). **Previous status (superseded 2026-09-25):** 🟡 **Plan part 5 done 2026-09-24.** Probes 16, 17, 18 A re-run typed (17 CONFIRMED unchanged, 18 A CONFIRMED — supersedes 2026-09-23's DIFFERENT, C43 artefact — 16 A DIFFERENT); probes 11, 14, 15 and 18 B built and run live on company B (14/15/18 B CONFIRMED, 11 FAILED stock-only per C46, 16 B FAILED per C45); C44 (company-switch-on-restart) live-verified both directions. **Every probe through 21 has now run live on at least its built companies**, except 3/23/25's B parts (still pending — no B-part code for those three) and probe 22 (BLOCKED, C36) and probe 24 (needs company C). Timing probes 9/20/21-timing ⏭ (Q29). Results: `docs/bi-s0-probe-results-2026-09-24.md`, `v2/probes/results/results.json`. Review: `docs/code-review-bi-s0-part5-2026-09-24.md` (ready with fixes; I1–I3 applied before the B live run). **Next: plan part 6** — B parts of probes 3, 23, 25; company C + probe 24. Open: part-2 code-review doc not written; auto-mode UI-parity gaps (1/7/8, 16, 19) and file-level-only 13 → **R8 stays open**; harness bug — `tally.ini` `Load=100003` preload making `--auto` restarts open A+B together is now **fixed by C44** (`restart("A")`/`restart("B")` open exactly one company; live-verified both directions, `logs/c44-live-restart-2026-09-24.log`, `logs/c44-verify-A-2026-09-24.log`) |
-| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | 🟡 **Building** — Tasks P, 0, 1, 2 ✅ (2026-09-25); Task 3 🟡 (2026-09-28). See §4 "S1 plan tasks" |
+| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | 🟡 **Building** — Tasks P, 0, 1, 2 ✅ (2026-09-25); Task 3 ✅ (2026-09-28); Task 4 next. See §4 "S1 plan tasks" |
 | **S2** | Windows agent | S0 (probe 21 for backfill); parallel with S1 | — | — | ⬜ |
 
 ---
@@ -667,7 +669,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 0 | Live read-only fixture capture G1–G5 | ✅ (G6 not captured → A5 fallback) | `ce2a8dc` (tool), `dd81030` (data, `v2/tests/fixtures/sync/s1_*`); `logs/s1-capture-{A,B}-2026-09-25.log` |
 | 1 | `v2/contract` — parsers, wire models, transcoder | ✅ | `39490e7`; 1181 green; review clean (`task-1-review.md`, 7 minors deferred) |
 | 2 | `v2/cloud` skeleton — app, config, clock, DB, errors, copied auth, isolation | ✅ | `151c205`; 1193 green; review clean (`task-2-review.md`, 3 minors deferred) |
-| 3 | Migration `v2_001` — all §4 tables, own Alembic chain, DB harness | 🟡 | started 2026-09-28; needs Postgres |
+| 3 | Migration `v2_001` — all §4 tables, own Alembic chain, DB harness | ✅ 2026-09-28 | `564cd8e` + review fix `d8cb681`; 1202 green (`logs/v2-s1-task3-fix1.log`, DB tests ran against `tallyagent_test`); models ≡ migration pinned by `test_models_match_migration_v2_001`; real teardown test both branches |
 | 4 | Device auth — tokens, rate limits, login/refresh/logout, `/api/devices` | ⬜ | |
 | 5 | Binding — `POST /api/sync/company`, one active device, take-over | ⬜ | |
 | 6 | Heartbeat, `/state`, commands, restore detection, re-link, `sync-status` | ⬜ | |
@@ -685,11 +687,11 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 
 | # | Item | Status | Proof |
 |---|---|---|---|
-| S1.0 | `v2/cloud/` app skeleton (own port, same Postgres), own Alembic chain (`alembic_version_v2`), copied auth / JWT helpers | 🟡 | Skeleton + copied auth helpers ✅ `151c205`; own Alembic chain = Task 3 |
-| S1.1 | v2 migration — bookkeeping: `sync_workspaces` (replaces `workspace.config.*`), `agent_devices`, `sync_runs` (+ `kind`), `sync_batches` | ⬜ | |
-| S1.2 | v2 migration — masters: groups (+ `nature`), voucher types (+ `base_type`), ledgers (+ GST fields), stock items, stock groups, units | ⬜ | |
-| S1.3 | v2 migration — vouchers, ledger lines, inventory lines, bill allocations; `Numeric(18,2)` everywhere | ⬜ | |
-| S1.4 | v2 migration — `tally_report_snapshots`, `sync_fy_coverage`, `parity_runs`, `parity_lines` | ⬜ | |
+| S1.0 | `v2/cloud/` app skeleton (own port, same Postgres), own Alembic chain (`alembic_version_v2`), copied auth / JWT helpers | ✅ | Skeleton + copied auth `151c205`; own chain `alembic_version_v2` `564cd8e` |
+| S1.1 | v2 migration — bookkeeping: `sync_workspaces` (replaces `workspace.config.*`), `agent_devices`, `sync_runs` (+ `kind`), `sync_batches` | ✅ | migration `v2_001` (`564cd8e`, `d8cb681`) |
+| S1.2 | v2 migration — masters: groups (+ `nature`), voucher types (+ `base_type`), ledgers (+ GST fields), stock items, stock groups, units | ✅ | migration `v2_001` (`564cd8e`, `d8cb681`) |
+| S1.3 | v2 migration — vouchers, ledger lines, inventory lines, bill allocations; `Numeric(18,2)` everywhere | ✅ | migration `v2_001` (`564cd8e`, `d8cb681`) |
+| S1.4 | v2 migration — `tally_report_snapshots`, `sync_fy_coverage`, `parity_runs`, `parity_lines` | ✅ | migration `v2_001` (`564cd8e`, `d8cb681`) |
 | S1.5 | Device auth: `/api/agent/auth/login`, `/refresh`, rotating revocable token, `GET/DELETE /api/devices`, `get_current_device` | ⬜ | |
 | S1.6 | One active device per workspace + take-over | ⬜ | |
 | S1.7 | `POST /api/sync/company` (bind workspace, config) | ⬜ | |
@@ -798,3 +800,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-25 | **S1 spec written** (`docs/specs/2026-09-25-bi-s1-cloud-design.md`), docs only, on the user's standing instruction: decisions D1–D32 recorded for review (§2.2) and Q1/Q4/Q5/Q6/Q10/Q19/Q20/Q21/Q25/Q28/Q30/Q32 settled (§2.1; answers copied into §2 above). Expression-form balances (D3) and C47 parity (D4, §10.5) spelled out. **Contradicted expectation:** LESSONS rule 29(b) said a TB with a forex ledger is out by the unrealised difference; the committed capture `p18_B_tb_asof_2023-03-31.xml` shows a synthetic top-level `Unadjusted Forex Gain/Loss` row (−₹183.87) with which the TB nets to 0.00 — S1 parity uses that row; LESSONS rule 29 and the Part 1 header got dated notes. Fixture gaps G1–G5 listed (S1 spec §13.3). Roadmap Set C S1 → 🟡 spec written. Next: S1 plan. |
 | 2026-09-25 | **Post-gate follow-ups (controller, user's standing instruction):** feature branch pushed (`origin/feat/bi-s0-probe-harness`). Expression-form balance parser landed (`5abb6a1` `parse_forex`/`parse_amount`, `9db7d29` `parse_ledger_list`; 973 green) — decided: take the stated INR base after `=`, keep face/currency/rate. **Exit exception (d) closed:** probes 16 B + 11 re-run live on the forex dataset (`2726d55`): 16 B FAILED unchanged (C45) with closing_now 20 compared / 0 mismatches — the USD party matches at its C47 revalued −132929.85; 11 DIFFERENT unchanged, 15 ledgers at the current-FY opening (USD party the 15th). **M4 re-checks:** 3 B CONFIRMED at 956 unflagged (`6684d99`); 14 B / 25 B not re-run (their checks don't read the voucher set). S1 spec written (`cb455eb`, decisions taken on the user's standing instruction — review table §2.2, genuine user items §17.2); new finding there: Tally's TB carries an `Unadjusted Forex Gain/Loss` row (−183.87) that nets C47 to 0.00, refining LESSONS 29(b). Next: S1 plan (in progress) + build task 0 live captures G1–G5 (controller). Logs `logs/p16B-rerun-forex-2026-09-25.log`, `logs/p11-rerun-forex-2026-09-25.log`, `logs/p03B-rerun-forex-2026-09-25.log`. |
 | 2026-09-28 | **Tracker catch-up for 2026-09-25's S1 build (it lagged — it still said "next: S1 plan").** S1 plan written (`e62d5d3`, Tasks P, 0–15); branch `feat/bi-s1-cloud` cut at `dd81030`. Task P pre-flight: baseline **1002** (not 973), Postgres down, rulings F1–F25 adopted. Task 0 live read-only captures G1–G5 (`ce2a8dc`, `dd81030`). **Contradicted expectation:** G2 — a forex ledger's ledger-level TB row is a **plain** INR number (−132929.85), not an expression, so parity takes spec §10.5's plain path; G6 not captured (A5 fallback). Task 1 `v2/contract` (`39490e7`, 1181 green) and Task 2 `v2/cloud` skeleton (`151c205`, 1193 green), both reviewed clean. Build paused before Task 3 on 2026-09-25 (Postgres not started, user's call). New §4 "S1 plan tasks" table added. 2026-09-28: Task 3 🟡. |
+| 2026-09-28 | **S1 Task 3 ✅** — migration `v2_001` (all 21 spec §4 tables), own Alembic chain `alembic_version_v2`, migrate/downgrade CLI, DB harness (A2 stand-ins + extracted `teardown_v2`) — `564cd8e`, 1201 green. Review: spec ❌ on 2 Important (teardown test couldn't fail on 2 checks; ORM models' indexes drifted from the migration with no test) → fix `d8cb681`, re-review clean (migration diff comment-only; model timestamps nullable like the migration, spec requires none NOT NULL). 1202 green incl. DB tests on `tallyagent_test` (Postgres via `pg_ctl`, session-only, user-approved). S1.0–S1.4 ✅. Minors deferred in the SDD ledger (setup leak on failed migrate; passlib `crypt` warning → Task 15). Next: Task 4. |
