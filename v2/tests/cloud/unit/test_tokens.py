@@ -45,3 +45,23 @@ def test_web_secret_cannot_sign_a_device_token():
 def test_refresh_is_random_and_only_its_hash_is_kept():
     (t1, h1), (t2, h2) = new_refresh(), new_refresh()
     assert t1 != t2 and h1 == hash_refresh(t1) and len(h1) == 64 and t1 not in h1
+
+
+def test_access_valid_when_minted_with_clock_ahead_of_real_wall_time():
+    """Task 7 review, Minor 1: `mint_access` stamps `iat` from the injected clock; `decode_access` must
+    validate it against that SAME injected clock, not PyJWT's own real-wall-clock check (which would otherwise
+    raise `ImmatureSignatureError` whenever the injected clock is set ahead of the actual real time — as any
+    fixed-clock test that advances into the future does)."""
+    far_future = datetime(2099, 1, 1, tzinfo=timezone.utc)  # certainly ahead of real wall-clock time
+    tok = mint_access(D, U, W, secret=S, minutes=15, now=far_future)
+    c = decode_access(tok, secret=S, now=far_future)
+    assert (c.device_id, c.user_id, c.workspace_id) == (D, U, W)
+
+
+def test_access_not_yet_valid_per_injected_clock_is_invalid():
+    """The flip side: `now` before the token's own `iat` (per the injected clock) is still rejected — the fix
+    only stops PyJWT comparing `iat` against the wrong (real) clock, it doesn't drop the check."""
+    tok = mint_access(D, U, W, secret=S, minutes=15, now=NOW)
+    with pytest.raises(ApiError) as e:
+        decode_access(tok, secret=S, now=NOW - timedelta(seconds=1))
+    assert e.value.code == "token_invalid"

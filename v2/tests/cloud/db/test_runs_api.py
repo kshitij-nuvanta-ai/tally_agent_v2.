@@ -6,14 +6,11 @@ the API request used) and asserts the whole persisted state (§14).
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import text
 
-from v2.cloud.clock import FixedClock
-from v2.cloud.models import AgentDevice, SyncWorkspace
-from v2.cloud.sync import runs
 from v2.tests.cloud.conftest import login_device, make_workspace, requires_db, web_headers
 
 pytestmark = requires_db
@@ -119,6 +116,17 @@ def _fy_months(fy_start: str, count: int) -> list[str]:
         mm = ((mm - 1) % 12) + 1
         out.append(f"{yy:04d}-{mm:02d}")
     return out
+
+
+async def _login_second_device(app_client, email, device_name):
+    r = await app_client.post(
+        "/api/agent/auth/login",
+        json={"email": email, "password": "Passw0rd!Passw0rd", "device_name": device_name,
+              "agent_version": "0.1.0"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body, {"Authorization": f"Bearer {body['access_token']}"}
 
 
 async def _ack(app_client, headers, ws, fy_start, month, run_id=None):
@@ -227,6 +235,169 @@ async def test_first_sync_refused_from_error_when_cursors_already_set(app_client
     assert r.json()["error"] == "run_kind_not_allowed"
 
 
+# --- I1 (task-7 review): take-over during a first_sync must not wedge the workspace -----------------------
+
+
+async def test_takeover_during_first_sync_interrupts_old_run_new_device_resumes_to_ready(app_client, session, clock):
+    """Device A opens first_sync -> B takes over (the REAL Task 5 `/api/sync/company` route, `takeover=true`)
+    -> B opens first_sync and gets a NEW run. The old run is `interrupted` and coverage is intact. B completes
+    it, and `sync_state` becomes `ready`."""
+    uid, ws, device_a, headers_a = await _login_and_bind(app_client, session, device_name="ACCOUNTS-PC")
+    r_open_a = await app_client.post(
+        f"/api/sync/{ws}/runs", json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers_a,
+    )
+    assert r_open_a.status_code == 200, r_open_a.text
+    old_run_id = r_open_a.json()["run_id"]
+    coverage_before = await _coverage_rows(session, ws)
+
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+    body_b, headers_b = await _login_second_device(app_client, email, "LAPTOP")
+    r_takeover = await app_client.post(
+        "/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws), "takeover": True}, headers=headers_b
+    )
+    assert r_takeover.status_code == 200, r_takeover.text
+
+    r_open_b = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 965, "alt_mst_id": 412}},
+        headers=headers_b,
+    )
+    assert r_open_b.status_code == 200, r_open_b.text
+    new_run_id = r_open_b.json()["run_id"]
+    assert new_run_id != old_run_id  # B does NOT get A's run back (resume is same-device only)
+
+    old_run = await _run_row(session, old_run_id)
+    assert old_run["status"] == "interrupted"
+    assert old_run["finished_at"] is not None
+
+    new_run = await _run_row(session, new_run_id)
+    assert new_run["status"] == "running"
+    assert new_run["device_id"] == uuid.UUID(body_b["device_id"])
+    assert new_run["counters_at_start"] == {"alt_vch_id": 965, "alt_mst_id": 412}
+
+    coverage_after = await _coverage_rows(session, ws)
+    assert set(coverage_after) == set(coverage_before)  # coverage rows intact — same 5 FYs
+
+    for fy_start, total in (("2025-04-01", 12), ("2026-04-01", 6)):
+        for month in _fy_months(fy_start, total):
+            await _ack(app_client, headers_b, ws, fy_start, month, run_id=new_run_id)
+
+    r_complete = await app_client.patch(
+        f"/api/sync/{ws}/runs/{new_run_id}",
+        json={"status": "completed", "progress_done": 18, "progress_total": 18, "batches_declared": 0},
+        headers=headers_b,
+    )
+    assert r_complete.status_code == 200, r_complete.text
+
+    sw = await _sw_row(session, ws)
+    assert sw["sync_state"] == "ready"
+    assert sw["cursor_alt_vch_id"] == 965 and sw["cursor_alt_mst_id"] == 412
+
+
+async def test_takeover_interrupts_a_non_first_sync_run_too(app_client, session, clock):
+    """I1 is kind-agnostic: a take-over during an `incremental` also interrupts it, not only `first_sync`."""
+    uid, ws, device_a, headers_a = await _login_and_bind(app_client, session, device_name="ACCOUNTS-PC")
+    await _set_cursors(session, ws, 1, 1)
+    await _set_state_row(session, ws, "ready")
+    r_open_a = await app_client.post(
+        f"/api/sync/{ws}/runs", json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers_a,
+    )
+    assert r_open_a.status_code == 200, r_open_a.text
+    old_run_id = r_open_a.json()["run_id"]
+
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+    body_b, headers_b = await _login_second_device(app_client, email, "LAPTOP")
+    r_takeover = await app_client.post(
+        "/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws), "takeover": True}, headers=headers_b
+    )
+    assert r_takeover.status_code == 200, r_takeover.text
+
+    r_open_b = await app_client.post(
+        f"/api/sync/{ws}/runs", json={"kind": "backfill"}, headers=headers_b
+    )
+    assert r_open_b.status_code == 200, r_open_b.text
+
+    old_run = await _run_row(session, old_run_id)
+    assert old_run["status"] == "interrupted"
+
+
+# --- I2 (task-7 review): incremental needs a completed first sync's cursors --------------------------------
+
+
+async def test_incremental_refused_with_null_cursors_409_run_kind_not_allowed(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)  # bind default: cursors NULL
+
+    r = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"] == "run_kind_not_allowed"
+
+    rows = (
+        await session.execute(text("SELECT count(*) FROM sync_runs WHERE workspace_id = :w"), {"w": ws})
+    ).scalar_one()
+    assert rows == 0  # nothing was created
+
+
+async def test_incremental_completion_from_error_with_cursors_set_moves_to_ready(app_client, session, clock):
+    """I2: the §8.2 `error -> next run completed -> ready (or first_sync)` row applies to ANY run kind once the
+    cursors exist — not only `first_sync`."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 100, 50)
+    await _set_state_row(session, ws, "error")
+    # Every FY row complete -> the window is complete -> `error` -> `ready` (not `first_sync`).
+    await session.execute(text("UPDATE sync_fy_coverage SET state = 'complete' WHERE workspace_id = :w"), {"w": ws})
+    await session.commit()
+
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 100, "alt_mst_id": 50}},
+        headers=headers,
+    )
+    assert r_open.status_code == 200, r_open.text
+    run_id = r_open.json()["run_id"]
+
+    r = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "batches_declared": 0, "cursor_after": {"alt_vch_id": 120, "alt_mst_id": 60}},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+    sw = await _sw_row(session, ws)
+    assert sw["sync_state"] == "ready"
+    assert sw["cursor_alt_vch_id"] == 120 and sw["cursor_alt_mst_id"] == 60
+
+
+async def test_incremental_completion_from_error_window_incomplete_moves_to_first_sync(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 100, 50)
+    await _set_state_row(session, ws, "error")
+    # Window FYs left `pending` (the bind default) -> the window is NOT complete -> `error` -> `first_sync`.
+
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 100, "alt_mst_id": 50}},
+        headers=headers,
+    )
+    run_id = r_open.json()["run_id"]
+
+    r = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "batches_declared": 0, "cursor_after": {"alt_vch_id": 110, "alt_mst_id": 55}},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+    sw = await _sw_row(session, ws)
+    assert sw["sync_state"] == "first_sync"
+    assert sw["cursor_alt_vch_id"] == 110 and sw["cursor_alt_mst_id"] == 55  # cursor still moves either way
+
+
 # --- §7.8 full_resync gating (D16) ------------------------------------------------------------------------
 
 
@@ -255,6 +426,137 @@ async def test_full_resync_with_pending_resync_command_allowed(app_client, sessi
     run = await _run_row(session, r.json()["run_id"])
     assert run["status"] == "running" and run["kind"] == "full_resync"
     assert run["command_id"] == uuid.UUID(cmd_id)
+
+
+# --- I4 (task-7 review): full_resync scope must match its command; a command binds to one run at a time ------
+
+
+async def test_fy_command_cannot_open_a_whole_company_run(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cmd_id = await _confirm_resync_command(app_client, uid, ws, scope="fy", fy_start="2023-04-01")
+
+    r = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"] == "resync_not_confirmed"
+
+    rows = (
+        await session.execute(text("SELECT count(*) FROM sync_runs WHERE workspace_id = :w"), {"w": ws})
+    ).scalar_one()
+    assert rows == 0
+
+
+async def test_company_command_cannot_open_an_fy_scoped_run(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cmd_id = await _confirm_resync_command(app_client, uid, ws, scope="company")
+
+    r = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"fy_start": "2023-04-01"}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"] == "resync_not_confirmed"
+
+
+async def test_same_command_cannot_open_two_runs(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cmd_id = await _confirm_resync_command(app_client, uid, ws, scope="company")
+
+    r1 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    assert r1.status_code == 200, r1.text
+    run_id_1 = r1.json()["run_id"]
+
+    r2 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 2, "alt_mst_id": 2}},
+        headers=headers,
+    )
+    assert r2.status_code == 409, r2.text
+    assert r2.json()["error"] == "resync_not_confirmed"
+
+    rows = (
+        await session.execute(text("SELECT count(*) FROM sync_runs WHERE workspace_id = :w"), {"w": ws})
+    ).scalar_one()
+    assert rows == 1  # only run_id_1 exists
+    run1 = await _run_row(session, run_id_1)
+    assert run1["status"] == "running"  # untouched by the refused second open
+
+
+async def test_command_reusable_after_earlier_run_failed(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    cmd_id = await _confirm_resync_command(app_client, uid, ws, scope="company")
+
+    r1 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    run_id_1 = r1.json()["run_id"]
+    r_fail = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id_1}", json={"status": "failed", "error_code": "missing_master"},
+        headers=headers,
+    )
+    assert r_fail.status_code == 200, r_fail.text
+
+    r2 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 2, "alt_mst_id": 2}},
+        headers=headers,
+    )
+    assert r2.status_code == 200, r2.text  # reusable once the earlier run ended `failed`
+    run_id_2 = r2.json()["run_id"]
+    assert run_id_2 != run_id_1
+
+    run2 = await _run_row(session, run_id_2)
+    assert run2["status"] == "running" and run2["command_id"] == uuid.UUID(cmd_id)
+
+
+async def test_command_reusable_after_earlier_run_interrupted(app_client, session, clock):
+    """The I1 take-over interrupt is itself one of the two ways a command becomes reusable again."""
+    uid, ws, device_a, headers_a = await _login_and_bind(app_client, session, device_name="ACCOUNTS-PC")
+    cmd_id = await _confirm_resync_command(app_client, uid, ws, scope="company")
+
+    r1 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers_a,
+    )
+    run_id_1 = r1.json()["run_id"]
+
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+    body_b, headers_b = await _login_second_device(app_client, email, "LAPTOP")
+    r_takeover = await app_client.post(
+        "/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws), "takeover": True}, headers=headers_b
+    )
+    assert r_takeover.status_code == 200, r_takeover.text
+
+    r2 = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id,
+              "counters_at_start": {"alt_vch_id": 2, "alt_mst_id": 2}},
+        headers=headers_b,
+    )
+    assert r2.status_code == 200, r2.text
+    run_id_2 = r2.json()["run_id"]
+    assert run_id_2 != run_id_1
+
+    run1 = await _run_row(session, run_id_1)
+    assert run1["status"] == "interrupted"  # I1's own interrupt happened when B opened run2 above
 
 
 # --- §8.6 restore_detected gating (carried from Task 6 review) ---------------------------------------------
@@ -413,6 +715,7 @@ async def test_add_fy_creates_complete_row(app_client, session, clock):
 
 async def test_complete_run_with_missing_batches_409_batches_missing(app_client, session, clock):
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 1, 1)  # I2: incremental needs a completed first sync's cursors
     r_open = await app_client.post(
         f"/api/sync/{ws}/runs", json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
         headers=headers,
@@ -432,10 +735,38 @@ async def test_complete_run_with_missing_batches_409_batches_missing(app_client,
 
     run = await _run_row(session, run_id)
     assert run["status"] == "running"  # not completed — the rejection must not have mutated the run
+    sw = await _sw_row(session, ws)
+    assert sw["cursor_alt_vch_id"] == 1 and sw["cursor_alt_mst_id"] == 1  # D15: unchanged by the rejection
+
+
+async def test_complete_run_without_batches_declared_422(app_client, session, clock):
+    """I3 (task-7 review): `batches_declared` is REQUIRED on completion — D15's "only if every batch the run
+    declared was acked" cannot be bypassed by simply omitting the field."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 1, 1)
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs", json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    run_id = r_open.json()["run_id"]
+
+    r = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "cursor_after": {"alt_vch_id": 99, "alt_mst_id": 99}},
+        headers=headers,
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["error"] == "batches_declared_required"
+
+    run = await _run_row(session, run_id)
+    assert run["status"] == "running"  # not completed
+    sw = await _sw_row(session, ws)
+    assert sw["cursor_alt_vch_id"] == 1 and sw["cursor_alt_mst_id"] == 1  # D15: cursors never moved
 
 
 async def test_incremental_completion_sets_cursor_after(app_client, session, clock):
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 1, 1)  # I2: incremental needs a completed first sync's cursors
     await _set_state_row(session, ws, "ready")
     r_open = await app_client.post(
         f"/api/sync/{ws}/runs",
@@ -446,7 +777,7 @@ async def test_incremental_completion_sets_cursor_after(app_client, session, clo
 
     r = await app_client.patch(
         f"/api/sync/{ws}/runs/{run_id}",
-        json={"status": "completed", "progress_done": 1, "progress_total": 1,
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0,
               "cursor_after": {"alt_vch_id": 20, "alt_mst_id": 15}},
         headers=headers,
     )
@@ -472,7 +803,8 @@ async def test_backfill_completion_leaves_cursor(app_client, session, clock):
     run_id = r_open.json()["run_id"]
 
     r = await app_client.patch(
-        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "progress_done": 1, "progress_total": 1},
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -504,7 +836,8 @@ async def test_single_fy_resync_leaves_cursor(app_client, session, clock):
     assert row_before["state"] == "pending"  # fy_resync_start on an already-pending row: still pending (A10)
 
     r = await app_client.patch(
-        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "progress_done": 1, "progress_total": 1},
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -515,6 +848,9 @@ async def test_single_fy_resync_leaves_cursor(app_client, session, clock):
 
     run = await _run_row(session, run_id)
     assert run["status"] == "completed" and run["cursor_after"] is None
+
+    cmd = await _command_row(session, cmd_id)
+    assert cmd["status"] == "done" and cmd["done_at"] is not None  # I4: single-FY resync also consumes its command
 
 
 async def test_company_resync_sets_counters_at_start_and_ready(app_client, session, clock):
@@ -532,7 +868,8 @@ async def test_company_resync_sets_counters_at_start_and_ready(app_client, sessi
     run_id = r_open.json()["run_id"]
 
     r = await app_client.patch(
-        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "progress_done": 1, "progress_total": 1},
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -601,30 +938,40 @@ async def test_first_sync_recomputes_window_months_when_started_a_month_later(ap
     sync actually starts a month later, opening it must recompute the current FY's `months_total` to the run's
     OWN start month — otherwise the FY would go `complete` before its true last month is ever acked.
 
-    Exercises ``runs.open_run`` directly with a locally-advanced ``FixedClock`` (rather than driving the app's
-    OWN clock — and thus every device token's ``iat`` — forward): the fixture clock is already near "today", so
-    advancing it far enough to cross an IST month boundary would push minted JWTs' ``iat`` into the future
-    relative to the real wall clock PyJWT validates it against, an unrelated auth-layer artifact this test has
-    no business tripping over. The subsequent coverage acks go through the real HTTP route (the app's own,
-    UNCHANGED clock), so the persistence path itself is still exercised end-to-end.
+    Drives the SHARED app clock forward through the real HTTP routes (fix round 1: `decode_access` now
+    validates both `exp` AND `iat` against the injected clock, so a clock advanced past real wall time no
+    longer breaks device-token auth — the F15 test no longer needs to sidestep it by calling `open_run`
+    directly). The original login token expires once the clock advances 10 days, so a real `/auth/refresh`
+    call mints a fresh one for the SAME device — never a re-login, which would create a different device.
     """
-    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
-
-    later_clock = FixedClock(clock.now() + timedelta(days=10))  # 2026-09-25 -> 2026-10-05 IST: a new month
-    sw = await session.get(SyncWorkspace, ws)
-    device = await session.get(AgentDevice, uuid.UUID(device_id))
-    run = await runs.open_run(
-        session, sw, device,
-        runs.RunCreate(kind="first_sync", counters_at_start={"alt_vch_id": 1, "alt_mst_id": 1}),
-        later_clock,
+    uid, login_body, headers = await login_device(app_client, session, device_name="ACCOUNTS-PC")
+    ws = await make_workspace(session, uid)
+    r_bind = await app_client.post(
+        "/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws)}, headers=headers
     )
-    await session.commit()
-    run_id = str(run.id)
+    assert r_bind.status_code == 200, r_bind.text
+
+    clock.advance(days=10)  # 2026-09-25 -> 2026-10-05 IST: a new month since bind
+    r_refresh = await app_client.post(
+        "/api/agent/auth/refresh", json={"refresh_token": login_body["refresh_token"]}
+    )
+    assert r_refresh.status_code == 200, r_refresh.text
+    headers = {"Authorization": f"Bearer {r_refresh.json()['access_token']}"}
+
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs",
+        json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers,
+    )
+    assert r_open.status_code == 200, r_open.text
+    run_id = r_open.json()["run_id"]
+    current_row = next(c for c in r_open.json()["coverage"] if c["fy_start"] == "2026-04-01")
+    assert current_row["months_total"] == 7  # Apr..Oct, recomputed — NOT the bind-time 6 (Apr..Sep)
 
     row = await _coverage_row(session, ws, date(2026, 4, 1))
-    assert row["months_total"] == 7  # Apr..Oct, recomputed — NOT the bind-time 6 (Apr..Sep)
+    assert row["months_total"] == 7
 
-    # Ack only the original 6 (bind-time) months, through the real HTTP route -> the FY must NOT be complete yet.
+    # Ack only the original 6 (bind-time) months -> the FY must NOT be complete yet.
     for month in _fy_months("2026-04-01", 6):
         await _ack(app_client, headers, ws, "2026-04-01", month, run_id=run_id)
     row_partial = await _coverage_row(session, ws, date(2026, 4, 1))
@@ -687,20 +1034,59 @@ async def test_failed_first_sync_with_other_code_keeps_first_sync(app_client, se
 
 async def test_patch_run_closed_run_409(app_client, session, clock):
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 1, 1)  # I2: incremental needs a completed first sync's cursors
     r_open = await app_client.post(
         f"/api/sync/{ws}/runs", json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
         headers=headers,
     )
     run_id = r_open.json()["run_id"]
     r1 = await app_client.patch(
-        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "progress_done": 1, "progress_total": 1},
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
         headers=headers,
     )
     assert r1.status_code == 200, r1.text
 
     r2 = await app_client.patch(
-        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "progress_done": 1, "progress_total": 1},
+        f"/api/sync/{ws}/runs/{run_id}",
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
         headers=headers,
     )
     assert r2.status_code == 409, r2.text
     assert r2.json()["error"] == "run_closed"
+
+
+async def test_require_open_run_404_when_run_not_found(app_client, session, clock):
+    """403/404 branches of `_load_run_for_device` (consumed by `require_open_run`, Task 8's own interface) —
+    flagged as untested in the review (Minor/Concern 2)."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+
+    r = await app_client.patch(
+        f"/api/sync/{ws}/runs/{uuid.uuid4()}", json={"status": "completed", "batches_declared": 0}, headers=headers
+    )
+    assert r.status_code == 404, r.text
+    assert r.json()["error"] == "run_not_found"
+
+
+async def test_patch_run_403_wrong_workspace_when_another_devices_run(app_client, session, clock):
+    """The new active device (post take-over) directly PATCHing the OLD device's run_id WITHOUT first calling
+    `POST /runs` (which would have interrupted it, I1) — `_load_run_for_device`'s own 403 guard."""
+    uid, ws, device_a, headers_a = await _login_and_bind(app_client, session, device_name="ACCOUNTS-PC")
+    r_open = await app_client.post(
+        f"/api/sync/{ws}/runs", json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+        headers=headers_a,
+    )
+    run_id = r_open.json()["run_id"]
+
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+    body_b, headers_b = await _login_second_device(app_client, email, "LAPTOP")
+    r_takeover = await app_client.post(
+        "/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws), "takeover": True}, headers=headers_b
+    )
+    assert r_takeover.status_code == 200, r_takeover.text
+
+    r = await app_client.patch(
+        f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "batches_declared": 0}, headers=headers_b
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["error"] == "wrong_workspace"

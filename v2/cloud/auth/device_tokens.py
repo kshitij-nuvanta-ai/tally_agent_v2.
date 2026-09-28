@@ -46,18 +46,26 @@ def mint_access(
 
 
 def decode_access(token: str, *, secret: str, now: datetime) -> DeviceClaims:
-    """Decodes without letting PyJWT enforce expiry itself, then compares ``exp`` to the injected ``now`` so
-    tests can use ``FixedClock`` deterministically."""
+    """Decodes without letting PyJWT enforce ``exp``/``iat`` itself (both ``verify_exp`` and ``verify_iat``
+    disabled), then compares both to the injected ``now`` so tests can use ``FixedClock`` deterministically —
+    including a clock set ahead of real wall time. Without ``verify_iat: False`` here, PyJWT would still check
+    ``iat`` against the REAL wall clock even though ``mint_access`` stamped it from the injected one, so a token
+    minted with a clock ahead of real time would raise ``ImmatureSignatureError`` (task-7 review, Minor 1)."""
     try:
-        payload = jwt.decode(token, secret, algorithms=["HS256"], options={"verify_exp": False})
+        payload = jwt.decode(
+            token, secret, algorithms=["HS256"], options={"verify_exp": False, "verify_iat": False}
+        )
     except jwt.InvalidTokenError as exc:
         raise ApiError(401, "token_invalid") from exc
 
     if payload.get("typ") != DEVICE_TYP:
         raise ApiError(401, "token_invalid")
 
-    if int(now.timestamp()) >= int(payload.get("exp", 0)):
+    now_ts = int(now.timestamp())
+    if now_ts >= int(payload.get("exp", 0)):
         raise ApiError(401, "token_expired")
+    if now_ts < int(payload.get("iat", 0)):
+        raise ApiError(401, "token_invalid")  # not yet valid per the injected clock — same zero-leeway semantics
 
     try:
         device_id = uuid.UUID(payload["sub"])
