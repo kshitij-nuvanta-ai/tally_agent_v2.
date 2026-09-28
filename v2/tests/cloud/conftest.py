@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
+import jwt
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -140,3 +141,18 @@ async def app_client(engine, settings, clock):
         c.app = app
         yield c
     await app.state.engine.dispose()
+
+
+async def login_device(client, session, *, email=None, password="Passw0rd!Passw0rd", device_name="ACCOUNTS-PC"):
+    uid = await make_user(session, email=email, password=password)
+    email = (await session.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+    r = await client.post("/api/agent/auth/login", json={"email": email, "password": password,
+                                                        "device_name": device_name, "agent_version": "0.1.0"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return uid, body, {"Authorization": f"Bearer {body['access_token']}"}
+
+
+def web_headers(user_id, secret="w" * 32):
+    tok = jwt.encode({"sub": str(user_id), "type": "access", "exp": 4102444800}, secret, algorithm="HS256")
+    return {"Authorization": f"Bearer {tok}"}

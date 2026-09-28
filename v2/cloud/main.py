@@ -1,5 +1,5 @@
-"""V2 cloud FastAPI app factory (S1 spec §6.1, A13). Port 8100 (V2Settings.port); mounts no routers of its own —
-later tasks add ``auth``/``devices``/``sync``/``web_sync`` routers here."""
+"""V2 cloud FastAPI app factory (S1 spec §6.1, A13). Port 8100 (V2Settings.port); mounts the agent-auth and
+devices routers (S1 task 4) — later tasks add ``sync``/``web_sync`` routers here."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from v2.cloud.api import agent_auth, devices
+from v2.cloud.auth.rate_limit import SlidingWindow
 from v2.cloud.clock import Clock, SystemClock
 from v2.cloud.config import V2Settings
 from v2.cloud.db import make_engine
@@ -34,6 +36,11 @@ def create_app(settings: V2Settings | None = None, clock: Clock | None = None) -
     app.state.settings = settings
     app.state.clock = clock
 
+    # The rate limiters live on app.state (D24: in-process, per worker) so each app instance — each test's own
+    # ``create_app`` call — gets its own independent limiter, sized from this instance's own settings.
+    app.state.login_rate_limiter = SlidingWindow(settings.login_rate_max, settings.login_rate_window_s, clock)
+    app.state.device_rate_limiter = SlidingWindow(settings.device_rate_max, settings.device_rate_window_s, clock)
+
     if settings.database_url:
         app.state.engine = make_engine(settings.database_url)
         app.state.sessionmaker = async_sessionmaker(app.state.engine, expire_on_commit=False)
@@ -42,6 +49,8 @@ def create_app(settings: V2Settings | None = None, clock: Clock | None = None) -
         app.state.sessionmaker = None
 
     install_error_handler(app)
+    app.include_router(agent_auth.router)
+    app.include_router(devices.router)
 
     @app.get("/api/v2/health")
     async def health() -> dict:
