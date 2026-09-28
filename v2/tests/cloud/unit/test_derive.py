@@ -25,6 +25,61 @@ def test_all_company_a_groups_classified():
     assert unmapped == []
 
 
+# Hand-derived from p18_B_group_list.xml's PARENT chains (spec §4.4 rules + PRIMARY_NATURE), not computed by the
+# code under test. Every one of the fixture's 30 GROUP elements is walked and checked against this table.
+# "Primary" below stands for the fixture's literal "&#4; Primary" parent (a group that is itself a primary group).
+_B_GROUP_EXPECTED: dict[str, tuple[str, str]] = {
+    "Bank Accounts": ("Current Assets", "assets"),                    # -> Current Assets(primary) -> assets
+    "Bank OD A/c": ("Loans (Liability)", "liabilities"),               # -> Loans (Liability)(primary) -> liabilities
+    "Branch / Divisions": ("Branch / Divisions", "liabilities"),       # primary itself
+    "Capital Account": ("Capital Account", "liabilities"),             # primary itself
+    "Cash-in-Hand": ("Current Assets", "assets"),
+    "Current Assets": ("Current Assets", "assets"),                   # primary itself
+    "Current Liabilities": ("Current Liabilities", "liabilities"),    # primary itself
+    "Deposits (Asset)": ("Current Assets", "assets"),
+    "Direct Expenses": ("Direct Expenses", "expenses"),                # primary itself
+    "Direct Incomes": ("Direct Incomes", "income"),                    # primary itself
+    "Duties & Taxes": ("Current Liabilities", "liabilities"),          # -> Current Liabilities(primary)
+    "Fixed Assets": ("Fixed Assets", "assets"),                        # primary itself
+    "Indirect Expenses": ("Indirect Expenses", "expenses"),            # primary itself
+    "Indirect Incomes": ("Indirect Incomes", "income"),                # primary itself
+    "Investments": ("Investments", "assets"),                          # primary itself
+    "Loans & Advances (Asset)": ("Current Assets", "assets"),
+    "Loans (Liability)": ("Loans (Liability)", "liabilities"),        # primary itself
+    "Local Creditors": ("Current Liabilities", "liabilities"),        # -> Sundry Creditors -> Current Liabilities
+    "Misc. Expenses (ASSET)": ("Misc. Expenses (ASSET)", "assets"),    # primary itself
+    "National Creditors": ("Current Liabilities", "liabilities"),     # -> Sundry Creditors -> Current Liabilities
+    "Provisions": ("Current Liabilities", "liabilities"),              # -> Current Liabilities(primary)
+    "Purchase Accounts": ("Purchase Accounts", "expenses"),            # primary itself
+    "Reserves & Surplus": ("Capital Account", "liabilities"),          # -> Capital Account(primary)
+    "Sales Accounts": ("Sales Accounts", "income"),                    # primary itself
+    "Secured Loans": ("Loans (Liability)", "liabilities"),             # -> Loans (Liability)(primary)
+    "Stock-in-Hand": ("Current Assets", "assets"),
+    "Sundry Creditors": ("Current Liabilities", "liabilities"),        # -> Current Liabilities(primary)
+    "Sundry Debtors": ("Current Assets", "assets"),                    # -> Current Assets(primary)
+    "Suspense A/c": ("Suspense A/c", "liabilities"),                   # primary itself
+    "Unsecured Loans": ("Loans (Liability)", "liabilities"),           # -> Loans (Liability)(primary)
+}
+
+
+def test_company_b_group_list_every_group_matches_hand_derived_table():   # p18_B_group_list.xml
+    parents = _parents("p18_B_group_list.xml", "group")
+    assert set(parents) == set(_B_GROUP_EXPECTED)                      # the table covers every group in the capture
+    for group_name, (expected_primary, expected_nature) in _B_GROUP_EXPECTED.items():
+        result = nature_walk(group_name, parents)
+        assert (result.primary_group, result.nature) == (expected_primary, expected_nature), group_name
+
+
+def test_b_creditor_subgroup_walks_to_liabilities():                   # p18_B_group_list.xml, real custom sub-group
+    parents = _parents("p18_B_group_list.xml", "group")
+    result = nature_walk("Local Creditors", parents)
+    assert result.primary_group == "Current Liabilities" and result.nature == "liabilities"
+
+
+# p04_A_group_full.xml carries no <PARENT> tag at all on any of its GROUP elements (only GUID/ALTERID/name) --
+# it documents the GUID/ALTERID shape (§4.3) but has nothing to walk, so no derive test reads it.
+
+
 def test_cycle_and_unmapped_primary_warn():
     assert nature_walk("X", {"X": "Y", "Y": "X"}).warning == "unmapped_primary"
     assert nature_walk("Odd", {"Odd": "Primary"}).nature is None
