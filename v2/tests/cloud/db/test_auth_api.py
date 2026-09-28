@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from v2.cloud.api import agent_auth
 from v2.cloud.api.dependencies import active_device
 from v2.cloud.config import V2Settings
 from v2.cloud.main import create_app
@@ -256,12 +257,54 @@ async def test_refresh_overlong_field_422(app_client):
     assert r.status_code == 422
 
 
-async def test_refresh_race_one_wins_other_becomes_reuse_signal(app_client, session):
-    """Fix round 1 #5: two concurrent uses of the SAME refresh token (two independent request-scoped sessions,
-    driven with ``asyncio.gather``) must end with exactly one success and the other treated as reuse — the
-    device revoked, per D6's theft signal — never two successful rotations."""
+class _TwoPartyBarrier:
+    """Fix round 2 #5: forces two coroutines to rendezvous at a single point before either continues past it.
+    Used to guarantee both concurrent ``refresh`` requests finish their read (the ``SELECT`` by ``refresh_hash``)
+    before either performs its write (the conditional ``UPDATE``) — the exact overlap a non-atomic
+    read-then-write race needs to be exercised deterministically, instead of hoping ``asyncio.gather`` happens
+    to interleave two in-process ASGI calls that way."""
+
+    def __init__(self, parties: int):
+        self._parties = parties
+        self._count = 0
+        self._lock = asyncio.Lock()
+        self._released = asyncio.Event()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            self._count += 1
+            if self._count >= self._parties:
+                self._released.set()
+        await self._released.wait()
+
+
+async def test_refresh_race_one_wins_other_becomes_reuse_signal(app_client, session, monkeypatch):
+    """Fix round 1 #5 / Fix round 2 #5: two concurrent uses of the SAME refresh token must end with exactly one
+    success and the other treated as reuse — the device revoked, per D6's theft signal — never two successful
+    rotations.
+
+    Round 1's version of this test drove both requests through ``asyncio.gather`` and hoped they'd interleave
+    between the read and the write; the re-review showed it also passes against the pre-fix, non-atomic
+    read-then-write code (both requests run to completion sequentially inside one event loop turn often enough
+    that the *old* code's prev-hash path produces the same 200+401 shape by coincidence — so the test never
+    actually proved atomicity). This version makes the overlap deterministic: it monkeypatches
+    ``agent_auth._workspace_deleted`` — called once per refresh, strictly after the read and strictly before the
+    write — with a wrapper that blocks on a 2-party barrier. Neither request's write can happen until BOTH have
+    completed their read, on every run, not just probabilistically.
+    """
     uid, body, headers = await login_device(app_client, session)
+    ws = await make_workspace(session, uid)  # live (not deleted) — refresh() must call _workspace_deleted on it
+    await _bind_device(session, body["device_id"], ws, is_active=True)
     r1 = body["refresh_token"]
+
+    barrier = _TwoPartyBarrier(2)
+    original = agent_auth._workspace_deleted
+
+    async def _barriered_workspace_deleted(session_arg, workspace_id):
+        await barrier.wait()  # blocks until both concurrent requests have finished their read
+        return await original(session_arg, workspace_id)
+
+    monkeypatch.setattr(agent_auth, "_workspace_deleted", _barriered_workspace_deleted)
 
     results = await asyncio.gather(
         app_client.post("/api/agent/auth/refresh", json={"refresh_token": r1}),
@@ -422,3 +465,45 @@ async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
             r = await client.get(f"/t/{ws}", headers=headers)
             assert r.status_code == 409 and r.json()["error"] == "not_active_device"
     await app.state.engine.dispose()
+
+
+async def test_active_device_rate_limit_429_with_retry_after(engine, clock):
+    """Fix round 2 #3(a): §8.1 check 6, reached through `active_device` (not `any_device`). With
+    `device_rate_max=1` and a device that passes every earlier check (bound, active, live workspace), the first
+    call succeeds and the second is 429 `rate_limited` with an integer `Retry-After` header — proving the
+    limiter is actually wired into `active_device`'s own code path, not just asserted by omission elsewhere."""
+    settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
+                           device_token_secret="d" * 32, device_rate_max=1)
+    app = create_app(settings, clock)
+    _mount_active_device_probe(app)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            uid, body, headers = await login_device(client, session)
+            ws = await make_workspace(session, uid)
+            await _bind_device(session, body["device_id"], ws, is_active=True)
+            await _seed_sync_workspace(session, ws, active_device_id=uuid.UUID(body["device_id"]))
+
+        r1 = await client.get(f"/t/{ws}", headers=headers)
+        assert r1.status_code == 200
+
+        r2 = await client.get(f"/t/{ws}", headers=headers)
+        assert r2.status_code == 429
+        assert r2.json()["error"] == "rate_limited"
+        assert "Retry-After" in r2.headers
+        assert int(r2.headers["Retry-After"]) >= 0  # header value must parse as an integer
+    await app.state.engine.dispose()
+
+
+async def test_active_device_invalid_bearer_401(probe_client):
+    """Fix round 2 #3(b): a malformed/garbage bearer on the probe route (not just a missing header)."""
+    r = await probe_client.get(f"/t/{uuid.uuid4()}", headers={"Authorization": "Bearer not-a-real-token"})
+    assert r.status_code == 401 and r.json()["error"] == "token_invalid"
+
+
+async def test_active_device_wrongly_signed_bearer_401(probe_client, session):
+    """Fix round 2 #3(b): a well-formed JWT signed with the WEB secret (not the device secret) — the `typ`
+    check must still reject it even though it decodes as valid JSON/JWT."""
+    uid = await make_user(session)
+    r = await probe_client.get(f"/t/{uuid.uuid4()}", headers=web_headers(uid))
+    assert r.status_code == 401 and r.json()["error"] == "token_invalid"
