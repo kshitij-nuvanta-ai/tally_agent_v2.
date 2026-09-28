@@ -39,7 +39,10 @@ def integrity_event(ws_id: str, run_id: str, rung: int, status: str, lines: list
     # Review I3 / controller ruling: only `mismatch` verdicts feed the magnitude. `match_revalued` forex lines
     # carry their revaluation in `diff` even on a clean run (D4/C47) and would otherwise report a false magnitude.
     diffs = [abs(l.diff) for l in lines if l.verdict == "mismatch" and l.diff is not None]
-    max_abs_diff_bucket = bucket(max(diffs)) if diffs else bucket(Decimal("0"))
+    # Rereview 1 / controller ruling: zero mismatches is not the same as a real sub-₹1k mismatch -- §10.10 names no
+    # zero/none label among <₹1k | <₹1L | <₹1Cr | ≥₹1Cr, so a clean run reports None (JSON null) rather than going
+    # through bucket() at all.
+    max_abs_diff_bucket = bucket(max(diffs)) if diffs else None
     return {
         "workspace_id": ws_id,
         "run_id": run_id,
