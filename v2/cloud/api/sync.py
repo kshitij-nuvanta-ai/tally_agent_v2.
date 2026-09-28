@@ -1,6 +1,6 @@
 """Device-token sync routes (S1 spec §7.5-§7.15). Task 5 landed ``POST /api/sync/company``; task 6 added the
-``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10); task 8c adds batches (§7.9). Later tasks add
-reconcile, snapshots, parity.
+``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10); task 8c adds batches
+(§7.9); task 9 adds reconcile (§7.11) and snapshots (§7.12). Later tasks add parity.
 """
 from __future__ import annotations
 
@@ -19,10 +19,12 @@ from v2.cloud.auth.passwords import verify_password
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
 from v2.cloud.ingest import pipeline
+from v2.cloud.ingest import reconcile as reconcile_mod
+from v2.cloud.ingest import snapshots as snapshots_mod
 from v2.cloud.models import AgentDevice
 from v2.cloud.sync import coverage, runs, state
 from v2.cloud.sync.binding import BindRequest, bind
-from v2.contract.models import BatchRequest
+from v2.contract.models import BatchRequest, ReconcileRequest, SnapshotRequest
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -247,3 +249,39 @@ async def post_batch(
     status, payload = await pipeline.ingest_batch(session, sw, device, body, pipeline.body_sha256(raw), settings,
                                                   clock)
     return JSONResponse(status_code=status, content=payload)
+
+
+# --- §7.11 reconcile ------------------------------------------------------------------------------------------
+
+
+@router.post("/{ws}/reconcile")
+async def post_reconcile(
+    ws: uuid.UUID,
+    body: ReconcileRequest,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    device, sw = bound
+    clock = request.app.state.clock
+    result = await reconcile_mod.reconcile(session, sw, device, body, clock)
+    await session.commit()
+    return result
+
+
+# --- §7.12 snapshots ------------------------------------------------------------------------------------------
+
+
+@router.post("/{ws}/snapshots")
+async def post_snapshot(
+    ws: uuid.UUID,
+    body: SnapshotRequest,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> dict:
+    device, sw = bound
+    clock = request.app.state.clock
+    result = await snapshots_mod.store(session, sw, body, clock)
+    await session.commit()
+    return result
