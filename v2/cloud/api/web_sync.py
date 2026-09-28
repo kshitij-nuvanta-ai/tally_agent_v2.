@@ -1,0 +1,99 @@
+"""Web-facing sync routes (S1 spec §7.13, §7.15 web half, §9.4): ``sync-status`` and server-side commands, both
+web JWT + owner-only.
+"""
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from v2.cloud.api.dependencies import web_user
+from v2.cloud.auth.passwords import verify_password
+from v2.cloud.db import session_dep
+from v2.cloud.errors import ApiError
+from v2.cloud.models import SyncWorkspace
+from v2.cloud.sync import commands, state
+
+router = APIRouter(prefix="/api/workspaces", tags=["web-sync"])
+
+
+async def _owned_sync_workspace(session: AsyncSession, ws: uuid.UUID, user_id: uuid.UUID) -> SyncWorkspace:
+    """404 (never 403/410 — Q28/§9.4: only the owner may even learn whether ``ws`` exists) for: not found, not
+    this user's, deleted, or never bound (no ``sync_workspaces`` row yet)."""
+    row = (
+        await session.execute(text("SELECT id, user_id, is_deleted FROM workspaces WHERE id = :i"), {"i": ws})
+    ).mappings().first()
+    if row is None or row["user_id"] != user_id or row["is_deleted"]:
+        raise ApiError(404, "workspace_not_found")
+    sw = await session.get(SyncWorkspace, ws)
+    if sw is None:
+        raise ApiError(404, "workspace_not_found")
+    return sw
+
+
+# --- §7.13 sync-status -------------------------------------------------------------------------------------
+
+
+@router.get("/{ws}/sync-status")
+async def get_sync_status(
+    ws: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    user_id: uuid.UUID = Depends(web_user),
+) -> dict:
+    sw = await _owned_sync_workspace(session, ws, user_id)
+    return await state.sync_status(session, sw)
+
+
+# --- §7.15 web commands (recheck_now / confirm_resync / confirm_relink) -----------------------------------
+
+
+class WebCommandRequest(BaseModel):
+    type: str = Field(..., min_length=1, max_length=50)
+    scope: str | None = None
+    fy_start: str | None = None
+    password: str | None = Field(None, max_length=255)
+
+
+@router.post("/{ws}/sync/commands")
+async def post_command(
+    ws: uuid.UUID,
+    body: WebCommandRequest,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    user_id: uuid.UUID = Depends(web_user),
+) -> dict:
+    sw = await _owned_sync_workspace(session, ws, user_id)
+    clock = request.app.state.clock
+
+    if body.type == "confirm_relink":
+        # §7.15: relink is applied AT ONCE from the web too — same `state.apply_relink` service the device
+        # path uses — never merely queued as a pending sync_command the agent would have to deliver back.
+        if not sw.relink_prompt:
+            raise ApiError(409, "relink_not_prompted")
+        if not body.password:
+            raise ApiError(422, "password_required")
+        row = (
+            await session.execute(text("SELECT password_hash FROM users WHERE id = :i"), {"i": user_id})
+        ).mappings().first()
+        if row is None or not verify_password(body.password, row["password_hash"]):
+            raise ApiError(401, "invalid_credentials")
+
+        new_guid = sw.relink_prompt.get("guid")
+        new_name = sw.relink_prompt.get("name")
+        await state.apply_relink(session, sw, new_guid, new_name, clock)
+        await session.commit()
+        return {
+            "applied": True,
+            "sync_state": sw.sync_state,
+            "restore_reason": sw.restore_reason,
+            "previous_company_guids": sw.previous_company_guids,
+        }
+
+    params = body.model_dump(exclude={"type", "password"}, exclude_none=True)
+    cmd = await commands.enqueue(session, ws, body.type, params, requested_by="web")
+    await session.commit()
+    return {"id": str(cmd.id), "type": cmd.type, "params": cmd.params or {}, "status": cmd.status}
