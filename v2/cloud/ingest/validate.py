@@ -8,12 +8,15 @@ object. `ObjectError.detail` always names the failing **field**, never the value
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from v2.cloud.ingest.parsed import ObjectError, ObjectWarning, PBalance, PBill, PInv, PLine, PMaster, PVoucher
 from v2.cloud.parity.rung0 import voucher_balances
 from v2.contract.parse import WireParseError, amount, counter, credit_period, logical, name as parse_name, quantity
 from v2.contract.parse import rate as parse_rate, tally_date
+
+logger = logging.getLogger(__name__)
 
 # S1 spec §5.3: required keys per master kind (missing -> `missing_field`).
 MASTER_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -57,8 +60,8 @@ def _field(index: int, kind: str, guid: str | None, errors: list[ObjectError], f
     the rest of this object via `_Bad`. A wrong-typed value (e.g. a wire `int` where every parser expects `str`)
     is caught before the parser ever sees it -- `str.strip()` etc. would otherwise raise `AttributeError`, an
     uncaught exception that becomes a retried 500 instead of a quarantinable per-object error (review Important
-    #3; controller ruling: `invalid_field_type`, deterministic, quarantinable -- same class as `invalid_counter`
-    and `invalid_captured_at` below)."""
+    #3; controller ruling: `invalid_field_type`, deterministic, quarantinable -- same class as `invalid_counter`,
+    `invalid_captured_at` below and `unexpected_parse_error` in `parse_objects`)."""
     for value in args:
         if value is not None and not isinstance(value, str):
             errors.append(ObjectError(index, kind, guid, "invalid_field_type", field))
@@ -297,12 +300,21 @@ def parse_objects(objects: list[dict]) -> tuple[list[PMaster | PBalance | PVouch
     for index, obj in enumerate(objects):
         try:
             result = _parse_one(index, obj, errors, warnings)
-        except Exception:
-            # Safety net (review Important #3): every named bad shape is already handled above with its own
-            # code/field, so this only ever fires for something genuinely unanticipated -- and even then the
-            # batch must not raise (a raise here becomes a 500 that §11 retries forever and D12 can never
-            # quarantine). Same code/ruling as the guards in `_parse_one` and `_field`.
-            errors.append(ObjectError(index, "", None, "invalid_field_type", "object"))
+        except Exception as exc:
+            # Safety net (review Important #3): every *named* bad shape is already handled above with its own
+            # code/field (`invalid_field_type`). This only ever fires for something genuinely unanticipated -- a
+            # real programming bug, not a deliberate rejection -- so it gets its own code (round-2 ruling:
+            # `unexpected_parse_error`, deterministic/quarantinable like `invalid_field_type`, `invalid_counter`
+            # and `invalid_captured_at`) and is logged, so it's never silently indistinguishable from a typed-field
+            # guard. Even so the batch must not raise (a raise here becomes a 500 that §11 retries forever and
+            # D12 can never quarantine) -- one object's bug can't block the rest of the batch or the company's
+            # sync. The log carries only the exception's class name plus this object's kind and index -- never a
+            # field value, name, or any other business data (decision 14).
+            kind = obj.get("kind", "") if isinstance(obj, dict) else ""
+            kind = kind if isinstance(kind, str) else ""
+            logger.warning("v2.ingest.unexpected_parse_error", extra={"exception_class": type(exc).__name__,
+                                                                        "kind": kind, "index": index})
+            errors.append(ObjectError(index, kind, None, "unexpected_parse_error", "object"))
             result = None
         if result is not None:
             parsed.append(result)

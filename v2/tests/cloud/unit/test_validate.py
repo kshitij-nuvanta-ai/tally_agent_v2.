@@ -1,9 +1,11 @@
 import copy
+import logging
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+import v2.cloud.ingest.validate as validate_mod
 from v2.cloud.ingest.validate import parse_objects
 from v2.cloud.parity.rung0 import voucher_balances
 from v2.contract import transcode
@@ -224,3 +226,37 @@ def test_errors_still_collected_across_batch_with_a_typed_object_mixed_in():    
     objs[1]["data"]["alterid"] = 5
     _, errors, _ = parse_objects(objs)
     assert {e.index for e in errors} == {1}
+
+
+# --- Fix round 2 (task-8a-review.md re-review: a genuinely unexpected exception must not read as a deliberate
+# typed-field rejection) ------------------------------------------------------------------------------------
+
+
+def test_unexpected_exception_gets_its_own_code_is_logged_by_class_only_and_the_batch_survives(monkeypatch, caplog):
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:3])
+    target_guid = objs[1]["data"]["guid"]
+
+    def _boom(v):                                       # stands in for a genuine programming bug deep in a helper
+        if v.guid == target_guid:
+            raise RuntimeError("boom")
+        return True                                      # a stub for the other two objects -- not re-testing rung0
+
+    monkeypatch.setattr(validate_mod, "voucher_balances", _boom)
+    with caplog.at_level(logging.WARNING, logger="v2.cloud.ingest.validate"):
+        parsed, errors, _ = parse_objects(objs)
+
+    assert _codes(errors) == [(1, "unexpected_parse_error")]
+    assert errors[0].detail == "object"
+    assert {p.index for p in parsed} == {0, 2}           # the other objects in the batch still parsed
+
+    [record] = [r for r in caplog.records if r.getMessage() == "v2.ingest.unexpected_parse_error"]
+    assert record.exception_class == "RuntimeError" and record.kind == "voucher" and record.index == 1
+    logged = repr(record.__dict__)
+    assert target_guid not in logged and "Indore" not in logged and "16538" not in logged      # decision 14
+
+
+def test_typed_field_guard_still_wins_over_the_unexpected_exception_safety_net():
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["alterid"] = 5
+    _, errors, _ = parse_objects(objs)
+    assert _codes(errors) == [(0, "invalid_field_type")]                                        # not unexpected_parse_error
