@@ -132,3 +132,95 @@ def test_ledger_balance_expression_without_base_is_accepted_as_needs_tb():   # D
            "closingbalance": "-$1609.71 @ ? 82.58/$", "captured_at": "2026-09-25T16:52:49+05:30"}}
     (p,), errors, _ = parse_objects([obj])
     assert errors == [] and p.fields["closingbalance"].inr is None and p.fields["closingbalance"].stated is False
+
+
+# --- Fix round 1 (review task-8a-review.md: Important #1, #2, #3) -------------------------------------------
+
+
+def test_bill_allocation_amount_without_stated_base_is_forex_base_missing():           # I1 (D3, brief rule 3)
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["ledger_entries"][0]["bill_allocations"][0]["amount"] = "-$1.00 @ ? 82.99/$"
+    _, errors, _ = parse_objects(objs)
+    assert (0, "forex_base_missing") in _codes(errors)
+
+
+def test_inventory_amount_without_stated_base_is_forex_base_missing():                 # I1 (D3, brief rule 3)
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["inventory_entries"][0]["amount"] = "-$1.00 @ ? 82.99/$"
+    _, errors, _ = parse_objects(objs)
+    assert (0, "forex_base_missing") in _codes(errors)
+
+
+def test_bill_allocation_amount_with_stated_base_is_accepted():                        # I1, positive case
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["ledger_entries"][0]["bill_allocations"][0]["amount"] = "-$1.00 @ ? 82.99/$ = -? 16538.66"
+    (v,), errors, _ = parse_objects(objs)
+    assert errors == []
+    assert v.lines[0].bills[0].amount.inr == Decimal("-16538.66") and v.lines[0].bills[0].amount.stated is True
+
+
+def test_stock_item_master_quantity_fields_are_not_parsed_as_money():                  # I2 (§5.3)
+    items = transcode.masters_from_xml((SYNC / "p18_A_stock_item_openings.xml").read_text(encoding="utf-8"),
+                                        "stock_item")
+    for i in items:                                    # p18 lacks GUID/AlterID (fixture gap A4, as in p25 above)
+        i["data"].setdefault("guid", "t-" + i["data"]["name"])
+        i["data"].setdefault("alterid", " 1")
+    parsed, errors, _ = parse_objects(items)
+    assert errors == []
+    paper = next(p for p in parsed if p.name == "A4 Paper Ream 500 sheets")
+    assert paper.fields["openingbalance"] == Decimal("200")
+
+
+def test_stock_item_compound_unit_opening_quantity_parses_leading_number():            # I2, C40 compound unit
+    (item,) = transcode.masters_from_xml((SYNC / "p15_B_compound_unit_item.xml").read_text(encoding="utf-8"),
+                                          "stock_item")
+    item["data"]["guid"], item["data"]["alterid"] = "t-compound", " 1"
+    assert item["data"]["openingbalance"] == " 19 Box 0 Nos"           # real capture, unmutated
+    (p,), errors, _ = parse_objects([item])
+    assert errors == [] and p.fields["openingbalance"] == Decimal("19")
+
+
+def test_stock_item_closingvalue_still_parses_as_money():                              # I2, money field untouched
+    obj = {"kind": "stock_item", "data": {"guid": "g1", "alterid": " 1", "name": "Widget", "parent": "Electronics",
+           "baseunits": "Nos", "closingbalance": " 17 Nos", "closingvalue": "14015.82"}}
+    (p,), errors, _ = parse_objects([obj])
+    assert errors == []
+    assert p.fields["closingbalance"] == Decimal("17") and p.fields["closingvalue"].inr == Decimal("14015.82")
+
+
+def test_int_alterid_is_invalid_field_type_not_a_crash():                              # I3
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["alterid"] = 5
+    _, errors, _ = parse_objects(objs)
+    assert _codes(errors) == [(0, "invalid_field_type")] and errors[0].detail == "alterid"
+
+
+def test_int_date_is_invalid_field_type_not_a_crash():                                 # I3
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["date"] = 20220901
+    _, errors, _ = parse_objects(objs)
+    assert _codes(errors) == [(0, "invalid_field_type")] and errors[0].detail == "date"
+
+
+def test_list_instead_of_dict_data_is_invalid_field_type_not_a_crash():                # I3
+    _, errors, _ = parse_objects([{"kind": "voucher", "data": ["not", "a", "dict"]}])
+    assert _codes(errors) == [(0, "invalid_field_type")] and errors[0].detail == "data"
+
+
+def test_non_dict_object_is_invalid_field_type_not_a_crash():                          # I3
+    _, errors, _ = parse_objects(["not even an object"])
+    assert _codes(errors) == [(0, "invalid_field_type")] and errors[0].detail == "object"
+
+
+def test_null_field_does_not_crash_and_is_collected():                                 # I3
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:1])
+    objs[0]["data"]["iscancelled"] = None
+    _, errors, _ = parse_objects(objs)
+    assert _codes(errors) == [(0, "invalid_logical")] and errors[0].detail == "iscancelled"
+
+
+def test_errors_still_collected_across_batch_with_a_typed_object_mixed_in():           # I3, no batch-wide crash
+    objs = copy.deepcopy(_vouchers("p22_B_forex_sales.xml")[:3])
+    objs[1]["data"]["alterid"] = 5
+    _, errors, _ = parse_objects(objs)
+    assert {e.index for e in errors} == {1}

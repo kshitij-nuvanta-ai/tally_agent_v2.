@@ -34,9 +34,12 @@ VOUCHER_REQUIRED = ("guid", "masterid", "alterid", "date", "vouchertypename", "i
 LINE_REQUIRED = ("ledgername", "amount", "isdeemedpositive")
 INVENTORY_REQUIRED = ("stockitemname", "amount")
 
-# Field-name -> parsed-type routing for the "extra" (non-core) keys on a master (§5.3 optional columns).
+# Field-name -> parsed-type routing for the "extra" (non-core) keys on a master (§5.3 optional columns). A
+# `stock_item` master's `closingbalance` / `openingbalance` are quantities (the same key `stock_balance` marks
+# "(qty)" in §5.3), not money -- unlike every other kind, where those two keys ARE money (review Important #2).
 _AMOUNT_FIELDS = frozenset({"openingbalance", "closingbalance", "closingvalue"})
 _LOGICAL_FIELDS = frozenset({"isrevenue", "affectsgrossprofit", "isdeemedpositive", "isbillwiseon", "issimpleunit"})
+_STOCK_ITEM_QUANTITY_FIELDS = frozenset({"openingbalance", "closingbalance"})
 _MASTER_CORE = frozenset({"guid", "alterid", "name", "parent"})
 
 
@@ -51,7 +54,15 @@ def _missing(data: dict, required: tuple[str, ...]) -> list[str]:
 
 def _field(index: int, kind: str, guid: str | None, errors: list[ObjectError], field: str, parser, *args):
     """Run one wire parser; on `WireParseError` record an `ObjectError` naming `field` (never the value) and abort
-    the rest of this object via `_Bad`."""
+    the rest of this object via `_Bad`. A wrong-typed value (e.g. a wire `int` where every parser expects `str`)
+    is caught before the parser ever sees it -- `str.strip()` etc. would otherwise raise `AttributeError`, an
+    uncaught exception that becomes a retried 500 instead of a quarantinable per-object error (review Important
+    #3; controller ruling: `invalid_field_type`, deterministic, quarantinable -- same class as `invalid_counter`
+    and `invalid_captured_at` below)."""
+    for value in args:
+        if value is not None and not isinstance(value, str):
+            errors.append(ObjectError(index, kind, guid, "invalid_field_type", field))
+            raise _Bad
     try:
         return parser(*args)
     except WireParseError as exc:
@@ -63,16 +74,19 @@ def _parse_captured_at(text: str) -> datetime:
     try:
         return datetime.fromisoformat(text)
     except ValueError:
-        raise WireParseError("invalid_captured_at", text) from None
+        raise WireParseError("invalid_captured_at", text) from None  # ruled deterministic/quarantinable, S1 task 8a review
 
 
 def _parse_extra_fields(index: int, kind: str, guid: str | None, data: dict, errors: list[ObjectError],
                          core: frozenset[str]) -> dict:
+    quantity_fields = _STOCK_ITEM_QUANTITY_FIELDS if kind == "stock_item" else frozenset()
     fields: dict = {}
     for key, text in data.items():
         if key in core:
             continue
-        if key in _AMOUNT_FIELDS:
+        if key in quantity_fields:
+            fields[key], _ = _field(index, kind, guid, errors, key, quantity, text)
+        elif key in _AMOUNT_FIELDS:
             fields[key] = _field(index, kind, guid, errors, key, amount, text)
         elif key in _LOGICAL_FIELDS:
             fields[key] = _field(index, kind, guid, errors, key, logical, text)
@@ -130,6 +144,10 @@ def _parse_bills(index: int, guid: str | None, allocations: list[dict], errors: 
         bill_amount = None
         if b.get("amount"):
             bill_amount = _field(index, "voucher", guid, errors, "bill_allocations.amount", amount, b["amount"])
+            if bill_amount is not None and not bill_amount.stated:      # D3: forex without a base is rejected on
+                errors.append(ObjectError(index, "voucher", guid, "forex_base_missing",   # a bill, same as a line
+                                           "bill_allocations.amount"))
+                raise _Bad
         credit_days, credit_text = credit_period(b.get("billcreditperiod"))
         bill_date = None
         if b.get("billdate"):
@@ -241,6 +259,34 @@ def _parse_voucher(index: int, guid: str | None, data: dict, errors: list[Object
     return voucher
 
 
+def _parse_one(index: int, obj, errors: list[ObjectError], warnings: list[ObjectWarning]):
+    """Dispatch one wire object by `kind`. Guards the two shapes a batch can legitimately hand us that aren't a
+    `WireParseError` at all: `obj` itself not a mapping, and `obj["data"]` not a mapping (`WireObject.data` is
+    typed `dict[str, Any]`, so pydantic lets a list or a scalar through) -- review Important #3, controller
+    ruling: `invalid_field_type`, deterministic/quarantinable, detail names the field ("object" / "data")."""
+    if not isinstance(obj, dict):
+        errors.append(ObjectError(index, "", None, "invalid_field_type", "object"))
+        return None
+    kind = obj.get("kind", "")
+    kind = kind if isinstance(kind, str) else ""
+    data = obj.get("data")
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        errors.append(ObjectError(index, kind, None, "invalid_field_type", "data"))
+        return None
+    guid = data.get("guid")
+    guid = guid if guid is None or isinstance(guid, str) else None
+    if kind == "voucher":
+        return _parse_voucher(index, guid, data, errors, warnings)
+    if kind in MASTER_REQUIRED:
+        return _parse_master(index, kind, guid, data, errors)
+    if kind in BALANCE_REQUIRED:
+        return _parse_balance(index, kind, guid, data, errors)
+    errors.append(ObjectError(index, kind, guid, "unknown_kind", "kind"))
+    return None
+
+
 def parse_objects(objects: list[dict]) -> tuple[list[PMaster | PBalance | PVoucher], list[ObjectError],
                                                  list[ObjectWarning]]:
     """S1 spec §12 step 5: parse and validate every wire object. Collects every error across the batch -- a bad
@@ -249,17 +295,14 @@ def parse_objects(objects: list[dict]) -> tuple[list[PMaster | PBalance | PVouch
     errors: list[ObjectError] = []
     warnings: list[ObjectWarning] = []
     for index, obj in enumerate(objects):
-        kind = obj.get("kind", "")
-        data = obj.get("data") or {}
-        guid = data.get("guid")
-        if kind == "voucher":
-            result = _parse_voucher(index, guid, data, errors, warnings)
-        elif kind in MASTER_REQUIRED:
-            result = _parse_master(index, kind, guid, data, errors)
-        elif kind in BALANCE_REQUIRED:
-            result = _parse_balance(index, kind, guid, data, errors)
-        else:
-            errors.append(ObjectError(index, kind, guid, "unknown_kind", "kind"))
+        try:
+            result = _parse_one(index, obj, errors, warnings)
+        except Exception:
+            # Safety net (review Important #3): every named bad shape is already handled above with its own
+            # code/field, so this only ever fires for something genuinely unanticipated -- and even then the
+            # batch must not raise (a raise here becomes a 500 that §11 retries forever and D12 can never
+            # quarantine). Same code/ruling as the guards in `_parse_one` and `_field`.
+            errors.append(ObjectError(index, "", None, "invalid_field_type", "object"))
             result = None
         if result is not None:
             parsed.append(result)

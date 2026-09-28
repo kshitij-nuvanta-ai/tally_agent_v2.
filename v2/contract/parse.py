@@ -126,4 +126,4 @@ def counter(text: str) -> int:
     try:
         return int((text or "").strip())
     except ValueError:
-        raise WireParseError("invalid_counter", text) from None
+        raise WireParseError("invalid_counter", text) from None  # ruled deterministic/quarantinable, S1 task 8a review
