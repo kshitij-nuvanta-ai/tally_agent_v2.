@@ -1,7 +1,8 @@
 """Agent device auth routes (S1 spec §7.1-7.4, §9): login, refresh, logout, and the bound/unbound workspace
-list. Copied semantics (A9): the login limiter is keyed by lower-cased email and every attempt — success or
-failure — counts against it, mirroring ``backend/api/auth.py``'s ``_check_rate_limit`` check placement (before
-verifying credentials) but as a class the device limiter can share.
+list. Copied semantics (spec §7.1, controller ruling — the brief's "every attempt counts" misdescribed the
+source): ``backend/api/auth.py``'s ``_check_rate_limit`` checks the per-email bucket before the DB lookup but
+records a hit only on a FAILED attempt (``backend/api/auth.py:119,125``). ``SlidingWindow.check``/``record`` are
+split to match: ``check`` runs before the lookup, ``record`` only on the 401 path.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,21 +26,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent-auth"])
 
 
+class LoginBody(BaseModel):
+    email: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1, max_length=255)
+    device_name: str = Field(..., min_length=1, max_length=255)
+    agent_version: str | None = Field(None, max_length=50)
+
+
+class RefreshBody(BaseModel):
+    refresh_token: str = Field(..., min_length=1, max_length=512)
+
+
 @router.post("/auth/login")
-async def login(body: dict, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
+async def login(body: LoginBody, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
     settings = request.app.state.settings
     clock = request.app.state.clock
     now = clock.now()
 
-    email = str(body["email"]).strip().lower()
-    request.app.state.login_rate_limiter.hit(email)  # every attempt counts, before verifying credentials
+    email = body.email.strip().lower()
+    limiter = request.app.state.login_rate_limiter
+    limiter.check(email)  # checked before the lookup; a hit is recorded only if this attempt fails (below)
 
     row = (
         await session.execute(
             text("SELECT id, password_hash, name, is_active FROM users WHERE email = :e"), {"e": email}
         )
     ).mappings().first()
-    if row is None or not verify_password(body["password"], row["password_hash"]):
+    if row is None or not verify_password(body.password, row["password_hash"]):
+        limiter.record(email)
         raise ApiError(401, "invalid_credentials")
     if not row["is_active"]:
         raise ApiError(403, "account_inactive")
@@ -49,8 +64,8 @@ async def login(body: dict, request: Request, session: AsyncSession = Depends(se
         id=device_id,
         user_id=row["id"],
         workspace_id=None,
-        device_name=body["device_name"],
-        agent_version=body.get("agent_version"),
+        device_name=body.device_name,
+        agent_version=body.agent_version,
         refresh_hash=refresh_hash,
         refresh_expires_at=now + timedelta(days=settings.device_refresh_days),
         last_login_at=now,
@@ -87,12 +102,11 @@ async def _workspace_deleted(session: AsyncSession, workspace_id) -> bool:
 
 
 @router.post("/auth/refresh")
-async def refresh(body: dict, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
+async def refresh(body: RefreshBody, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
     settings = request.app.state.settings
     clock = request.app.state.clock
     now = clock.now()
-    token = body["refresh_token"]
-    presented_hash = hash_refresh(token)
+    presented_hash = hash_refresh(body.refresh_token)
 
     device = (
         await session.execute(select(AgentDevice).where(AgentDevice.refresh_hash == presented_hash))
@@ -119,10 +133,31 @@ async def refresh(body: dict, request: Request, session: AsyncSession = Depends(
         raise ApiError(401, "refresh_expired")
 
     new_token, new_hash = new_refresh()
-    device.refresh_prev_hash = device.refresh_hash
-    device.refresh_hash = new_hash
-    device.refresh_expires_at = now + timedelta(days=settings.device_refresh_days)
+    new_expiry = now + timedelta(days=settings.device_refresh_days)
+
+    # Atomic conditional rotate (D6 "rotated on use" + reuse detection under concurrency): only succeeds if
+    # refresh_hash on the row still equals what THIS request presented. Under READ COMMITTED, a concurrent
+    # refresh of the same token that commits first moves refresh_hash on; this UPDATE then re-checks its WHERE
+    # clause against the newly-committed row and matches 0 rows, so the loser falls into the reuse path below
+    # instead of also succeeding (the old read-then-write let both winners through).
+    claimed = (
+        await session.execute(
+            text(
+                "UPDATE agent_devices SET refresh_prev_hash = refresh_hash, refresh_hash = :new_hash, "
+                "refresh_expires_at = :exp WHERE id = :id AND refresh_hash = :presented RETURNING id"
+            ),
+            {"new_hash": new_hash, "exp": new_expiry, "id": device.id, "presented": presented_hash},
+        )
+    ).first()
     await session.commit()
+
+    if claimed is None:
+        # Lost the race: another request already rotated this exact token between our SELECT and our UPDATE.
+        # Treat it exactly like presenting an already-superseded token — revoke the device as a theft signal.
+        if device.revoked_at is None:
+            await _revoke(session, device, now, "refresh_reuse")
+            logger.warning("v2.ops.integrity", extra={"event": "refresh_reuse", "device_id": str(device.id)})
+        raise ApiError(401, "device_revoked", reason="refresh_reuse")
 
     access_token = mint_access(
         device.id, device.user_id, device.workspace_id, secret=settings.device_token_secret,

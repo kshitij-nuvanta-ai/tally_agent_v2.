@@ -3,13 +3,18 @@
 fresh session (never trusts the in-memory ORM object the request handler touched)."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from datetime import timedelta
 
+import httpx
 import pytest
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from v2.cloud.api.dependencies import active_device
 from v2.cloud.config import V2Settings
 from v2.cloud.main import create_app
 from v2.tests.cloud.conftest import (
@@ -174,8 +179,6 @@ async def test_per_device_rate_limit_429(engine, clock):
     settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
                            device_token_secret="d" * 32, device_rate_max=3)
     app = create_app(settings, clock)
-    import httpx
-    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
@@ -185,4 +188,237 @@ async def test_per_device_rate_limit_429(engine, clock):
             assert r.status_code == 200
         r = await client.get("/api/agent/workspaces", headers=headers)
         assert r.status_code == 429 and r.json()["error"] == "rate_limited"
+    await app.state.engine.dispose()
+
+
+# --- Fix round 1 ------------------------------------------------------------------------------------------
+# Review findings (task-4-review.md § Important): (1) the login limiter must count only FAILED attempts —
+# copied `_check_rate_limit` semantics, not "every attempt"; (2) covered at the unit level in test_rate_limit.py
+# (the sweep); (3) `active_device` (§8.1 checks 3-6) needs executing tests — a test-only probe router below;
+# (4) auth bodies must be pydantic-validated (422, not 500, on bad input); (5) refresh rotation must be atomic
+# under concurrency; (6) covered in test_config_clock.py (distinct secrets).
+
+
+async def test_login_rate_limit_never_trips_on_successful_logins(app_client, session):
+    """Fix round 1 #1: repeated SUCCESSFUL logins must never count against the per-email limiter — only a
+    failed attempt does (copied `_check_rate_limit` semantics, spec §7.1)."""
+    uid = await make_user(session, password="Passw0rd!Passw0rd")
+    email = (await session.execute(text("SELECT email FROM users WHERE id = :i"), {"i": uid})).scalar_one()
+    for _ in range(6):
+        r = await app_client.post(
+            "/api/agent/auth/login",
+            json={"email": email, "password": "Passw0rd!Passw0rd", "device_name": "PC", "agent_version": "0.1.0"},
+        )
+        assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"password": "Passw0rd!Passw0rd", "device_name": "PC"},  # missing email
+        {"email": "x@example.com", "device_name": "PC"},  # missing password
+        {"email": "x@example.com", "password": "Passw0rd!Passw0rd"},  # missing device_name
+    ],
+)
+async def test_login_missing_required_field_422(app_client, payload):
+    r = await app_client.post("/api/agent/auth/login", json=payload)
+    assert r.status_code == 422
+
+
+async def test_login_wrong_type_field_422(app_client):
+    r = await app_client.post(
+        "/api/agent/auth/login",
+        json={"email": "x@example.com", "password": 12345, "device_name": "PC", "agent_version": "0.1.0"},
+    )
+    assert r.status_code == 422
+
+
+async def test_login_overlong_field_422(app_client):
+    r = await app_client.post(
+        "/api/agent/auth/login",
+        json={"email": "x@example.com", "password": "y" * 10, "device_name": "x" * 300, "agent_version": "0.1.0"},
+    )
+    assert r.status_code == 422
+
+
+async def test_refresh_missing_field_422(app_client):
+    r = await app_client.post("/api/agent/auth/refresh", json={})
+    assert r.status_code == 422
+
+
+async def test_refresh_wrong_type_field_422(app_client):
+    r = await app_client.post("/api/agent/auth/refresh", json={"refresh_token": 12345})
+    assert r.status_code == 422
+
+
+async def test_refresh_overlong_field_422(app_client):
+    r = await app_client.post("/api/agent/auth/refresh", json={"refresh_token": "x" * 600})
+    assert r.status_code == 422
+
+
+async def test_refresh_race_one_wins_other_becomes_reuse_signal(app_client, session):
+    """Fix round 1 #5: two concurrent uses of the SAME refresh token (two independent request-scoped sessions,
+    driven with ``asyncio.gather``) must end with exactly one success and the other treated as reuse — the
+    device revoked, per D6's theft signal — never two successful rotations."""
+    uid, body, headers = await login_device(app_client, session)
+    r1 = body["refresh_token"]
+
+    results = await asyncio.gather(
+        app_client.post("/api/agent/auth/refresh", json={"refresh_token": r1}),
+        app_client.post("/api/agent/auth/refresh", json={"refresh_token": r1}),
+    )
+    statuses = sorted(r.status_code for r in results)
+    assert statuses == [200, 401], [r.text for r in results]
+
+    loser = next(r for r in results if r.status_code == 401)
+    loser_body = loser.json()
+    assert loser_body["error"] == "device_revoked" and loser_body["reason"] == "refresh_reuse"
+
+    row = await _device_row(session, body["device_id"])
+    assert row["revoke_reason"] == "refresh_reuse"
+
+
+def _mount_active_device_probe(app) -> None:
+    """Test-only route (Fix round 1 #3): drives `active_device` (§8.1 checks 1-6) end to end. Not a production
+    route — never registered by `v2/cloud/main.py`."""
+    probe_router = APIRouter()
+
+    @probe_router.get("/t/{ws}")
+    async def _probe(bound: tuple = Depends(active_device)) -> dict:
+        device, workspace = bound
+        return {"device_id": str(device.id), "workspace_id": str(workspace.workspace_id)}
+
+    app.include_router(probe_router)
+
+
+@pytest.fixture
+async def probe_client(engine, settings, clock):
+    app = create_app(settings, clock)
+    _mount_active_device_probe(app)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as c:
+        c.app = app
+        yield c
+    await app.state.engine.dispose()
+
+
+async def _seed_sync_workspace(session, workspace_id, *, active_device_id=None) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO sync_workspaces (workspace_id, tally_company_guid, tally_company_name, books_from, "
+            "sync_state, active_device_id) VALUES (:w, 'guid-1', 'Co', '2022-04-01', 'ready', :ad)"
+        ),
+        {"w": workspace_id, "ad": active_device_id},
+    )
+    await session.commit()
+
+
+async def _bind_device(session, device_id, workspace_id, *, is_active: bool) -> None:
+    await session.execute(
+        text("UPDATE agent_devices SET workspace_id = :w, is_active = :a WHERE id = :d"),
+        {"w": workspace_id, "a": is_active, "d": device_id},
+    )
+    await session.commit()
+
+
+async def test_active_device_missing_token_401(probe_client):
+    r = await probe_client.get(f"/t/{uuid.uuid4()}")
+    assert r.status_code == 401 and r.json()["error"] == "token_invalid"
+
+
+async def test_active_device_revoked_device_401(probe_client, session):
+    uid, body, headers = await login_device(probe_client, session)
+    ws = await make_workspace(session, uid)
+    await _bind_device(session, body["device_id"], ws, is_active=True)
+    await _seed_sync_workspace(session, ws, active_device_id=uuid.UUID(body["device_id"]))
+    await session.execute(
+        text("UPDATE agent_devices SET revoked_at = now(), revoke_reason = 'logout', is_active = false "
+             "WHERE id = :d"),
+        {"d": body["device_id"]},
+    )
+    await session.commit()
+
+    r = await probe_client.get(f"/t/{ws}", headers=headers)
+    assert r.status_code == 401 and r.json()["error"] == "device_revoked" and r.json()["reason"] == "logout"
+
+
+async def test_active_device_wrong_workspace_403(probe_client, session):
+    uid, body, headers = await login_device(probe_client, session)
+    ws_a = await make_workspace(session, uid, name="A")
+    ws_b = await make_workspace(session, uid, name="B")
+    await _bind_device(session, body["device_id"], ws_a, is_active=True)
+    await _seed_sync_workspace(session, ws_a, active_device_id=uuid.UUID(body["device_id"]))
+
+    r = await probe_client.get(f"/t/{ws_b}", headers=headers)
+    assert r.status_code == 403 and r.json()["error"] == "wrong_workspace"
+
+
+async def test_active_device_deleted_workspace_410_revokes(probe_client, session):
+    uid, body, headers = await login_device(probe_client, session)
+    ws = await make_workspace(session, uid, is_deleted=True)
+    await _bind_device(session, body["device_id"], ws, is_active=True)
+    await _seed_sync_workspace(session, ws, active_device_id=uuid.UUID(body["device_id"]))
+
+    r = await probe_client.get(f"/t/{ws}", headers=headers)
+    assert r.status_code == 410 and r.json()["error"] == "workspace_deleted"
+    row = await _device_row(session, body["device_id"])
+    assert row["revoke_reason"] == "workspace_deleted"
+
+
+async def test_active_device_not_active_409(probe_client, session):
+    uid, body, headers = await login_device(probe_client, session)
+    ws = await make_workspace(session, uid)
+    await _bind_device(session, body["device_id"], ws, is_active=False)  # bound but not the active device
+    await _seed_sync_workspace(session, ws, active_device_id=None)
+
+    r = await probe_client.get(f"/t/{ws}", headers=headers)
+    assert r.status_code == 409 and r.json()["error"] == "not_active_device"
+
+
+async def test_active_device_active_200(probe_client, session):
+    uid, body, headers = await login_device(probe_client, session)
+    ws = await make_workspace(session, uid)
+    await _bind_device(session, body["device_id"], ws, is_active=True)
+    await _seed_sync_workspace(session, ws, active_device_id=uuid.UUID(body["device_id"]))
+
+    r = await probe_client.get(f"/t/{ws}", headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"device_id": body["device_id"], "workspace_id": str(ws)}
+
+
+async def test_active_device_ordering_wrong_workspace_wins_over_deleted(probe_client, session):
+    """Ordering case: two checks fail at once — the device isn't bound to `ws` (check 3) AND `ws` itself is
+    deleted (check 4). Check 3 must win, so a cross-tenant probe against a deleted workspace learns nothing
+    about that workspace's deletion state, and the device is never revoked for a workspace it isn't bound to."""
+    uid, body, headers = await login_device(probe_client, session)
+    ws_a = await make_workspace(session, uid, name="A")
+    ws_deleted = await make_workspace(session, uid, name="Deleted", is_deleted=True)
+    await _bind_device(session, body["device_id"], ws_a, is_active=True)
+    await _seed_sync_workspace(session, ws_a, active_device_id=uuid.UUID(body["device_id"]))
+
+    r = await probe_client.get(f"/t/{ws_deleted}", headers=headers)
+    assert r.status_code == 403 and r.json()["error"] == "wrong_workspace"
+
+    row = await _device_row(session, body["device_id"])
+    assert row["revoked_at"] is None  # check 4's revoke side effect must not have run
+
+
+async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
+    """§8.1 check 6 (rate limit) is last: with `device_rate_max=1` and a device that always fails check 5
+    (bound, not the workspace's active device), repeated calls must keep returning 409 — never 429 — because
+    execution never reaches the limiter once an earlier check has already failed."""
+    settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
+                           device_token_secret="d" * 32, device_rate_max=1)
+    app = create_app(settings, clock)
+    _mount_active_device_probe(app)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            uid, body, headers = await login_device(client, session)
+            ws = await make_workspace(session, uid)
+            await _bind_device(session, body["device_id"], ws, is_active=False)
+            await _seed_sync_workspace(session, ws, active_device_id=None)
+
+        for _ in range(3):
+            r = await client.get(f"/t/{ws}", headers=headers)
+            assert r.status_code == 409 and r.json()["error"] == "not_active_device"
     await app.state.engine.dispose()

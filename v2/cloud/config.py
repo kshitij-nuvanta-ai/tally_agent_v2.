@@ -64,3 +64,7 @@ class V2Settings(BaseSettings):
         for name in ("web_jwt_secret", "device_token_secret"):
             if len(getattr(self, name)) < 32:
                 raise ValueError(f"{name} must be at least 32 characters")
+        if self.web_jwt_secret == self.device_token_secret:
+            # D6: device tokens are signed with a secret SEPARATE from the web JWT secret, so a device token can
+            # never pass as a web token (or vice versa) even if `typ`/`type` checking were ever bypassed.
+            raise ValueError("device_token_secret must differ from web_jwt_secret (D6)")

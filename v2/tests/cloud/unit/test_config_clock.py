@@ -38,6 +38,13 @@ def test_settings_refuse_short_device_secret():
                    device_token_secret="short").validate_for_serving()
 
 
+def test_settings_refuse_equal_secrets():
+    """D6 controller ruling: the device secret must differ from the web JWT secret."""
+    with pytest.raises(ValueError):
+        V2Settings(_env_file=None, database_url="postgresql+asyncpg://x/y", web_jwt_secret="w" * 32,
+                   device_token_secret="w" * 32).validate_for_serving()
+
+
 def test_web_jwt_accepts_access_rejects_refresh_and_device_typ():
     secret = "w" * 32
     ok = jwt.encode({"sub": "u1", "type": "access", "exp": 4102444800}, secret, algorithm="HS256")
