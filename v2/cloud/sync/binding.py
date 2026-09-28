@@ -12,6 +12,21 @@ row was genuinely unbound), then re-``SELECT ... FOR UPDATE``s the row and appli
 is actually there. Postgres itself serializes two concurrent ``INSERT``s of the same key (the second blocks on
 the unique index until the first's transaction ends), so this is safe under real concurrency, not just in the
 single-writer case.
+
+Fix round 1 (review — 3 Important issues):
+  1. ``sync_workspaces.active_device_id`` is never cleared by any revocation writer (``DELETE
+     /api/devices/{id}``, logout, refresh-reuse revoke, workspace-deleted revoke — all touch only
+     ``agent_devices``). So "another active device" for §7.5 purposes must be resolved at READ time
+     (``_effective_active_device``): missing, revoked, inactive, or pointing at a device now active on a
+     DIFFERENT workspace all count as "no active device".
+  2. A device active on W1 could bind W2 without W1's ``active_device_id`` ever being cleared, so a later
+     take-over of W1 would revoke the device that is now actually syncing W2. ``_activate`` now (a) clears
+     ``active_device_id`` on every OTHER workspace currently pointing at the device being activated, and (b)
+     only revokes ``prev`` when ``prev.workspace_id == sw.workspace_id`` (i.e. ``prev`` is genuinely this
+     workspace's device, not a stale pointer).
+  3. Controller ruling: D7's take-over guard (``takeover`` + login ≤10 min) applies to ANY bind that would
+     displace another LIVE active device of the workspace, whatever GUID is being bound — not just the
+     same-GUID branch. The different-GUID branch now runs the same guard, ahead of the accepted-batch check.
 """
 from __future__ import annotations
 
@@ -20,7 +35,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -98,6 +113,19 @@ async def _has_coverage(session: AsyncSession, workspace_id: uuid.UUID) -> bool:
     return row is not None
 
 
+async def _effective_active_device(session: AsyncSession, sw: SyncWorkspace) -> AgentDevice | None:
+    """Fix round 1 #1: §7.5's "another active device" means a device that is genuinely live for THIS
+    workspace right now, not merely whatever ``sync_workspaces.active_device_id`` last pointed at — no
+    revocation writer clears that pointer. Missing, revoked, inactive, or pointing at a device that has since
+    moved to a different workspace (fix round 1 #2) all resolve to "no active device"."""
+    if sw.active_device_id is None:
+        return None
+    ad = await session.get(AgentDevice, sw.active_device_id)
+    if ad is None or not ad.is_active or ad.revoked_at is not None or ad.workspace_id != sw.workspace_id:
+        return None
+    return ad
+
+
 async def _create_coverage(session: AsyncSession, sw: SyncWorkspace, clock: Clock) -> None:
     rows = fy_rows_for_bind(sw.books_from, ist_date(clock.now()), None)
     for r in rows:
@@ -130,18 +158,44 @@ async def _rebind(session: AsyncSession, sw: SyncWorkspace, body: BindRequest, b
     await _create_coverage(session, sw, clock)
 
 
+async def _guard_takeover(
+    session: AsyncSession, sw: SyncWorkspace, device: AgentDevice, body: BindRequest, settings: V2Settings, clock: Clock
+) -> None:
+    """Fix round 1 #3 (controller ruling): D7's take-over guard applies to ANY bind that would displace another
+    LIVE active device of the workspace, whatever GUID is being bound. No-op if there's no other live device,
+    or if the live device is this one. Raises 409 ``takeover_required`` / 401 ``reauth_required`` otherwise."""
+    active = await _effective_active_device(session, sw)
+    if active is None or active.id == device.id:
+        return
+    if not body.takeover:
+        raise ApiError(409, "takeover_required", active_device=_device_info(active))
+    login_age = clock.now() - (device.last_login_at or clock.now())
+    if login_age > timedelta(minutes=settings.takeover_login_max_age_minutes):
+        raise ApiError(401, "reauth_required")
+
+
 async def _activate(session: AsyncSession, sw: SyncWorkspace, device: AgentDevice, clock: Clock) -> None:
-    """§9.3: revoke the previous active device (if any other), flush, then activate this one — the partial
-    unique index on ``agent_devices (workspace_id) WHERE is_active`` would otherwise fire inside the
-    transaction if both rows were ``is_active`` at once."""
+    """§9.3: revoke the previous active device (if any other, and only if it's actually THIS workspace's
+    device — fix round 1 #2), flush, then activate this one — the partial unique index on ``agent_devices
+    (workspace_id) WHERE is_active`` would otherwise fire inside the transaction if both rows were
+    ``is_active`` at once. Also detaches this device from any OTHER workspace it was previously active on
+    (fix round 1 #2), so a later take-over there doesn't revoke a device that has since moved here."""
     now = clock.now()
+
+    await session.execute(
+        update(SyncWorkspace)
+        .where(SyncWorkspace.active_device_id == device.id, SyncWorkspace.workspace_id != sw.workspace_id)
+        .values(active_device_id=None, updated_at=now)
+    )
+
     if sw.active_device_id is not None and sw.active_device_id != device.id:
         prev = await session.get(AgentDevice, sw.active_device_id)
-        if prev is not None and prev.is_active:
+        if prev is not None and prev.is_active and prev.workspace_id == sw.workspace_id:
             prev.is_active = False
             prev.revoked_at = now
             prev.revoke_reason = "taken_over"
             await session.flush()
+
     device.workspace_id = sw.workspace_id
     device.is_active = True
     sw.active_device_id = device.id
@@ -149,11 +203,10 @@ async def _activate(session: AsyncSession, sw: SyncWorkspace, device: AgentDevic
     await session.flush()
 
 
-async def _active_device_info(session: AsyncSession, device_id: uuid.UUID) -> dict:
-    ad = await session.get(AgentDevice, device_id)
+def _device_info(ad: AgentDevice) -> dict:
     return {
-        "device_name": ad.device_name if ad is not None else None,
-        "last_seen_at": ad.last_seen_at.isoformat() if ad is not None and ad.last_seen_at else None,
+        "device_name": ad.device_name,
+        "last_seen_at": ad.last_seen_at.isoformat() if ad.last_seen_at else None,
     }
 
 
@@ -236,6 +289,9 @@ async def bind(
     sw = await _lock_workspace(session, body.workspace_id)
 
     if sw.tally_company_guid != body.company_guid:
+        # Fix round 1 #3 (controller ruling): D7's guard applies to ANY displacement, before the different-GUID
+        # rules (no data -> re-bound, data exists -> 409) even get a chance to run.
+        await _guard_takeover(session, sw, device, body, settings, clock)
         if await _has_accepted_batch(session, sw.workspace_id):
             raise ApiError(409, "workspace_bound_to_other_company")
         await _rebind(session, sw, body, books_from, clock)
@@ -247,21 +303,16 @@ async def bind(
             # row somehow missing coverage — either way there is nothing to conflict with yet.
             await _create_coverage(session, sw, clock)
             await _activate(session, sw, device, clock)
-        elif sw.active_device_id is None:
-            # Re-bind-when-empty: bound, coverage already exists, but no device is currently active (e.g. the
-            # prior active device was revoked from the web). Nothing to take over.
-            await _activate(session, sw, device, clock)
-        elif sw.active_device_id == device.id:
-            pass  # no-op: this device is already the active one (Part 1 §4 step 3)
         else:
-            if not body.takeover:
-                raise ApiError(
-                    409, "takeover_required", active_device=await _active_device_info(session, sw.active_device_id)
-                )
-            login_age = clock.now() - (device.last_login_at or clock.now())
-            if login_age > timedelta(minutes=settings.takeover_login_max_age_minutes):
-                raise ApiError(401, "reauth_required")
-            await _activate(session, sw, device, clock)
+            active = await _effective_active_device(session, sw)
+            if active is not None and active.id == device.id:
+                pass  # no-op: this device is already the (genuinely live) active one (Part 1 §4 step 3)
+            elif active is None:
+                # Re-bind-when-empty (fix round 1 #1: resolved live, not from a stale pointer).
+                await _activate(session, sw, device, clock)
+            else:
+                await _guard_takeover(session, sw, device, body, settings, clock)
+                await _activate(session, sw, device, clock)
 
     await session.commit()
 
