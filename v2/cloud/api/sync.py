@@ -1,6 +1,6 @@
 """Device-token sync routes (S1 spec §7.5-§7.15). Task 5 landed ``POST /api/sync/company``; task 6 added the
-``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10). Later tasks add
-batches, reconcile, snapshots, parity.
+``{ws}``-scoped heartbeat/state/relink routes; task 7 adds runs (§7.8) and coverage (§7.10); task 8c adds batches (§7.9). Later tasks add
+reconcile, snapshots, parity.
 """
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field, model_validator
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,9 +18,11 @@ from v2.cloud.api.dependencies import any_device, active_device
 from v2.cloud.auth.passwords import verify_password
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
+from v2.cloud.ingest import pipeline
 from v2.cloud.models import AgentDevice
 from v2.cloud.sync import coverage, runs, state
 from v2.cloud.sync.binding import BindRequest, bind
+from v2.contract.models import BatchRequest
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -219,3 +222,28 @@ async def patch_coverage(
 
     await session.commit()
     return result
+
+
+# --- §7.9 batches (§12 ingest pipeline) --------------------------------------------------------------------------
+
+
+@router.post("/{ws}/batches")
+async def post_batch(
+    ws: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(session_dep),
+    bound: tuple = Depends(active_device),
+) -> JSONResponse:
+    """§7.9: a gzip (or plain) JSON batch. Step 1's limits are enforced while the body streams in, before any
+    parse; the body is never logged."""
+    device, sw = bound
+    settings = request.app.state.settings
+    clock = request.app.state.clock
+    raw = await pipeline.read_body(request, settings)
+    try:
+        body = BatchRequest.model_validate(raw)
+    except ValidationError:
+        raise ApiError(422, "invalid_body", "shape") from None
+    status, payload = await pipeline.ingest_batch(session, sw, device, body, pipeline.body_sha256(raw), settings,
+                                                  clock)
+    return JSONResponse(status_code=status, content=payload)
