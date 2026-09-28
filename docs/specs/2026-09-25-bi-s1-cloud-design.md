@@ -12,6 +12,11 @@
 > the S0 probe spec [`2026-09-22-bi-s0-probes-design.md`](2026-09-22-bi-s0-probes-design.md); the S0 exit gate
 > [`../bi-s0-exit-gate-2026-09-25.md`](../bi-s0-exit-gate-2026-09-25.md) (exceptions (d), (f), (g));
 > [`LESSONS.md`](../../LESSONS.md) §15 rules 17–30; the real captures in `v2/tests/fixtures/sync/`.
+> **Changed 2026-09-28 (S1 build, Task 10c review — controller ruling):** §10.5(b) compares the **change** of the
+> TB's `Unadjusted Forex Gain/Loss` row since the anchor date E, not its as-on value: an E−1 anchor row is already
+> revalued by Tally and the row is cumulative (live company B's FY 2025-26 TBs still carry −183.87), so the as-on value
+> alone falsely rejects every run with E > books_from. Forex `unrealised` / `match_revalued` now mean "since E". Other
+> S1 build rulings awaiting their spec edit (Task 15) are listed in the tracker change log and the SDD ledger.
 > **Status tracking:** [`../plans/2026-09-22-bi-part1-tracker.md`](../plans/2026-09-22-bi-part1-tracker.md) §4 (S1
 > rows). Not in this file.
 >
@@ -884,15 +889,19 @@ Any countable line on L **without** a face value (a plain-INR line on a forex le
 ```
 raw_diff_L   = tb_row_L(d) − computed_L(d)                 for L in F
 unadjusted_d = the TB's "Unadjusted Forex Gain/Loss" row at d (0 if absent)
-accept iff   | Σ raw_diff_L + unadjusted_d | ≤ tolerance
+Δunadjusted  = unadjusted_d − unadjusted_(E−1)          (Changed 2026-09-28; E−1 = the anchor TB's row;
+                                                          at E = books_from: the TB as-on books_from's row, 0 if absent)
+accept iff   | Σ raw_diff_L + Δunadjusted | ≤ tolerance
 ```
+*(Changed 2026-09-28: `computed_L` starts from the E−1 anchor, which Tally has already revalued, so only the change of
+the cumulative unadjusted row since E belongs in the sum. `raw_diff_L` / `unrealised` are therefore "since E".)*
 Accepted → each L `match_revalued` (if not already mismatched by (a)); rejected → every L with a non-zero diff is
 `mismatch`, cause `forex_revaluation_unexplained`. **Non-forex ledgers never get an allowance**, so a missed forex
 sale still shows at its full base on the INR side (e.g. `Export Sales`) and the set sum moves too.
 
 Real numbers (company B, 31-03-2023, `p18_B_tb_asof_2023-03-31.xml` + `p22_B_*`): ours for the USD party
 = −37,216.04 − 95,897.68 = −1,33,113.72; Tally −1,32,929.85; `raw_diff` +183.87; TB row `Unadjusted Forex
-Gain/Loss` −183.87 → Σ = 0.00 → accepted. Face: −448.44 − 1,161.27 = −1,609.71 = Tally's face; −1,609.71 × 82.58 =
+Gain/Loss` −183.87, anchor row at books_from 0 → Δ −183.87 → Σ = 0.00 → accepted. Face: −448.44 − 1,161.27 = −1,609.71 = Tally's face; −1,609.71 × 82.58 =
 −1,32,929.85 ✓. **New observation from that capture (not recorded in S0):** the TB carries a synthetic top-level
 `Unadjusted Forex Gain/Loss` row — Indirect Expenses (−55,333.11) equals its only ledger `Bank Charges`, so the row is
 outside it — and with it the TB nets to **0.00**; LESSONS rule 29(b)'s "TB total is out by the difference" holds only
