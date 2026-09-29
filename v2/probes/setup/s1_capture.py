@@ -198,9 +198,25 @@ def tb_row(raw: str, name: str) -> dict[str, Any]:
     return {"ledger": name, "found": False, "debit_text": "", "credit_text": "", "form": "absent"}
 
 
-def _tb_observer(*named_rows: tuple[str, str]) -> Callable[[str], dict[str, Any]]:
+USD_PARTY_BASE_NAME = USD_EXPORT_PARTY.removesuffix(" (USD)")
+
+
+def usd_row(raw: str) -> dict[str, Any]:
+    """The USD party's TB row (Task 14b C6b). The exact dataset name (``USD_EXPORT_PARTY``) first; failing that,
+    the dataset's name WITHOUT the "(USD)" suffix -- the name the G6 capture (TB as on 01-04-2022) carries the row
+    under. ``matched`` says which one was found (``exact`` / ``name_without_usd_suffix``)."""
+    row = tb_row(raw, USD_EXPORT_PARTY)
+    if row["found"]:
+        return {**row, "matched": "exact"}
+    row = tb_row(raw, USD_PARTY_BASE_NAME)
+    return {**row, "matched": "name_without_usd_suffix" if row["found"] else None}
+
+
+def _tb_observer(*named_rows: tuple[str, str | Callable[[str], dict[str, Any]]]) -> Callable[[str], dict[str, Any]]:
+    """``(key, row name)`` -> ``tb_row(raw, name)``; ``(key, finder)`` -> ``finder(raw)`` (e.g. ``usd_row``)."""
     def observe(raw: str) -> dict[str, Any]:
-        return {"rows": len(_tb_rows(raw)), **{key: tb_row(raw, name) for key, name in named_rows}}
+        return {"rows": len(_tb_rows(raw)),
+                **{key: (name(raw) if callable(name) else tb_row(raw, name)) for key, name in named_rows}}
     return observe
 
 
@@ -256,7 +272,7 @@ def plan(company_key: str, company: str, ledger_tb_template: str,
                                  ledger_tb_request(ledger_tb_template, company, A_BOOKS_FROM, A_BOOKS_FROM),
                                  _tb_observer(("opening_stock_row", "Opening Stock"))))
     else:
-        usd = ("usd_row", USD_EXPORT_PARTY)
+        usd = ("usd_row", usd_row)
         specs += [
             CaptureSpec("tb_ledger_2025-04-01_2026-03-31", "G2",
                         ledger_tb_request(ledger_tb_template, company, *B_TB_CURRENT), _tb_observer(usd)),
@@ -327,6 +343,22 @@ async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: Re
     env = store.environment
     environment = {k: env[k] for k in ENVIRONMENT_SIDECAR_KEYS if k in env}
     company_guid: str | None = None
+    if only is not None and only != "counters":
+        # Task 14b C6a: a single step still gets the company's GUID in its sidecar (not name-only provenance) --
+        # the non-mutating counters read (Export, same guards as every capture), observed but never saved.
+        guid_specs = [s for s in plan(company_key, company, confirmed["xml_template"],
+                                      store.confirmed("company_counters")) if s.step == "counters"]
+        for spec in guid_specs:
+            check_export_only(spec.xml)
+            check_request(spec.xml)
+            check_educational_dates(spec.xml, licence)
+            await check_open_company(client, company)
+            try:
+                response = await client.post_xml(spec.xml)
+            except (TallyConnectionError, TallyResponseError) as exc:
+                hint = f" {POPUP_HINT}" if isinstance(exc, TallyTimeoutError) else ""
+                raise CaptureAborted(f"company GUID read: {exc}.{hint} Nothing more was sent.") from exc
+            company_guid = _observe(spec, response.text).get("guid")
     for spec, name in zip(specs, names):
         await check_open_company(client, company)
         common = dict(probe_id=None, part=company_key, step=spec.step, company_name=company,

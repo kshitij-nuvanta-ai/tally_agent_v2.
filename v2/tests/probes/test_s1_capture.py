@@ -367,7 +367,14 @@ async def test_only_captures_a_single_step_and_leaves_existing_files_alone(tmp_p
     names = await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
                          say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
     assert names == ["s1_B_tb_ledger_asof_2022-04-01.xml"]
-    assert len(_non_list(books)) == 1 and (out / "s1_B_units.xml").read_bytes() == keep
+    assert (out / "s1_B_units.xml").read_bytes() == keep
+    counters = (out / "s1_B_counters.xml").read_bytes()
+    # Task 14b C6(a): `--only` still performs the non-mutating company GUID read (the counters request, never
+    # saved as a capture) so the step's sidecar carries the company GUID, not name-only provenance
+    sent = _non_list(books)
+    assert len(sent) == 2 and sent[0] == _sidecar(out, "B", "counters")["request_xml"]
+    assert _sidecar(out, "B", "tb_ledger_asof_2022-04-01")["company_guid"] == GUID
+    assert (out / "s1_B_counters.xml").read_bytes() == counters            # the GUID read wrote nothing
     with pytest.raises(FileExistsError):                  # --only still never overwrites without --overwrite
         await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
                      say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
@@ -378,3 +385,27 @@ async def test_only_captures_a_single_step_and_leaves_existing_files_alone(tmp_p
 
 def test_parser_only_option():
     assert s1.build_parser().parse_args(["--company", "B", "--only", "units"]).only == "units"
+
+
+async def test_only_counters_sends_the_counters_read_once(tmp_path):
+    """C6(a): `--only counters` is itself the GUID read — it is not sent twice."""
+    books = _books_b()
+    out = tmp_path / "out"
+    names = await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+                         say=lambda _m: None, only="counters")
+    assert names == ["s1_B_counters.xml"] and len(_non_list(books)) == 1
+    assert _sidecar(out, "B", "counters")["company_guid"] == GUID
+
+
+def test_usd_row_is_found_by_the_dataset_name_without_the_usd_suffix_in_the_g6_capture():
+    """C6(b): the committed G6 capture (TB as on 01-04-2022) carries the USD party's row under the dataset's
+    ledger name WITHOUT the "(USD)" suffix; the observer finds it (and says which name matched) instead of
+    reporting it absent. Where the suffixed row exists (the FY 2025-26 capture) that one is still preferred."""
+    g6 = (FIXTURES / "s1_B_tb_ledger_asof_2022-04-01.xml").read_text(encoding="utf-8")
+    assert s1.tb_row(g6, USD_EXPORT_PARTY)["found"] is False              # the old lookup's miss
+    row = s1.usd_row(g6)
+    assert row == {"ledger": USD_EXPORT_PARTY.removesuffix(" (USD)"), "found": True, "debit_text": "-9861.74",
+                   "credit_text": "", "form": "plain", "matched": "name_without_usd_suffix"}
+    current = (FIXTURES / "s1_B_tb_ledger_2025-04-01_2026-03-31.xml").read_text(encoding="utf-8")
+    assert s1.usd_row(current)["ledger"] == USD_EXPORT_PARTY and s1.usd_row(current)["matched"] == "exact"
+    assert s1._tb_observer(("usd_row", s1.usd_row))(g6)["usd_row"]["found"] is True
