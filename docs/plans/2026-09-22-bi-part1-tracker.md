@@ -49,7 +49,7 @@ protecting `last_parity`'s run and the ladder's `last_run_id`, batch-log retenti
 vouchers (violates §4.9/§14.20) → fix in the same round (`JSONB(none_as_null=True)` or bind `null()`), re-measure
 `AVG_ROW_BYTES` for `tally_vouchers`, and commit the measurement script. 7 minors deferred.
 
-**2026-09-29:** Postgres confirmed up. Task 11 fix round 1 🟡 **in progress** (fresh implementer, FIX_BASE `8e8dc8b`; all 6 Important + the 8c JSON-null fix).
+**2026-09-29:** Postgres confirmed up. Task 11 fix round 1 **implemented** `6999998` (all 6 Important + the 8c JSON-null fix; **v2 suite 1723 passed**, `logs/v2-s1-task11-fix1.log`) — 🟡 **scoped re-review in progress** → `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/task-11-fix1-rereview.md`.
 
 **Next concrete steps, in order:**
 1. Finish Task 11: fix round with a FRESH implementer (brief `task-11-brief.md` + report + `task-11-review.md` + the 8c
@@ -839,3 +839,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-28 | **Task 11 review (arrived after the stop):** 6 Important — maintenance errors break heartbeats; unbounded storage estimate; purge FK abort when a device moved workspaces; window-FY copies not unified (ruling 3); quarantine retention missing; thin purge test. **Confirmed cross-task defect:** Task 8c's `store.py` stores JSON `'null'` rather than SQL `NULL` for FY−2 voucher `raw` (spec §4.9/§14.20). All go into tomorrow's fix round. |
 | 2026-09-28 | **Pushed** `feat/bi-s1-cloud` to GitHub as a new branch at the user's request (`origin/feat/bi-s1-cloud`, up to `a5f24e3`); it also carries the 9 S0 commits the S0 branch's remote lacked. Not merged anywhere. |
 | 2026-09-29 | **Resumed.** Postgres up. Task 11 fix round 1 dispatched to a fresh implementer (original context lost overnight): I1–I6 + the Task 8c `store.py` JSON-`'null'` fix and an `AVG_ROW_BYTES` re-measure (controller ruling: fixed in this round). |
+| 2026-09-29 | **Task 11 fix round 1 implemented** `6999998`, 1723 green (`logs/v2-s1-task11-fix1.log`). Maintenance isolated so it can never fail a heartbeat; storage estimate ≤ hourly + budget-gated (timestamp kept in `sync_workspaces.ladder` — no new migration); purge per workspace, survives the moved-device FK case; one `clock.window_fys` for coverage/state/pipeline; quarantine retention (resolved > 90 d); per-table purge counts asserted. **8c fix:** `JSONB(none_as_null=True)` → FY−2 `raw` is SQL `NULL`. Re-measured `tally_vouchers`: 363 B/row without raw, 4,533 B with raw → new `AVG_RAW_BYTES = 4170` so the estimate isn't low for the newest two FYs; script `v2/tests/cloud/db/measure_avg_row_bytes.py`. Scoped re-review dispatched. |
