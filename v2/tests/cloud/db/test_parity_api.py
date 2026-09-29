@@ -1015,3 +1015,21 @@ async def test_rename_after_bisect_month_ends_asks_to_recapture_them(app_client,
     after = await whole_state(engine, b)
     assert (after["ladder"], after["last_parity"], after["lines"]) == \
         (before["ladder"], before["last_parity"], before["lines"])
+
+
+# --- S1 review M20: a non-bisect run at an as_on outside the mirrored balances' period is refused ----------------
+
+
+async def test_daily_as_on_outside_the_mirrored_period_is_422_and_nothing_stored(app_client, session, engine):
+    """M20 (ruling F3/F25): the mirrored ledger balances (and their face fields) are Tally's current period — FY
+    2025-26 here. A daily run at 31-03-2025 would face-check a current-period opening against another FY's lines
+    (false `forex_face_mismatch`). Outside bisect it is refused 422 `as_on_not_current_period`; nothing is stored."""
+    prev = date(2025, 3, 31)
+    b = await setup_b(app_client, session, edge=FY24)
+    await _snap(app_client, b, "trial_balance", prev)
+    await _snap(app_client, b, "trial_balance_ledgerwise", prev)
+    before = await whole_state(engine, b)
+    r = await app_client.post(f"/api/sync/{b.ws}/parity", json=body(b, as_on_date="31-03-2025"), headers=b.headers)
+    assert (r.status_code, r.json()["error"]) == (422, "as_on_not_current_period"), r.text
+    assert await whole_state(engine, b) == before
+    assert (await parity(app_client, b))["status"] == "ok"                    # the current period's end still runs

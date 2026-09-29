@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import insert, select, text
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.clock import Clock, fy_end_of, fy_start_of, ist_date
@@ -40,7 +40,7 @@ from v2.cloud.errors import ApiError
 from v2.cloud.ingest import snapshots as snapshots_mod
 from v2.cloud.ingest.resolve import NameIndex, ResolveError
 from v2.cloud.models import (ParityLine, ParityRun, SyncFyCoverage, SyncRun, SyncWorkspace, TallyGroup, TallyLedger,
-                             TallyReportSnapshot)
+                             TallyReportSnapshot, TallyVoucher)
 from v2.cloud.parity import bisect as bisect_mod
 from v2.cloud.parity import classify as classify_mod
 from v2.cloud.parity import ladder as ladder_mod
@@ -275,6 +275,21 @@ async def _flagged_amounts(session: AsyncSession, ws: uuid.UUID, a: date, b: dat
     return out
 
 
+async def _require_as_on_not_past_mirrored_fy(session: AsyncSession, ws: uuid.UUID, as_on: date) -> None:
+    """S1 review M20 (rulings F3/F25): outside bisect, ``as_on`` must lie in Tally's current period -- the FY the
+    mirrored ledger balances (and their face fields) describe; a daily run at a past ``as_on`` would face-check a
+    current-period opening against another FY's lines (a false ``forex_face_mismatch``). The server stores no
+    "current period", so it takes the FY of the latest non-deleted, non-post-dated voucher it holds as the lower
+    bound of that period (Tally's period can't end before a voucher it contains): ``FY(as_on)`` older than that FY
+    -> 422 ``as_on_not_current_period``, nothing stored. A later ``as_on`` (e.g. a new FY with no voucher yet) is
+    never refused here."""
+    latest = (await session.execute(select(func.max(TallyVoucher.date)).where(
+        TallyVoucher.workspace_id == ws, TallyVoucher.is_deleted.is_(False),
+        TallyVoucher.is_post_dated.is_(False)))).scalar_one_or_none()
+    if latest is not None and fy_start_of(as_on) < fy_start_of(latest):
+        raise ApiError(422, "as_on_not_current_period")
+
+
 async def _verified_edge(session: AsyncSession, ws: uuid.UUID, clock: Clock) -> date | None:
     rows = (await session.execute(select(SyncFyCoverage).where(SyncFyCoverage.workspace_id == ws))).scalars().all()
     _, verified = coverage.edges([coverage.to_cov(r) for r in rows], fy_start_of(ist_date(clock.now())))
@@ -395,6 +410,8 @@ async def run_parity(session: AsyncSession, sw: SyncWorkspace, body: ParityReque
             raise ApiError(422, "fy_start_required") from None
         if fy_arg != fy_start_of(fy_arg):
             raise ApiError(422, "fy_start_required")
+    else:
+        await _require_as_on_not_past_mirrored_fy(session, sw.workspace_id, as_on)          # review M20
 
     await session.refresh(sw, with_for_update=True)     # one parity run at a time per workspace (ladder)
     tol = Decimal(settings.parity_tolerance_paise) / 100
