@@ -49,6 +49,8 @@ protecting `last_parity`'s run and the ladder's `last_run_id`, batch-log retenti
 vouchers (violates §4.9/§14.20) → fix in the same round (`JSONB(none_as_null=True)` or bind `null()`), re-measure
 `AVG_ROW_BYTES` for `tally_vouchers`, and commit the measurement script. 7 minors deferred.
 
+**2026-09-29:** Postgres confirmed up. Task 11 fix round 1 🟡 **in progress** (fresh implementer, FIX_BASE `8e8dc8b`; all 6 Important + the 8c JSON-null fix).
+
 **Next concrete steps, in order:**
 1. Finish Task 11: fix round with a FRESH implementer (brief `task-11-brief.md` + report + `task-11-review.md` + the 8c
    JSON-null fix)
@@ -836,3 +838,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-28 | **End of day — S1 Tasks 3–10 ✅ today; Task 11 built, in review.** Task 11 `db3632a`: maintenance slices (raw purge, parity retention protecting `last_parity`'s run + ladder run, batch-log retention, storage estimate with `AVG_ROW_BYTES` measured on the real 8c ingest) + `purge` CLI; 1714 green. **Found by the builder:** JSONB `raw=None` is stored as JSON `'null'`, not SQL `NULL` (fixed in the purge; suspected in Task 8c's `store.py` too — in review). Stopped here at the user's request; review result → `task-11-review.md`. Resume: see the "Resume here" block (Postgres restart note, SDD ledger, Tasks 11 finish → 12 → 15). |
 | 2026-09-28 | **Task 11 review (arrived after the stop):** 6 Important — maintenance errors break heartbeats; unbounded storage estimate; purge FK abort when a device moved workspaces; window-FY copies not unified (ruling 3); quarantine retention missing; thin purge test. **Confirmed cross-task defect:** Task 8c's `store.py` stores JSON `'null'` rather than SQL `NULL` for FY−2 voucher `raw` (spec §4.9/§14.20). All go into tomorrow's fix round. |
 | 2026-09-28 | **Pushed** `feat/bi-s1-cloud` to GitHub as a new branch at the user's request (`origin/feat/bi-s1-cloud`, up to `a5f24e3`); it also carries the 9 S0 commits the S0 branch's remote lacked. Not merged anywhere. |
+| 2026-09-29 | **Resumed.** Postgres up. Task 11 fix round 1 dispatched to a fresh implementer (original context lost overnight): I1–I6 + the Task 8c `store.py` JSON-`'null'` fix and an `AVG_ROW_BYTES` re-measure (controller ruling: fixed in this round). |
