@@ -9,11 +9,11 @@ import xml.etree.ElementTree as ET
 from v2.agent.tally.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection, wrap_report
 from v2.agent.tally.xml_utils import detect_error
 from v2.probes.actions import Action
+from v2.probes.companies import POPUP_STOCK_GROUP
 from v2.probes.context import ProbeContext
 from v2.probes.core import Outcome, PartResult, Probe
 from v2.probes.licence import LICENCE_REQUEST, parse_licence_info
 from v2.probes.reads import A_FY_FROM, A_FY_TO, master_request
-from v2.probes.setup.writes import POPUP_STOCK_GROUP
 
 POPUP_TIMEOUT_S = 10.0
 STOCK_GROUP_NOTE = (f"Cleanup: delete stock group {POPUP_STOCK_GROUP!r} created by probe 10 (the duplicate create succeeded, so no "

@@ -13,6 +13,7 @@ SEED_BACKUP = "seed_data/TDBK1800_100003.001"
 THROWAWAY_DATE = "20260331"
 THROWAWAY_DATE_TEXT = "31-Mar-2026"
 THROWAWAY_EXPENSE_LEDGER = "Electricity"   # company A has no "Bank Charges"; this is its first Indirect Expenses ledger
+POPUP_STOCK_GROUP = "Electronics"    # exists in the seed company; a duplicate create raises the blocking modal (probe 10)
 
 # Company C (S0 spec §4.4; plan part 6). The company shell, its security and its TallyVault are made by hand in the
 # UI; `setup-c` writes exactly this one ledger and one voucher. Books begin 1-Apr-2025 so the voucher's date is the

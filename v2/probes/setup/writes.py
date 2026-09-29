@@ -31,7 +31,7 @@ import httpx
 
 from v2.agent.tally.envelopes import build_company_list, formula_string, wrap_collection, wrap_report
 from v2.agent.tally.xml_utils import parse_company_list, read_objects, sanitize_xml
-from v2.probes.companies import COMPANIES, SEED_COMPANY, THROWAWAY_DATE, THROWAWAY_DATE_TEXT
+from v2.probes.companies import COMPANIES, POPUP_STOCK_GROUP, SEED_COMPANY, THROWAWAY_DATE, THROWAWAY_DATE_TEXT
 from v2.probes.licence import LICENCE_REQUEST, LicenceInfo, parse_licence_info
 from v2.probes.reads import PRIMARY_NATURE, TB_EXPLODE_VARS, VOUCHER_MONTH_FIELDS, voucher_request
 from v2.probes.safety import check_request
@@ -40,7 +40,6 @@ from v2.probes.setup.import_xml import ImportResult, esc, wrap_import
 
 READBACK_FROM, READBACK_TO = "01-04-2025", "31-03-2026"
 B_READBACK_FROM, B_READBACK_TO = "01-04-2022", "31-03-2026"   # company B's date window (S0-B spec §4)
-POPUP_STOCK_GROUP = "Electronics"    # exists in the seed company; a duplicate create raises the blocking modal
 VOUCHER_FIELDS = ["MasterId", "Narration", "Date", "IsPostDated"]
 LEDGER_FIELDS = ["Name", "Parent", "Email", "AlterID"]
 GROUP_FIELDS = ["Name", "Parent"]
