@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from v2.cloud.clock import FixedClock
 from v2.cloud.config import V2Settings
-from v2.cloud.models import ParityLine, ParityRun, SyncBatch, SyncRun, SyncWorkspace, TallyVoucher
+from v2.cloud.models import (
+    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncRun, SyncWorkspace, TallyVoucher, V2_TABLES,
+)
 from v2.cloud.sync import coverage, maintenance, purge
 from v2.tests.cloud.conftest import requires_db
 from v2.tests.cloud.db.ingest_helpers import bind, fresh
@@ -75,6 +77,10 @@ def _settings(**overrides) -> V2Settings:
 
     return V2Settings(_env_file=None, database_url=os.environ["TEST_DATABASE_URL"], web_jwt_secret="w" * 32,
                       device_token_secret="d" * 32, **overrides)
+
+
+async def _table_count(s, table: str, ws: uuid.UUID) -> int:
+    return (await s.execute(text(f"SELECT count(*) FROM {table} WHERE workspace_id = :w"), {"w": ws})).scalar_one()
 
 
 # --- raw purge (Q22) -------------------------------------------------------------------------------------------
@@ -297,6 +303,8 @@ async def test_purge_now_deletes_only_that_workspaces_rows(app_client, session, 
     await session.execute(text("UPDATE workspaces SET is_deleted = true WHERE id = :w"), {"w": ws1})
     await session.commit()
 
+    async with fresh(engine) as s:
+        before2 = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
     sm = await _sessionmaker(engine)
     clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
     counts = await purge.purge(sm, workspace_id=ws1, now=True, clock=clock, settings=_settings())
@@ -306,15 +314,15 @@ async def test_purge_now_deletes_only_that_workspaces_rows(app_client, session, 
     assert counts["sync_workspaces"] == 1
 
     async with fresh(engine) as s:
-        assert await s.get(SyncWorkspace, ws1) is None
-        v1 = (await s.execute(select(TallyVoucher).where(TallyVoucher.workspace_id == ws1))).scalars().all()
-        assert v1 == []
-        sw2_row = await s.get(SyncWorkspace, ws2)
-        assert sw2_row is not None
-        v2 = (await s.execute(select(TallyVoucher).where(TallyVoucher.workspace_id == ws2))).scalars().all()
-        assert len(v2) == 1
-        users_row = (await s.execute(text("SELECT is_deleted FROM workspaces WHERE id = :w"), {"w": ws1})).mappings().first()
-        assert users_row is not None                         # workspaces row itself is untouched by purge
+        after = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
+        gone = {t: await _table_count(s, t, ws1) for t in V2_TABLES}
+    assert gone == {t: 0 for t in V2_TABLES}                       # purged workspace: 0 rows in EVERY v2 table
+    assert after == before2                                        # neighbour: every table's count unchanged
+    assert before2["tally_vouchers"] == 1 and before2["agent_devices"] >= 1 and before2["sync_runs"] == 1
+    async with fresh(engine) as s:
+        row = (await s.execute(text("SELECT is_deleted FROM workspaces WHERE id = :w"), {"w": ws1})).mappings().first()
+        assert row is not None                               # workspaces row itself is untouched by purge
+        assert (await s.execute(text("SELECT count(*) FROM users"))).scalar_one() >= 2
 
 
 async def test_purge_respects_30_day_grace(app_client, session, engine):
@@ -411,3 +419,202 @@ def test_purge_cli_logs_counts_only(capsys):
     parsed = json.loads(out.strip().splitlines()[-1])
     assert parsed["counts"] == fake_counts
     assert set(parsed) == {"command", "now", "counts"}     # no workspace id, no names, no GUIDs
+
+
+# --- Task 11 fix round 1 ---------------------------------------------------------------------------------------
+
+
+async def test_purge_survives_device_moved_between_workspaces(app_client, session, engine):
+    """I3: device D1 synced W2, then moved to W1 (`agent_devices.workspace_id` re-pointed). W1 is deleted and
+    purged: W2's `sync_runs.device_id` still references D1, so D1 is DETACHED (not deleted) instead of the whole
+    purge aborting on the FK; W2's data is untouched; a second purge run is a clean no-op."""
+    ws1, sw1 = await _bound_sw(app_client, session)
+    dev1 = sw1.active_device_id
+    await _seed_workspace_data(session, sw1)
+    uid2, ws2, headers2 = await bind(app_client, session, "B")
+    sw2 = await session.get(SyncWorkspace, ws2)
+    await _seed_workspace_data(session, sw2)
+    moved_run = _sync_run(ws2, dev1)                     # W2's history references the device now living in W1
+    session.add(moved_run)
+    await session.execute(text("UPDATE workspaces SET is_deleted = true WHERE id = :w"), {"w": ws1})
+    await session.commit()
+
+    sm = await _sessionmaker(engine)
+    clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
+    async with fresh(engine) as s:
+        before2 = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
+    await purge.purge(sm, workspace_id=ws1, now=True, clock=clock, settings=_settings())
+    async with fresh(engine) as s:
+        assert await s.get(SyncWorkspace, ws1) is None
+        assert {t: await _table_count(s, t, ws1) for t in V2_TABLES} == {t: 0 for t in V2_TABLES}
+        assert {t: await _table_count(s, t, ws2) for t in V2_TABLES} == before2
+        assert await s.get(SyncRun, moved_run.id) is not None
+        d = (await s.execute(text("SELECT workspace_id, is_active, revoked_at FROM agent_devices WHERE id = :d"),
+                             {"d": dev1})).mappings().one()
+        assert d["workspace_id"] is None and d["is_active"] is False and d["revoked_at"] is not None
+    again = await purge.purge(sm, workspace_id=ws1, now=True, clock=clock, settings=_settings())
+    assert sum(again.values()) == 0
+
+
+async def test_purge_one_workspace_failing_does_not_block_the_others(app_client, session, engine, monkeypatch):
+    """I3: one transaction per workspace -- a failure purging one workspace rolls back only that workspace."""
+    ws1, sw1 = await _bound_sw(app_client, session)
+    await _seed_workspace_data(session, sw1)
+    uid2, ws2, _ = await bind(app_client, session, "B")
+    sw2 = await session.get(SyncWorkspace, ws2)
+    await _seed_workspace_data(session, sw2)
+    await session.execute(text("UPDATE workspaces SET is_deleted = true WHERE id IN (:a, :b)"), {"a": ws1, "b": ws2})
+    await session.commit()
+
+    real = purge._purge_workspace
+
+    async def flaky(sess, ws_id, clock):
+        if ws_id == ws1:
+            await sess.execute(text("DELETE FROM tally_vouchers WHERE workspace_id = :w"), {"w": ws_id})
+            raise RuntimeError("boom")
+        return await real(sess, ws_id, clock)
+
+    monkeypatch.setattr(purge, "_purge_workspace", flaky)
+    sm = await _sessionmaker(engine)
+    await purge.purge(sm, now=True, clock=FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC)), settings=_settings())
+    async with fresh(engine) as s:
+        assert await s.get(SyncWorkspace, ws2) is None            # ws2 purged
+        assert await s.get(SyncWorkspace, ws1) is not None        # ws1 fully rolled back
+        assert await _table_count(s, "tally_vouchers", ws1) == 1
+
+
+async def test_maintenance_failure_does_not_fail_or_roll_back_the_heartbeat(app_client, session, engine, monkeypatch):
+    """I1: `run_slice` raising must not 500 the heartbeat nor lose `last_seen_at`; an ops signal is logged."""
+    uid, ws, headers = await bind(app_client, session, "B")
+
+    async def boom(*a, **kw):
+        raise RuntimeError("slice exploded")
+
+    monkeypatch.setattr(maintenance, "run_slice", boom)
+    clock_now = datetime.now(UTC)
+    r = await app_client.post(f"/api/sync/{ws}/heartbeat",
+                              json={"tally_status": "closed", "pc_clock": clock_now.isoformat()}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["sync_state"]
+    async with fresh(engine) as s:
+        row = await s.get(SyncWorkspace, ws)
+        assert row.last_seen_at is not None
+        assert row.last_heartbeat is not None
+
+
+async def test_storage_estimate_is_time_gated(app_client, session, engine, monkeypatch):
+    """I2: the O(rows) estimate refreshes at most once per `storage_estimate_interval_seconds`, not per heartbeat."""
+    clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
+    ws, sw = await _bound_sw(app_client, session)
+    calls = []
+    real = maintenance._storage_estimate
+
+    async def counting(sess, ws_id):
+        calls.append(ws_id)
+        return await real(sess, ws_id)
+
+    monkeypatch.setattr(maintenance, "_storage_estimate", counting)
+    settings = _settings(storage_estimate_interval_seconds=3600)
+    for _ in range(3):
+        await maintenance.run_slice(session, sw, settings, clock)
+        await session.commit()
+    assert len(calls) == 1
+    clock.advance(seconds=3601)
+    await maintenance.run_slice(session, sw, settings, clock)
+    await session.commit()
+    assert len(calls) == 2
+    async with fresh(engine) as s:
+        assert (await s.get(SyncWorkspace, ws)).storage_estimate_bytes > 0
+
+
+async def test_storage_alert_signal_only_on_transition(app_client, session, caplog):
+    clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
+    ws, sw = await _bound_sw(app_client, session)
+    session.add(_voucher(ws, f"{B_GUID}-tr", date(2026, 6, 15)))
+    await session.commit()
+    settings = _settings(storage_alert_bytes=1, storage_estimate_interval_seconds=1)
+    with caplog.at_level(logging.INFO, logger="v2.ops.storage"):
+        for _ in range(3):
+            await maintenance.run_slice(session, sw, settings, clock)
+            clock.advance(seconds=5)
+    assert len([r for r in caplog.records if r.name == "v2.ops.storage"]) == 1
+
+
+async def test_quarantine_retention_resolved_plus_90_days(app_client, session, engine):
+    """I5 / §4.9: resolved > 90 d pruned; resolved < 90 d kept; open (unresolved) kept however old."""
+    clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
+    ws, sw = await _bound_sw(app_client, session)
+
+    def q(guid, resolved):
+        return SyncQuarantine(workspace_id=ws, kind="voucher", guid=guid, code="x", resolved_at=resolved,
+                              first_seen_at=clock.now() - timedelta(days=400))
+
+    old_resolved = q("g-old", clock.now() - timedelta(days=91))
+    recent_resolved = q("g-recent", clock.now() - timedelta(days=89))
+    open_old = q("g-open", None)
+    session.add_all([old_resolved, recent_resolved, open_old])
+    await session.commit()
+
+    report = await maintenance.run_slice(session, sw, _settings(), clock)
+    await session.commit()
+    assert report.quarantine_pruned == 1
+    async with fresh(engine) as s:
+        assert {r.guid for r in (await s.execute(select(SyncQuarantine).where(SyncQuarantine.workspace_id == ws))
+                                 ).scalars().all()} == {"g-recent", "g-open"}
+
+
+async def test_out_of_window_voucher_raw_is_sql_null_not_json_null(app_client, session, engine):
+    """Concern 1: FY-2 vouchers ingested outside the raw window store SQL NULL (§4.9 / §14.20), on both the bulk
+    insert and the executemany update path -- not the JSON literal `null`."""
+    from v2.tests.cloud import realdata
+    from v2.tests.cloud.db.ingest_helpers import bound, post_ok, voucher_by_guid
+
+    ws, headers, run_id, uid = await bound(app_client, session)
+    await post_ok(app_client, ws, headers, run_id, realdata.b_masters())
+    v = voucher_by_guid(realdata.vouchers("p21_B_fy2022_month_09.xml"), "-00000067")
+    await post_ok(app_client, ws, headers, run_id, [v])
+    guid = realdata.COMPANY_B_GUID + "-00000067"
+
+    async def state():
+        async with fresh(engine) as s:
+            return (await s.execute(text(
+                "SELECT raw IS NULL AS sql_null, raw::text AS txt FROM tally_vouchers "
+                "WHERE workspace_id = :w AND guid = :g"), {"w": ws, "g": guid})).mappings().one()
+
+    st = await state()
+    assert st["sql_null"] is True, st
+
+    v2 = json.loads(json.dumps(v))
+    v2["data"]["alterid"] = " 999"
+    body = await post_ok(app_client, ws, headers, run_id, [v2])
+    assert body["counts"]["updated"] == 1
+    st = await state()
+    assert st["sql_null"] is True, st
+
+
+def test_window_fys_single_definition():
+    from v2.cloud.clock import window_fys
+
+    d = date
+    # newest two coverage rows win, regardless of today
+    assert window_fys([d(2023, 4, 1), d(2025, 4, 1), d(2026, 4, 1)], d(2027, 5, 1)) == {d(2025, 4, 1), d(2026, 4, 1)}
+    # floor (first-sync progress: not before FY(books_from))
+    assert window_fys([d(2021, 4, 1), d(2022, 4, 1)], floor=d(2022, 4, 1)) == {d(2022, 4, 1)}
+    # no coverage: clock fallback (current + previous), or empty when no clock given
+    assert window_fys([], d(2026, 5, 1)) == {d(2026, 4, 1), d(2025, 4, 1)}
+    assert window_fys([]) == set()
+
+
+async def test_storage_estimate_counts_raw_bearing_vouchers_extra(app_client, session):
+    """Concern 1 re-measure: an in-window voucher (raw kept) costs AVG_ROW_BYTES + AVG_RAW_BYTES; an
+    out-of-window one (raw SQL NULL) only AVG_ROW_BYTES."""
+    ws, sw = await _bound_sw(app_client, session)
+    base = await maintenance._storage_estimate(session, ws)
+    session.add(_voucher(ws, f"{B_GUID}-r1", date(2026, 6, 15)))
+    session.add(TallyVoucher(
+        workspace_id=ws, guid=f"{B_GUID}-r2", master_id=2, alter_id=1, date=date(2022, 6, 15), raw=None,
+        voucher_type_name="Sales", voucher_number="2", party_ledger_name="P", is_cancelled=False,
+        is_optional=False, is_post_dated=False, is_invoice=True, has_forex=False, is_deleted=False))
+    await session.commit()
+    est = await maintenance._storage_estimate(session, ws)
+    assert est - base == 2 * maintenance.AVG_ROW_BYTES["tally_vouchers"] + maintenance.AVG_RAW_BYTES

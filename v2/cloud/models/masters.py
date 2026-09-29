@@ -41,7 +41,7 @@ class _MasterCommon:
     guid: Mapped[str] = mapped_column(Text, nullable=False)
     alter_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    raw: Mapped[dict | None] = mapped_column(JSONB)
+    raw: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
@@ -108,7 +108,7 @@ class TallyLedger(_MasterCommon, Base):
     fx_currency: Mapped[str | None] = mapped_column(Text)
     balance_source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'tally'"))
     balance_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    balance_text: Mapped[dict | None] = mapped_column(JSONB)
+    balance_text: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
 
     __table_args__ = (
         *_master_indexes("tally_ledgers"),

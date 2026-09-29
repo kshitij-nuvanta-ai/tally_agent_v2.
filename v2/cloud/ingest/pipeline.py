@@ -417,15 +417,13 @@ async def _store_all(session: AsyncSession, sw: SyncWorkspace, run: SyncRun, ord
 # --- step 15: last_synced_at (§8.5) ------------------------------------------------------------------------------------
 
 
-def _moves_last_synced(run: SyncRun, body: BatchRequest, has_masters: bool, clock: Clock) -> bool:
+def _moves_last_synced(run: SyncRun, body: BatchRequest, has_masters: bool, window_start: date) -> bool:
     """§8.5 / §15.3: `first_sync` and `incremental` batches move it; `backfill` never; a `full_resync` batch only
     when its chunk lies inside the current 2-FY window, or (whole-company scope) when it carries masters."""
     if run.kind in ("first_sync", "incremental"):
         return True
     if run.kind != "full_resync":
         return False
-    current = fy_start_of(ist_date(clock.now()))
-    window_start = date(current.year - 1, 4, 1)
     if body.chunk is not None and body.chunk.from_ >= window_start:
         return True
     return has_masters and bool((run.scope or {}).get("company"))
@@ -471,7 +469,8 @@ async def ingest_batch(session: AsyncSession, sw: SyncWorkspace, device: AgentDe
     warnings.sort(key=lambda w: (w.index, w.code))
 
     now = clock.now()                                                                      # step 15
-    if _moves_last_synced(run, body, any(isinstance(o, PMaster) for o in ordered), clock):
+    window_start = min(await store.raw_window_fys(session, ws_id, ist_date(now)))
+    if _moves_last_synced(run, body, any(isinstance(o, PMaster) for o in ordered), window_start):
         sw.last_synced_at = now
     sw.updated_at = now
     response = {"batch_id": body.batch_id, "status": "accepted", "replayed": False,

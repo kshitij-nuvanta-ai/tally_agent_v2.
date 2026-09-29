@@ -3,13 +3,15 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.clock import Clock, fy_start_of
+from v2.cloud.clock import Clock, fy_start_of, window_fys
 from v2.cloud.config import V2Settings
 from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
@@ -141,7 +143,18 @@ async def heartbeat(
     delivered = await commands.deliver_pending(session, sw.workspace_id, clock)
 
     # D20: one bounded maintenance slice per heartbeat, no scheduler.
-    await maintenance.run_slice(session, sw, settings, clock)
+    # Isolated in a SAVEPOINT and never allowed to fail the heartbeat: a maintenance error must not roll back
+    # `last_seen_at` / acks / state transitions above, nor repeat as a 500 on every later heartbeat.
+    await session.flush()
+    try:
+        async with session.begin_nested():
+            await maintenance.run_slice(session, sw, settings, clock)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("v2.ops.maintenance").warning(
+            json.dumps({"workspace_id": str(sw.workspace_id), "event": "maintenance_failed",
+                        "error": type(exc).__name__})
+        )
+        await session.refresh(sw)          # a rolled-back savepoint expires what the slice touched; state is flushed
 
     sw.updated_at = now
     await session.commit()
@@ -247,17 +260,11 @@ async def sync_status(session: AsyncSession, sw: SyncWorkspace) -> dict:
         # Controller ruling (Task 8c fix round 1): progress comes from the WINDOW FY coverage rows (the newest two
         # FYs of coverage -- current + previous -- not before FY(books_from)): total = sum(months_total), done =
         # sum(len(months_done)). `run.progress_done` stays the agent's own report and is not read here.
-        window = (
-            await session.execute(
-                select(SyncFyCoverage)
-                .where(
-                    SyncFyCoverage.workspace_id == sw.workspace_id,
-                    SyncFyCoverage.fy_start >= fy_start_of(sw.books_from),
-                )
-                .order_by(SyncFyCoverage.fy_start.desc())
-                .limit(2)
-            )
+        cov = (
+            await session.execute(select(SyncFyCoverage).where(SyncFyCoverage.workspace_id == sw.workspace_id))
         ).scalars().all()
+        window_set = window_fys((r.fy_start for r in cov), floor=fy_start_of(sw.books_from))
+        window = [r for r in cov if r.fy_start in window_set]
         total = sum(r.months_total or 0 for r in window)
         done = sum(len(r.months_done or []) for r in window)
         percent = round(done / total * 100, 1) if total else 0.0

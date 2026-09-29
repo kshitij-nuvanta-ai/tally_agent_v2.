@@ -6,7 +6,7 @@ heartbeat at 2026-03-31 20:00 UTC is already 1 April in IST).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Protocol
+from typing import Iterable, Protocol
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -46,3 +46,19 @@ def fy_end_of(d: date) -> date:
 
 def current_fy_start(clock: Clock) -> date:
     return fy_start_of(ist_date(clock.now()))
+
+
+def window_fys(coverage_fys: Iterable[date], today_ist: date | None = None, *, floor: date | None = None) -> set[date]:
+    """THE definition of the "window FYs" (S1 spec §4.9 / §7.10; Task 8c/11 controller ruling 3): the newest two
+    FY starts among the workspace's coverage rows (optionally only those at or after ``floor``). With no
+    coverage row, the current and previous FY by ``today_ist`` (empty when ``today_ist`` is None). Every caller
+    that asks "is this FY inside the two-FY window?" (raw retention at ingest and in maintenance, backfill
+    pre-window, first-sync progress, ``last_synced_at``) goes through here so they cannot drift at an
+    ``add_fy`` rollover."""
+    fys = sorted({f for f in coverage_fys if floor is None or f >= floor}, reverse=True)[:2]
+    if fys:
+        return set(fys)
+    if today_ist is None:
+        return set()
+    current = fy_start_of(today_ist)
+    return {current, date(current.year - 1, 4, 1)}

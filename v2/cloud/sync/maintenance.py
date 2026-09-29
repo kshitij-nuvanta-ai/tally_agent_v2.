@@ -22,9 +22,10 @@ retry or interrupt at any point).
   once older than 90 days — EXCEPT the run `last_parity` points at and the run the ladder's `last_run_id` points
   at, which are never pruned regardless of age (controller ruling 5).
 - **Batch-log retention:** `sync_batches` rows older than 90 days are pruned.
+- **Quarantine retention:** resolved `sync_quarantine` rows are pruned 90 days after `resolved_at`.
 - **Storage estimate + alert (Q23):** `storage_estimate_bytes = Σ row counts × AVG_ROW_BYTES[table]`, refreshed
-  every slice; `storage_alert = estimate > settings.storage_alert_bytes` — an ops signal (counts only, per
-  `parity/opsignal.py`'s decision-14 discipline) fires the first time a workspace crosses the line. No hard stop.
+  at most hourly (the count walk is O(rows)); `storage_alert = estimate > settings.storage_alert_bytes` — an ops signal (counts only, per
+  `parity/opsignal.py`'s decision-14 discipline) fires on the false->true transition. No hard stop.
 """
 from __future__ import annotations
 
@@ -33,15 +34,17 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, null, select, text, update
+from sqlalchemy import and_, delete, func, null, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.clock import Clock, fy_end_of, ist_date
 from v2.cloud.config import V2Settings
 from v2.cloud.ingest.store import raw_window_fys
-from v2.cloud.models import ParityLine, ParityRun, SyncBatch, SyncWorkspace, TallyVoucher, V2_TABLES
+from v2.cloud.models import (
+    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncWorkspace, TallyVoucher, V2_TABLES,
+)
 from v2.cloud.parity.model import PROBLEM_VERDICTS
 
 _OPS_LOGGER = "v2.ops.storage"
@@ -53,15 +56,21 @@ _OPS_LOGGER = "v2.ops.storage"
 # row for the tables that capture leaves empty (`tally_stock_groups`, `sync_commands`, `sync_quarantine`) shaped
 # like the real inserts in `commands.py` / `pipeline.py._record_quarantine`, and one representative
 # `parity_runs`/`parity_lines`/`tally_report_snapshots` row shaped like `parity/engine.py`'s / the snapshot
-# handler's real writes (a full parity run wasn't re-run for this measurement). See
-# `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/task-11-report.md` for the measurement script.
+# handler's real writes (a full parity run wasn't re-run for this measurement).
+#
+# RE-MEASURED 2026-09-29 (Task 11 fix round 1) for `tally_vouchers` only, with `raw` stored as a real SQL NULL
+# for out-of-window vouchers (the 2026-09-28 figure of 372 B was taken on rows carrying JSON `null`): re-run with
+# `v2/tests/cloud/db/measure_avg_row_bytes.py`. Out-of-window (raw NULL) = 363 B; in-window (raw kept) = 4,533 B,
+# i.e. a kept `raw` adds ~4,170 B, so the estimate adds `AVG_RAW_BYTES` per voucher whose `raw IS NOT NULL`
+# (only the newest two FYs) on top of the 363 B base. Caveat: `pg_column_size(t.*)` excludes index/page overhead,
+# so the estimate understates on-disk size (roughly 1.5-2x); the alert threshold is a coarse early warning.
 AVG_ROW_BYTES: dict[str, int] = {
     "parity_lines": 184,
     "tally_bill_allocations": 184,
     "tally_voucher_inventory_lines": 221,
     "tally_voucher_ledger_lines": 175,
     "parity_runs": 256,
-    "tally_vouchers": 372,
+    "tally_vouchers": 363,
     "sync_batches": 504,
     "sync_runs": 192,
     "sync_workspaces": 216,
@@ -79,6 +88,9 @@ AVG_ROW_BYTES: dict[str, int] = {
     "tally_report_snapshots": 408,
 }
 
+# Extra bytes per voucher that keeps `raw` (in-window): 4,533 - 363, see the measurement note above.
+AVG_RAW_BYTES = 4170
+
 
 @dataclass
 class SliceReport:
@@ -89,6 +101,7 @@ class SliceReport:
     parity_runs_pruned: int = 0
     parity_lines_pruned: int = 0
     batches_pruned: int = 0
+    quarantine_pruned: int = 0
     storage_estimate_bytes: int = 0
     storage_alert: bool = False
     elapsed_s: float = 0.0
@@ -114,7 +127,8 @@ async def _purge_raw_slice(session: AsyncSession, ws_id: uuid.UUID, clock: Clock
     untouched (the `raw IS NOT NULL` filter)."""
     today_ist = ist_date(clock.now())
     window = await raw_window_fys(session, ws_id, today_ist)
-    low, high_end = min(window), fy_end_of(max(window))
+    in_window = or_(*(and_(TallyVoucher.__table__.c.date >= fy, TallyVoucher.__table__.c.date <= fy_end_of(fy))
+                      for fy in window))
     t = TallyVoucher.__table__
     ids = (
         await session.execute(
@@ -122,7 +136,7 @@ async def _purge_raw_slice(session: AsyncSession, ws_id: uuid.UUID, clock: Clock
             .where(
                 t.c.workspace_id == ws_id,
                 t.c.raw.is_not(None),
-                (t.c.date < low) | (t.c.date > high_end),
+                ~in_window,
             )
             .limit(limit)
         )
@@ -210,6 +224,35 @@ async def _prune_batches_slice(session: AsyncSession, ws_id: uuid.UUID, clock: C
     return len(ids)
 
 
+async def _prune_quarantine_slice(session: AsyncSession, ws_id: uuid.UUID, clock: Clock, limit: int) -> int:
+    """§4.9: quarantine rows are kept until resolved + 90 days (open rows are never pruned)."""
+    t = SyncQuarantine.__table__
+    ids = (
+        await session.execute(
+            select(t.c.id)
+            .where(t.c.workspace_id == ws_id, t.c.resolved_at.is_not(None),
+                   t.c.resolved_at < clock.now() - timedelta(days=90))
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not ids:
+        return 0
+    await session.execute(delete(t).where(t.c.id.in_(ids)))
+    return len(ids)
+
+
+_ESTIMATED_AT_KEY = "storage_estimated_at"
+
+
+def _estimate_due(sw: SyncWorkspace, settings: V2Settings, clock: Clock) -> bool:
+    """D20/Q23: the per-table `count(*)` walk is O(rows), so it refreshes at most once per
+    `storage_estimate_interval_seconds` (last refresh time kept under `sync_workspaces.ladder`, no schema change)."""
+    last = (sw.ladder or {}).get(_ESTIMATED_AT_KEY)
+    if not last:
+        return True
+    return clock.now() - datetime.fromisoformat(last) >= timedelta(seconds=settings.storage_estimate_interval_seconds)
+
+
 async def _storage_estimate(session: AsyncSession, ws_id: uuid.UUID) -> int:
     """Q23: Σ row counts × `AVG_ROW_BYTES[table]` across this workspace's own rows in every v2 table."""
     total = 0
@@ -220,7 +263,12 @@ async def _storage_estimate(session: AsyncSession, ws_id: uuid.UUID) -> int:
             )
         ).scalar_one()
         total += n * AVG_ROW_BYTES.get(table, 0)
-    return total
+    raw_n = (
+        await session.execute(
+            text("SELECT count(*) FROM tally_vouchers WHERE workspace_id = :w AND raw IS NOT NULL"), {"w": ws_id}
+        )
+    ).scalar_one()
+    return total + raw_n * AVG_RAW_BYTES
 
 
 def _storage_alert_event(ws_id: uuid.UUID, estimate_bytes: int, threshold_bytes: int) -> dict:
@@ -235,8 +283,7 @@ async def run_slice(
 ) -> SliceReport:
     """D20: one bounded maintenance slice, called from every heartbeat (`state.heartbeat`). Each sub-step is
     skipped once the slice's time budget (`settings.maintenance_slice_seconds`) is spent; the storage estimate
-    always runs last (cheap, index-only counts) so a heartbeat that timed out on retention still refreshes the
-    alert flag."""
+    runs last, only when the time budget allows and at most once per `storage_estimate_interval_seconds`."""
     budget = _Budget(settings.maintenance_slice_seconds)
     limit = settings.maintenance_slice_rows
     report = SliceReport(ran=True)
@@ -252,16 +299,22 @@ async def run_slice(
     if budget.has_time():
         report.batches_pruned = await _prune_batches_slice(session, sw.workspace_id, clock, limit)
 
-    estimate = await _storage_estimate(session, sw.workspace_id)
-    alert = estimate > settings.storage_alert_bytes
-    sw.storage_estimate_bytes = estimate
-    sw.storage_alert = alert
-    report.storage_estimate_bytes = estimate
-    report.storage_alert = alert
-    if alert:
-        logging.getLogger(_OPS_LOGGER).info(
-            json.dumps(_storage_alert_event(sw.workspace_id, estimate, settings.storage_alert_bytes))
-        )
+    if budget.has_time():
+        report.quarantine_pruned = await _prune_quarantine_slice(session, sw.workspace_id, clock, limit)
+
+    if budget.has_time() and _estimate_due(sw, settings, clock):
+        estimate = await _storage_estimate(session, sw.workspace_id)
+        alert = estimate > settings.storage_alert_bytes
+        was_alert = sw.storage_alert
+        sw.storage_estimate_bytes = estimate
+        sw.storage_alert = alert
+        sw.ladder = {**(sw.ladder or {}), _ESTIMATED_AT_KEY: clock.now().isoformat()}
+        if alert and not was_alert:                     # ops signal on the false -> true transition only
+            logging.getLogger(_OPS_LOGGER).info(
+                json.dumps(_storage_alert_event(sw.workspace_id, estimate, settings.storage_alert_bytes))
+            )
+    report.storage_estimate_bytes = sw.storage_estimate_bytes
+    report.storage_alert = sw.storage_alert
 
     report.elapsed_s = budget.elapsed()
     return report

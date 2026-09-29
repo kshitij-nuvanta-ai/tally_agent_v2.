@@ -15,7 +15,7 @@ from typing import Literal
 from sqlalchemy import bindparam, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.clock import fy_start_of
+from v2.cloud.clock import window_fys
 from v2.cloud.ingest.derive import base_type_walk, is_base_currency, nature_walk
 from v2.cloud.ingest.parsed import PBalance, PMaster, PVoucher
 from v2.cloud.models import (
@@ -276,12 +276,9 @@ async def voucher_type_base_types(session: AsyncSession, ws_id: uuid.UUID, guids
 async def raw_window_fys(session: AsyncSession, ws_id: uuid.UUID, today_ist: date) -> set[date]:
     """The newest two FY starts of the workspace's coverage (current + previous FY). With no coverage rows yet,
     the current and previous FY by `today_ist`."""
-    rows = (await session.execute(select(SyncFyCoverage.fy_start).where(SyncFyCoverage.workspace_id == ws_id)
-                                  .order_by(SyncFyCoverage.fy_start.desc()).limit(2))).scalars().all()
-    if rows:
-        return set(rows)
-    current = fy_start_of(today_ist)
-    return {current, date(current.year - 1, 4, 1)}
+    rows = (await session.execute(select(SyncFyCoverage.fy_start).where(SyncFyCoverage.workspace_id == ws_id))
+            ).scalars().all()
+    return window_fys(rows, today_ist)
 
 
 # --- §12 step 12: vouchers ----------------------------------------------------------------------------------------

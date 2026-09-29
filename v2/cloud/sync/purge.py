@@ -52,19 +52,57 @@ async def purge(
     is never touched — ``_eligible_workspace_ids`` is the only source of truth for which workspaces qualify."""
     settings = settings or V2Settings()
     counts: dict[str, int] = {t: 0 for t in V2_TABLES}
+    detached = 0
     async with session_factory() as session:
         ids = await _eligible_workspace_ids(
             session, workspace_id=workspace_id, now=now, grace_days=settings.purge_grace_days, clock=clock
         )
-        for ws_id in ids:
-            for table in V2_TABLES:
-                result = await session.execute(
-                    text(f"DELETE FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from V2_TABLES)
-                )
-                counts[table] += result.rowcount or 0
-        await session.commit()
+    purged = 0
+    for ws_id in ids:
+        # One transaction per workspace: a failure in one never rolls back (or wedges) the others.
+        try:
+            async with session_factory() as session:
+                ws_counts, ws_detached = await _purge_workspace(session, ws_id, clock)
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(_OPS_LOGGER).error(json.dumps({"event": "purge_workspace_failed",
+                                                             "error": type(exc).__name__}))
+            continue
+        purged += 1
+        detached += ws_detached
+        for table, n in ws_counts.items():
+            counts[table] += n
 
     logging.getLogger(_OPS_LOGGER).info(
-        json.dumps({"event": "purge", "workspaces_purged": len(ids), "now": now, "counts": counts})
+        json.dumps({"event": "purge", "workspaces_purged": purged, "devices_detached": detached, "now": now,
+                    "counts": counts})
     )
     return counts
+
+
+async def _purge_workspace(session, ws_id: uuid.UUID, clock: Clock) -> tuple[dict[str, int], int]:
+    """Deletes one workspace's rows, children first. ``agent_devices`` is special: a device that moved to this
+    workspace from another (``binding._activate`` re-points ``workspace_id``) is still referenced by the OLD
+    workspace's ``sync_runs`` / ``sync_workspaces.active_device_id`` -- deleting it would violate those FKs -- so a
+    device still referenced by any surviving row is detached instead (``workspace_id`` NULL, inactive, revoked)."""
+    counts: dict[str, int] = {}
+    detached = 0
+    for table in V2_TABLES:
+        if table == "agent_devices":
+            referenced = (
+                "id IN (SELECT device_id FROM sync_runs WHERE workspace_id <> :w) "
+                "OR id IN (SELECT active_device_id FROM sync_workspaces "
+                "WHERE active_device_id IS NOT NULL AND workspace_id <> :w)"
+            )
+            det = await session.execute(
+                text("UPDATE agent_devices SET workspace_id = NULL, is_active = false, "
+                     "revoked_at = COALESCE(revoked_at, :now), revoke_reason = COALESCE(revoke_reason, "
+                     "'workspace_purged') WHERE workspace_id = :w AND (" + referenced + ")"),  # noqa: S608
+                {"w": ws_id, "now": clock.now()},
+            )
+            detached += det.rowcount or 0
+        result = await session.execute(
+            text(f"DELETE FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from V2_TABLES)
+        )
+        counts[table] = result.rowcount or 0
+    return counts, detached

@@ -20,7 +20,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.clock import Clock, fy_end_of, fy_start_of, ist_date
+from v2.cloud.clock import Clock, fy_end_of, fy_start_of, ist_date, window_fys
 from v2.cloud.errors import ApiError
 from v2.cloud.models import SyncFyCoverage, SyncWorkspace
 
@@ -147,8 +147,8 @@ def backfill(rows: list[Cov], books_from: date, current_fy: date) -> tuple[str, 
     row is ``resyncing`` (a whole-company resync); ``complete`` when the verified edge reaches FY(``books_from``);
     else ``running``. ``percent`` = Σ months acked / Σ months_total over the pre-window rows, quantised to 0.01
     (100.00 when there are no pre-window rows — a company younger than the window)."""
-    previous_fy = date(current_fy.year - 1, 4, 1)
-    pre_window = [r for r in rows if r.fy_start < previous_fy]
+    window = window_fys([r.fy_start for r in rows], current_fy)
+    pre_window = [r for r in rows if r.fy_start not in window]
 
     _, verified = edges(rows, current_fy)
     books_fy = fy_start_of(books_from)

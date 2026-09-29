@@ -51,6 +51,8 @@ class V2Settings(BaseSettings):
     # --- Lazy maintenance / purge ---
     maintenance_slice_seconds: float = 2.0
     maintenance_slice_rows: int = 5000
+    # Q23 estimate refresh cadence (D20: the per-table count(*) walk must not run on every heartbeat).
+    storage_estimate_interval_seconds: int = 3600
     purge_grace_days: int = 30
 
     def validate_for_serving(self) -> None:
