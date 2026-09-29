@@ -929,3 +929,89 @@ async def test_parity_request_validation(app_client, session):
                       ({"scope": "bisect", "fy_start": "2025-05-01"}, "fy_start_required")):
         r = await app_client.post(f"/api/sync/{b.ws}/parity", json=body(b, **bad), headers=b.headers)
         assert (r.status_code, r.json()["error"]) == (422, code), bad
+
+
+# --- S1 review I7: a ledger rename after the anchor TB was stored --------------------------------------------------
+
+
+def _renamed_cells(b: B, report_type: str, as_on: date, old: str, new: str) -> list[dict]:
+    """Tally exports a rename retroactively (probe 8, §12 step 9): a TB captured AFTER the rename shows the new name
+    on every date."""
+    return [{**c, "dspdispname": new} if c.get("dspdispname") == old else c
+            for c in b.cap.tb_cells(report_type, as_on)]
+
+
+async def test_rename_after_anchor_asks_to_recapture_the_anchor_not_a_false_mismatch(app_client, session, engine):
+    """I7: `Cash` (a balance-sheet ledger with a non-zero anchor at 31-03-2025) is renamed through a master batch
+    after the anchor TB was stored. The stale anchor row no longer resolves; parity must NOT compute a false
+    mismatch (which climbs the ladder to hard_alert) but abort `aborted_incomplete` / `anchor_stale` asking to
+    re-capture that anchor — and after the re-capture (new name, newer counters) the run is `ok`."""
+    old, new = "Cash", "Cash on Hand (Main)"
+    b = await setup_b(app_client, session)
+    assert (await parity(app_client, b))["status"] == "ok"
+    before = await whole_state(engine, b)
+
+    cash = next(m for m in b.cap.masters() if m["kind"] == "ledger" and m["data"]["name"] == old)
+    moved = {"alt_vch_id": b.counters["alt_vch_id"], "alt_mst_id": b.counters["alt_mst_id"] + 1}
+    renamed = {"kind": "ledger", "data": {**cash["data"], "name": new, "alterid": str(moved["alt_mst_id"])}}
+    r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers,
+                              json={"kind": "incremental", "counters_at_start": b.counters})
+    run_id = r.json()["run_id"]
+    n = await _ingest(app_client, b, [renamed], run_id=run_id)
+    r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n, "cursor_after": moved})
+    assert r.status_code == 200, r.text
+    b.counters = moved
+    later = SNAP_AT + timedelta(minutes=10)
+    for rt in ("trial_balance", "trial_balance_ledgerwise"):          # today's as-on captures carry the new name
+        await _snap(app_client, b, rt, AS_ON, at=later, cells=_renamed_cells(b, rt, AS_ON, old, new))
+    async with fresh(engine) as s:
+        assert (await one(s, "SELECT name FROM tally_ledgers WHERE workspace_id=:w AND guid=:g", w=b.ws,
+                          g=cash["data"]["guid"]))["name"] == new
+
+    anchor = _anchor_as_on(FY25)
+    res = await parity(app_client, b)
+    assert (res["status"], res["abort_reason"]) == ("aborted_incomplete", "anchor_stale"), res
+    assert [(r["action"], r["params"]) for r in res["remediation"]] == [
+        ("capture_snapshot", {"report_type": "trial_balance_ledgerwise", "as_on": anchor.isoformat()})]
+    mid = await whole_state(engine, b)
+    assert (mid["ladder"], mid["last_parity"]) == (before["ladder"], before["last_parity"])   # no false alert
+    assert mid["lines"] == before["lines"]
+
+    await _snap(app_client, b, "trial_balance_ledgerwise", anchor, at=later, purpose="anchor",
+                cells=_renamed_cells(b, "trial_balance_ledgerwise", anchor, old, new))
+    res = await parity(app_client, b)
+    assert (res["status"], res["abort_reason"]) == ("ok", None), res
+    async with fresh(engine) as s:
+        lines = by_name(await line_rows(s, res["parity_run_id"]))
+    assert [l["verdict"] for l in lines[new]] == ["match"] and old not in lines
+
+
+async def test_rename_after_bisect_month_ends_asks_to_recapture_them(app_client, session, engine):
+    """I7, bisect form: stored month-end TBs are reused the same way as the anchor; after a rename every stale one
+    (captured before the master change, now holding an unresolvable row) is asked for again, never evaluated."""
+    old, new = "Cash", "Cash on Hand (Main)"
+    b = await setup_b(app_client, session)
+    ends = pf.month_ends(FY25, AS_ON)
+    for me in ends:
+        await _snap(app_client, b, "trial_balance_ledgerwise", me, purpose="bisect")
+    cash = next(m for m in b.cap.masters() if m["kind"] == "ledger" and m["data"]["name"] == old)
+    moved = {"alt_vch_id": b.counters["alt_vch_id"], "alt_mst_id": b.counters["alt_mst_id"] + 1}
+    r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers,
+                              json={"kind": "incremental", "counters_at_start": b.counters})
+    run_id = r.json()["run_id"]
+    n = await _ingest(app_client, b, [{"kind": "ledger", "data": {**cash["data"], "name": new,
+                                                                  "alterid": str(moved["alt_mst_id"])}}],
+                      run_id=run_id)
+    r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n, "cursor_after": moved})
+    assert r.status_code == 200, r.text
+    b.counters = moved
+    before = await whole_state(engine, b)
+    res = await parity(app_client, b, scope="bisect", fy_start="2025-04-01")
+    assert (res["status"], res["abort_reason"]) == ("aborted_incomplete", "anchor_stale"), res
+    assert [r["params"]["as_on"] for r in res["remediation"]] == [_anchor_as_on(FY25).isoformat(),
+                                                                   *[d.isoformat() for d in ends]]
+    after = await whole_state(engine, b)
+    assert (after["ladder"], after["last_parity"], after["lines"]) == \
+        (before["ladder"], before["last_parity"], before["lines"])

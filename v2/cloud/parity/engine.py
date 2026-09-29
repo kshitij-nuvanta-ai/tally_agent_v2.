@@ -162,6 +162,7 @@ class _Snap:
     rows: list[TbRow]
     cells: list[dict]
     flags: dict | None
+    counters: dict | None = None
 
     @property
     def ledgerwise(self) -> bool:
@@ -176,10 +177,31 @@ async def _snapshots(session: AsyncSession, ws: uuid.UUID, keys: list[tuple[str,
     if not keys:
         return {}
     t = TallyReportSnapshot
-    rows = (await session.execute(select(t.report_type, t.as_on_date, t.rows, t.cells, t.request_flags).where(
-        t.workspace_id == ws, t.report_type.in_({k[0] for k in keys}), t.as_on_date.in_({k[1] for k in keys})))).all()
-    return {(r.report_type, r.as_on_date): _Snap(tb_rows(r.rows or []), list(r.cells or []), r.request_flags)
+    rows = (await session.execute(select(t.report_type, t.as_on_date, t.rows, t.cells, t.request_flags, t.counters)
+                                  .where(t.workspace_id == ws, t.report_type.in_({k[0] for k in keys}),
+                                         t.as_on_date.in_({k[1] for k in keys})))).all()
+    return {(r.report_type, r.as_on_date): _Snap(tb_rows(r.rows or []), list(r.cells or []), r.request_flags,
+                                                 r.counters)
             for r in rows if (r.report_type, r.as_on_date) in set(keys)}
+
+
+async def _stale_after_master_change(session: AsyncSession, ws: uuid.UUID, snap: _Snap,
+                                     unresolved: list[str]) -> bool:
+    """S1 review I7: a STORED ledger-level TB (the D9 anchor, a bisect month-end) is captured once and reused, but a
+    ledger rename is exported retroactively (probe 8, §12 step 9) -- the stored row keeps the old name and resolves
+    to nothing, which would read as a false ``masters_gap`` + ``ledger_gap`` mismatch that no remediation fixes
+    (the ladder then climbs to ``hard_alert``). Such a snapshot is treated as stale -- re-capture it -- when it has
+    rows resolving to no live ledger AND some ledger master changed after it was captured (a ledger ``alter_id``
+    above the snapshot's own ``counters.alt_mst_id``; same Tally counter space, so no clock is involved). The
+    re-capture carries the current counters, so a genuinely missing master can cause at most one re-capture, never
+    a loop, and then flows to the normal ``masters_gap`` classification."""
+    if not unresolved:
+        return False
+    mst = (snap.counters or {}).get("alt_mst_id")
+    if mst is None:
+        return False
+    return (await session.execute(select(TallyLedger.guid).where(
+        TallyLedger.workspace_id == ws, TallyLedger.alter_id > int(mst)).limit(1))).first() is not None
 
 
 async def _ranged_sums(session: AsyncSession, ws: uuid.UUID, a: date, b: date) -> dict[str, tuple]:
@@ -451,6 +473,9 @@ async def _run(session, sw, body, run: _Run, as_on, fy_arg, tol, now, clock, bef
     if ledger_anchor_ok:
         anchors, anchor_unresolved = anchor_amounts(lw_anchor.rows, led.index, day_one,
                                                     ledgerwise_flags=lw_anchor.flags)
+        if await _stale_after_master_change(session, ws, lw_anchor, anchor_unresolved):     # review I7
+            return await _finish_abort(session, run, "aborted_incomplete", "anchor_stale", now,
+                                       [_capture(LW, anchor_plan.as_on)])
         group_anchors, anchor_rows = None, lw_anchor.rows
     else:                                                  # §10.4 fallback: the group-anchor route (10c carry)
         anchors, anchor_unresolved = None, []
@@ -563,6 +588,14 @@ async def _bisect(session, sw, run: _Run, as_on: date, fy: date, edge: date, anc
         d1 = anchor_plan.subtract_lines_dated
         day_one = {g: v[0] for g, v in (await _ranged_sums(session, ws, d1, d1)).items()}
     anchors, anchor_unresolved = anchor_amounts(lw_anchor.rows, led.index, day_one, ledgerwise_flags=lw_anchor.flags)
+    stale = [anchor_plan.as_on] if await _stale_after_master_change(session, ws, lw_anchor, anchor_unresolved) else []
+    for me in ends:                                   # review I7: every stored month-end TB is reused the same way
+        if await _stale_after_master_change(session, ws, snaps[(LW, me)], resolve_rows(snaps[(LW, me)].rows,
+                                                                                       led.index)[1]):
+            stale.append(me)
+    if stale:
+        return await _finish_abort(session, run, "aborted_incomplete", "anchor_stale", now,
+                                   [_capture(LW, d) for d in stale])
     evaluations: list[tuple[date, bool]] = []
     all_lines: list[tuple[date, Line]] = []
     for me in ends:
