@@ -1,6 +1,7 @@
 # S1 — Cloud: sync tables, device auth, ingest, parity (BI Part 1, v2)
 
-> **Design spec, not yet implemented.** Docs only; no code exists for S1 yet.
+> **Design spec — built (S1, 2026-09-29, `v2/cloud/` + `v2/contract/`).** Written before the code; the
+> "Changed 2026-09-29" block below records where the build changed it.
 > **Written 2026-09-25 on the user's standing instruction** ("you can do everything yourself"): every design
 > decision was taken without waiting for the user and is listed for review in §2 "Decisions taken on the user's
 > standing instruction (2026-09-25) — review". Each one names the alternative and what it costs to reverse.
@@ -17,6 +18,45 @@
 > revalued by Tally and the row is cumulative (live company B's FY 2025-26 TBs still carry −183.87), so the as-on value
 > alone falsely rejects every run with E > books_from. Forex `unrealised` / `match_revalued` now mean "since E". Other
 > S1 build rulings awaiting their spec edit (Task 15) are listed in the tracker change log and the SDD ledger.
+> **Changed 2026-09-29 (S1 build — as-built edits, Task 15):** S1 is built (`v2/cloud/`, `v2/contract/`). The
+> spec now describes the code; each change is marked inline "*(Changed 2026-09-29)*". Sources: the SDD ledger
+> rulings, `docs/code-review-bi-s1-2026-09-29.md` (fix record), the Task 14b report.
+> 1. **§10.7 row 5 `anchor_wrong`** — fires on a shifted anchor (≥3 anchored BS ledgers share one diff) *or* a
+>    dropped / double-counted one (each differs by ± its own anchor row); the (a)-only reading made a shift unreachable.
+> 2. **§10.1 / §10.2 anchor staleness** — a stored anchor / month-end TB with unresolved rows, captured at another
+>    `alt_mst_id` than the cursor → `aborted_incomplete` `anchor_stale` + re-capture (review I7, C1); a fresh
+>    re-capture is never stale, so no loop.
+> 3. **§10.1 M20 guard** — outside bisect, 422 `as_on_not_current_period` when FY(`as_on`) is older than the latest
+>    books voucher's FY; best-effort, the binding rule is the S2 contract (§17.3).
+> 4. **§12 steps 9/12, §8.7, §14 scenario 21** — inside a `full_resync` (always user-confirmed, D16) the alter_id
+>    rule is suspended per object within the run's scope (C2): Tally is authoritative after a restore/relink.
+> 5. **§7.6 / §7.7 / §7.15 ack semantics** — an ack means "received"; a `confirm_resync` stays open until its run
+>    completes or a same-or-wider confirm supersedes it (`cancelled`); `/state` lists it (review I3, C3, C5).
+> 6. **§7.8 / §8.2** — a completed company `full_resync` clears `restore_reason` and the restore/relink offer
+>    (review I4); sync-status stopped offering a resync that had just run.
+> 7. **§7.15 relink** — the password re-check shares the per-email login limiter (review I5: no password oracle).
+> 8. **§7.10 coverage** — acks are typed and range-checked (`month_out_of_range`); a re-opened `first_sync` drops a
+>    stale `complete` window FY back to `running` (review I6: the verified edge overclaimed).
+> 9. **§7.8 runs** — typed bodies; `counters_at_start` required; `cursor_after_required` (review I2: a wedged workspace).
+> 10. **§11** — the full as-built code list, incl. `internal_error`, `cursor_after_required`, `month_out_of_range`,
+>     `anchor_stale`, `as_on_not_current_period` and every code the build added; `company_mismatch` is batches-only.
+> 11. **§4.2** — `ladder` also carries `pending_remediation_ids`, `storage_estimated_at`, `last_run_at`,
+>     `bisect_month`, `resync_offered`; `last_heartbeat`, `relink_prompt`, `last_parity`, `sync_commands` as built.
+> 12. **§4.9** — `AVG_RAW_BYTES = 4170`; estimate refreshed ≤ hourly inside the slice budget; quarantine retention.
+> 13. **§7.5** — D7's take-over guard applies to any bind that displaces a live active device, whatever the GUID.
+> 14. **D30** — "ever carried an expression amount" = the ledger's own balances, never voucher lines.
+> 15. **§10.1 step 6 / §10.6** — the TB imbalance nets the workspace's own top-level groups (custom ones included);
+>     rung-2 row matching stays reserved-name.
+> 16. **§15.1** — two unspecified cells pinned (logout × expired access; devices × deleted workspace).
+> 17. **§17.1 S1-R10** — the shared per-email limiter can lock an agent login out.
+> 18. **§17.3 (new)** — contract notes S2 must follow.
+> 19. **§13.3** — G1–G5 captured 2026-09-25; G6 captured 2026-09-29: a ledgerwise TB as on a date is closing-only.
+> 20. **§16** — known passlib `crypt` DeprecationWarning (note only).
+>
+> Also brought in line with the code (not in the queued list; verified in `v2/cloud/`): §10.7 rows 3, 4 and the
+> `ledger_gap` fallback; §10.1's extra aborts (`tb_imbalance_unknown`, `no_balance_sheet_verified`) and §10.2's
+> group-anchor input for the no-ledger-anchor route; review M7's contract drift (§4.2 command type, `requested_by`,
+> `relink_prompt` keys, `last_parity.run_id`); review M8 (§11 `company_mismatch` not on snapshots).
 > **Status tracking:** [`../plans/2026-09-22-bi-part1-tracker.md`](../plans/2026-09-22-bi-part1-tracker.md) §4 (S1
 > rows). Not in this file.
 >
@@ -152,7 +192,7 @@ spelled out (expression balances, C47).
 | D27 | v2 app on port **8100**, `V2_` settings prefix, same Postgres as the current app. | — | Trivial. |
 | D28 | **Reconcile guard:** a reconcile that would soft-delete more than 20% **and** more than 50 rows of its scope is refused `reconcile_too_large` unless re-sent with `confirm_large: true` after the agent re-reads the list. | No guard. | Trivial. |
 | D29 | **Rung 2 compares reserved primary groups + synthetic rows only.** A flat `EXPLODEFLAG` TB can't place custom sub-groups (and `EXPLODEFLAG` misses them anyway, probe 17 caveat 2); rung 2's per-ledger resolution comes from the ledger-level TB instead. | Compare second-level group rows by name. | Low. |
-| D30 | **Forex ledger** = a ledger whose `CurrencyName` is not the base currency (base = the currency master whose ExpandedSymbol is `INR`; its NAME exports as `?`, LESSONS rule 28c), **or** one that ever carried an expression amount. | Currency field only. | Trivial. |
+| D30 | **Forex ledger** = a ledger whose `CurrencyName` is not the base currency (base = the currency master whose ExpandedSymbol is `INR`; its NAME exports as `?`, LESSONS rule 28c), **or** one that ever carried an expression amount **in its own balances** (master Opening/ClosingBalance or a mirrored `ledger_balance`; sticky once set). *(Changed 2026-09-29: never from voucher lines — an INR ledger that forex sales pass through, e.g. `Export Sales`, is not forex and must not get `match_revalued`.)* | Currency field only. | Trivial. |
 | D31 | **Reserved-name clean-up:** a leading U+0004 (`&#4;`) and following spaces are stripped from every text field before resolution (`&#4; Primary` on primary groups and stock items, `p25_A_groups.xml`, `p15_B_compound_unit_item.xml`). | — | Trivial. |
 | D32 | **Company pick happens in the agent** (it lists Tally's companies and posts the pick). The web-side pick (Q11 option) is not built. | Web pick. | Low: `POST /api/sync/company` already takes the pick; add a list-reporting endpoint. |
 
@@ -209,14 +249,14 @@ agent only to build batches (no parsing needed there beyond picking fields).
 | `last_synced_at` | timestamptz null | Part 1 meaning (§8.5) |
 | `caught_up_at` | timestamptz null | D21 |
 | `last_seen_at` | timestamptz null | any heartbeat |
-| `last_heartbeat` | jsonb null | the last heartbeat body minus counters: `tally_status`, versions, error code, breaker, outbox depth, PC clock, `clock_skew_s` |
-| `relink_prompt` | jsonb null | `{seen_guid, seen_name, seen_at}` |
+| `last_heartbeat` | jsonb null | *(Changed 2026-09-29, as built)* `{agent_version, tally_version, tally_status, seen_company, counters, last_error_code, breaker, outbox_depth, clock_skew_s}` — the raw `pc_clock` is not kept, only the skew |
+| `relink_prompt` | jsonb null | *(Changed 2026-09-29, as built)* `{guid, name}` of the seen company |
 | `oldest_available_fy`, `oldest_complete_fy` | date null | FY **start** dates; denormalised from coverage (§8.3) |
 | `backfill_state` | text null | `running \| resyncing \| complete` |
 | `backfill_percent` | numeric(5,2) null | |
-| `last_parity` | jsonb null | `{state, checked_at, as_on, mismatch_count, verified_from}` |
-| `ladder` | jsonb default `{}` | `{state, heal_attempts, resync_offered_fy, last_run_id}` (§10.8) |
-| `tb_imbalance_baseline` | jsonb null | `{amount, alt_mst_id, as_on, seen_at}` (D10) |
+| `last_parity` | jsonb null | `{state, checked_at, as_on, mismatch_count, verified_from, run_id}` — a `suspect` run writes the `ok` view and keeps the previous visible `run_id` *(Changed 2026-09-29)* |
+| `ladder` | jsonb default `{}` | `{state, heal_attempts, resync_offered_fy, last_run_id}` (§10.8). *(Changed 2026-09-29, as built)* also `pending_remediation_ids` (the last run's issued ids, §10.8), `last_run_at`, `bisect_month` (§10.9), `resync_offered` (`{scope, fy_start?, reason: restore \| relink \| parity}`, §8.6) and `storage_estimated_at` (last Q23 estimate, §4.9) — kept here to avoid a schema change |
+| `tb_imbalance_baseline` | jsonb null | `{imbalance, alt_mst_id, recorded_at}` (D10; keys as built, *Changed 2026-09-29*) |
 | `quarantine_count` | int default 0 | D12 |
 | `storage_estimate_bytes` | bigint default 0 | Q23 alert (§4.9) |
 | `storage_alert` | bool default false | |
@@ -250,6 +290,12 @@ Retention 90 days (D20).
 **`sync_commands`** — `id`, `workspace_id`, `type` (`recheck_now | resync | capture`), `params` jsonb,
 `requested_by` (`user:<id>` / `server:parity`), `status` (`pending | delivered | done | cancelled`), `created_at`,
 `delivered_at`, `done_at`. Index `(workspace_id, status)`.
+*(Changed 2026-09-29, as built — review M7:* the web path stores `type` = the web command name (`recheck_now |
+confirm_resync`; `confirm_relink` is applied at once, never stored), `params` `{"scope": "company"}` /
+`{"scope": "fy", "fy_start"}`, `requested_by = "web"`. Parity never enqueues a command: its resync offer lives in
+`ladder.resync_offered` until the user confirms. `cancelled` = superseded by a newer confirm, or made moot by a
+completed company resync (§7.15). Status flow: `pending → delivered` (heartbeat) `→ done` (ack) for every type
+except `confirm_resync`, which goes `delivered → done` only when its `full_resync` completes (§7.6).*)
 
 **`sync_fy_coverage`** — Part 1 §5 as specified: `id`, `workspace_id`, `fy_start` date, `fy_end` date, `state`
 (`pending | running | resyncing | complete`), `months_done` jsonb (sorted list of `YYYY-MM`, so a replayed ack can't
@@ -366,6 +412,13 @@ compare several dates). Index `(workspace_id, run_id)`, `(workspace_id, verdict)
 - **Q23 storage alert:** `storage_estimate_bytes` = Σ row counts × per-table average bytes (from
   `pg_column_size` sampled at migration time, a constant table in code), refreshed by D20. Over
   `V2_STORAGE_ALERT_BYTES` (default 5 GB) → `storage_alert = true` + ops signal. No hard stop (Q23).
+  *(Changed 2026-09-29, as built:)* `AVG_ROW_BYTES` was measured on company B's real ingest (`sync/maintenance.py`);
+  `tally_vouchers` is **363 B without `raw`, 4,533 B with**, so the estimate adds **`AVG_RAW_BYTES = 4170`** per
+  voucher whose `raw IS NOT NULL`. The count walk is O(rows), so it runs **at most once per
+  `storage_estimate_interval_seconds`** (default 3600; last run kept in `ladder.storage_estimated_at`) and only when
+  the slice's time budget allows. The ops signal fires on the false → true transition only. `pg_column_size`
+  excludes index/page overhead, so the estimate understates disk use (~1.5–2×) — a coarse early warning.
+  Quarantine retention as built: **resolved rows pruned 90 days after `resolved_at`**; open rows never.
 - **Q5 purge:** `python -m v2.cloud purge [--workspace ID] [--now]` deletes every v2 row of workspaces soft-deleted
   ≥ 30 days ago (or at once with `--now`), in FK order, and logs counts only.
 
@@ -594,6 +647,13 @@ Outcomes (first match wins):
 | Bound to a different GUID, data exists | 409 `workspace_bound_to_other_company` |
 | This GUID bound to **another workspace of the same user** | 409 `company_bound_elsewhere` `{"workspace_id"}` |
 
+*(Changed 2026-09-29 — Task 5 ruling, as built:)* the rows are evaluated in the order 404/410 →
+`company_bound_elsewhere` → the rest. **D7's take-over guard applies to any bind that would displace a live active
+device of the workspace, whatever the GUID** — the different-GUID "no data" re-bind runs the same guard
+(`takeover_required` / `reauth_required`) before its accepted-batch check. A device that is revoked, inactive, or now
+active on another workspace doesn't count as "live active". A `books_from` that doesn't parse → 422
+`invalid_books_from`.
+
 ### 7.6 `POST /api/sync/{ws}/heartbeat` (active device)
 ```json
 {"agent_version": "0.1.0", "tally_version": "TallyPrime 7.0",
@@ -613,10 +673,19 @@ Runs one D20 slice. Response:
 {"server_time": "…", "sync_state": "ready", "cursors": {"alt_vch_id": 965, "alt_mst_id": 412},
  "commands": [{"id": "…", "type": "recheck_now", "params": {}}]}
 ```
+*(Changed 2026-09-29 — review I3, as built:)* **an ack means "received", not "executed".** The server first applies
+`acked_commands`, then delivers what is still `pending` (`pending → delivered`), so a command is never delivered
+twice. An acked command goes `delivered → done` — **except `confirm_resync`**, which stays `delivered` (it is still
+the user's authorisation for the `full_resync` it names, D16) until that run completes (`done`) or a newer confirm of
+the same or a wider scope supersedes it (`cancelled`, §7.15). Unknown, foreign or malformed ids in `acked_commands`
+are skipped one by one, never failing the rest of the list.
 
 ### 7.7 `GET /api/sync/{ws}/state` (active device)
 Cursors, coverage rows, open runs, pending commands, `books_from`, `base_currency_name`. The agent calls it at
 start-up; its SQLite copy is only a cache (Part 1 §5).
+*(Changed 2026-09-29 — Task 14b C5:)* `commands` lists every `pending` command **plus every `delivered`, still-open
+`confirm_resync`**, so an agent that acked a confirm and then restarted recovers its id. Every entry carries
+`status`: `{"id", "type", "params", "status"}`.
 
 ### 7.8 `POST /api/sync/{ws}/runs` and `PATCH /api/sync/{ws}/runs/{run_id}`
 POST `{"kind": "incremental", "scope": null, "command_id": null, "counters_at_start": {"alt_vch_id": 965,
@@ -628,6 +697,24 @@ PATCH `{"status": "completed", "progress_done": 24, "progress_total": 24, "batch
 "cursor_after": {"alt_vch_id": 970, "alt_mst_id": 415}}` → cursors move (D15) if every declared batch is accepted,
 else 409 `batches_missing` `{"missing": n}`. Completing a `first_sync` whose window coverage is complete →
 `sync_state = ready`. Completing a confirmed whole-company `full_resync` 2-FY pass → `ready`, the command `done`.
+
+*(Changed 2026-09-29 — build rulings + review I2/I4, as built:)*
+- **Typed bodies.** POST: `kind` ∈ the four kinds, `counters_at_start` **required for every kind** (the contract's
+  `Counters`: a `first_sync` without it would complete with NULL cursors and wedge the workspace). PATCH: `status` ∈
+  `completed | failed`; `batches_declared` required when `completed` (422 `batches_declared_required`); completing an
+  `incremental` without `cursor_after` → 422 **`cursor_after_required`**. A body that fails pydantic validation gets
+  FastAPI's standard 422 (`{"detail": [...]}`), not the §11 envelope.
+- `incremental` is refused (409 `run_kind_not_allowed`) while the cursors are NULL (no first sync has completed).
+- Opening any run interrupts every **other** device's `running` run (`interrupted`); "resume re-opens the interrupted
+  one" applies to the same device only. Opening a `first_sync` recomputes the window FYs' `months_total` to the
+  month the run starts; a window FY that was `complete` at the old, smaller total drops back to `running`.
+- A `full_resync`'s `scope` must equal its command's confirmed scope (`{"company": true}` ↔ `{"scope": "company"}`,
+  `{"fy_start"}` ↔ `{"scope": "fy", "fy_start"}`) and the command may not already drive another `running` run, else
+  409 `resync_not_confirmed`. Completing **any** confirmed resync (company or FY) marks its command `done`.
+- **Completing a company `full_resync`** also clears `restore_reason`, removes a restore/relink
+  `ladder.resync_offered` (a parity offer is kept — it is the ladder's own), and cancels every other open
+  `confirm_resync` (review I4).
+- `failed` with `error_code` ∈ {`company_mismatch`, `unrecoverable`} on a `first_sync` → `sync_state = error`.
 
 ### 7.9 `POST /api/sync/{ws}/batches` (active device; gzip)
 ```json
@@ -651,6 +738,11 @@ A replay of the same `batch_id` with the same body returns the stored response w
 recomputes `months_complete`, state (`running` → `complete` when all months done), both edges and the backfill copy
 (§8.3). `{"fy_start": "2026-04-01", "action": "add_fy"}` (rollover) → a `complete` row (Part 1 §4 "New financial
 year") and schedules the raw purge of the FY that left the window (§4.9). Response: the row + both edges.
+*(Changed 2026-09-29 — review I6, as built:)* the body is typed (`fy_start` a date, `month` `YYYY-MM`, `action`
+only `add_fy`; `month` required unless `add_fy`). An unknown `fy_start` → 404 `fy_not_found`. The month must lie in
+**[max(`fy_start`, `books_from`), min(`fy_end`, today IST)]** by calendar month, else 422 **`month_out_of_range`**
+before any write — otherwise an unsynced month could complete an FY and move the verified edge parity trusts. (The
+`complete → running` drop on a re-opened `first_sync` is in §7.8.)
 
 ### 7.11 `POST /api/sync/{ws}/reconcile` (active device)
 ```json
@@ -662,6 +754,12 @@ soft-deleted (vouchers: lines removed, D19); `present` GUIDs unknown to us or wi
 Guard D28. A ledger soft-delete while live lines reference it → 409 `master_in_use` (Tally itself refuses that
 delete, LESSONS rule 30). Response `{"soft_deleted": 1, "refetch": ["…"], "reread_ledgers": [{"guid", "name"}]}` —
 the ledgers the deleted vouchers touched (Part 1 §4 "After a gap").
+*(Changed 2026-09-29, as built:)* `len(present) != present_count` → 422 `reconcile_list_incomplete`, nothing
+soft-deleted (S1-R8's truncation guard). **Reconcile is the only way a row leaves after a restore:** a confirmed
+resync's ingest never deletes (§8.7), so objects created after the backup and absent from the restored Tally go
+through this endpoint — vouchers first, since a ledger still referenced by live lines is 409 `master_in_use` until
+its vouchers are reconciled. The `refetch` rule (`present.alter_id > stored`) does not flag a restored *lower*
+alter_id; the resync's own batches carry those.
 
 ### 7.12 `POST /api/sync/{ws}/snapshots` (active device)
 ```json
@@ -721,6 +819,18 @@ with that GUID and the website password (Q25) → GUID replaced, old one appende
 Web commands: `{"type": "recheck_now"}`, `{"type": "confirm_resync", "scope": "company" | "fy", "fy_start"}`,
 `{"type": "confirm_relink", "password": "…"}` → a `sync_commands` row the next heartbeat delivers (relink is applied
 at once, same service as the device path).
+*(Changed 2026-09-29, as built — reviews I3/I5, Task 14b C3:)*
+- **Relink password re-check** (device and web alike) uses the **same per-email limiter as `/login`**: checked first
+  (429 `rate_limited` + `Retry-After` at capacity), a hit recorded only on a **failed** attempt (401
+  `invalid_credentials`) — a stolen device token can't turn relink into a password oracle, and both paths share one
+  budget. No pending `relink_prompt` for that GUID → 409 `relink_not_prompted`; the new GUID bound to another of the
+  user's workspaces → 409 `company_bound_elsewhere`.
+- **Web commands** are a closed set (`recheck_now | confirm_resync | confirm_relink`; `scope` required for
+  `confirm_resync`, `fy_start` for `scope = fy`, `password` for `confirm_relink`); anything else is a 422.
+- **Supersede by scope.** A new `confirm_resync` cancels (`cancelled`) the open (`pending`/`delivered`) confirms it
+  covers — **same or narrower only**: a company confirm covers every confirm; an FY-X confirm covers only FY X (it
+  never cancels an open company confirm). A command bound to a still-`running` run is never cancelled. A completed
+  company resync cancels every other open confirm (§7.8).
 
 ### 7.16 `GET /api/devices`, `DELETE /api/devices/{id}` (web JWT)
 The user's devices (name, workspace, active, last seen, revoked). DELETE revokes (`user_removed`); the device's
@@ -749,7 +859,7 @@ next call gets 401 `device_revoked` and the agent shows "Signed out" (Part 1 §5
 | `error` | next run completed | `ready` (or `first_sync` if the window isn't complete) |
 | `ready` / `error` | heartbeat counters < cursors (§8.6) | `restore_detected` (`counters_backwards`) |
 | any bound | re-link applied | `restore_detected` (`relink`) |
-| `restore_detected` | confirmed whole-company `full_resync` completes its 2-FY pass | `ready` |
+| `restore_detected` | confirmed whole-company `full_resync` completes its 2-FY pass | `ready`; `restore_reason` and the restore/relink offer cleared *(Changed 2026-09-29, review I4)* |
 | any | device revoked / taken over | unchanged (status shows the agent) |
 
 Chat is never locked by `restore_detected` (decision 13); only `awaiting_first_connection` and `first_sync` lock it
@@ -782,6 +892,21 @@ Heartbeat `ours` with `alt_vch_id < cursor_alt_vch_id` **or** `alt_mst_id < curs
 (`counters_backwards`), a `resync` **offer** in `ladder.resync_offered = {scope: company, reason: restore}`, and
 `incremental` runs / batches refused (409 `restore_detected`). Probe 13 (company A): a file restore keeps the GUID
 and MasterIDs and the counters fall back (`p13_A_before_backup_counters.xml` → `p13_A_after_restore_counters.xml`).
+
+### 8.7 Authority inside a confirmed resync *(new 2026-09-29 — S1 build, Task 13/14b rulings C2)*
+After a restore or a relink, Tally's objects can carry **lower** AlterIDs than the mirror's (the counters went back),
+so the §12 step 9/12 rule "lower alter_id → `skipped_older`" would keep the post-backup rows the user just chose to
+discard. Inside a `full_resync` run — every one is user-confirmed, since the server refuses one without a confirmed
+command (D16) — the alter_id rule is **suspended per object, bounded by the run's scope**:
+
+| Run scope | Masters | Vouchers |
+|---|---|---|
+| company (`{"company": true}`) | authoritative | authoritative (every date) |
+| single FY (`{"fy_start": X}`) | **not** authoritative (keep `skipped_older`) | authoritative only when `fy_start_of(date) == X`; other-FY vouchers keep the rule |
+| any other run kind | rule applies | rule applies |
+
+An authoritative object replaces the stored row whatever its alter_id and counts as **`updated`**. Ingest never
+deletes; objects that no longer exist in the restored Tally leave via §7.11 reconcile.
 
 ---
 
@@ -822,14 +947,23 @@ workspace owner (`workspaces.user_id`) may read `sync-status` or post commands (
 ## 10. Parity engine
 
 ### 10.1 Preconditions (checked in this order; each yields a stored run with that status and no alert)
+0. *(Changed 2026-09-29 — review M20, Task 14b C4; before any row is stored.)* Outside `bisect`, `as_on` must lie in
+   Tally's current period — the FY the mirrored balances (and their face fields) describe. The server stores no
+   current period, so the check is best-effort: **422 `as_on_not_current_period`** (no run stored) when FY(`as_on`)
+   is **older** than the FY of the latest voucher that is not deleted, not post-dated, not optional and dated
+   ≤ today IST. A later `as_on` (a new FY with no voucher yet) is never refused. The binding rule is the S2 contract
+   (§17.3): the agent sends Tally's current-period end. Also: unknown `scope` → 422 `invalid_scope`; unparseable
+   `as_on_date` → 422 `bad_as_on_date`; `bisect` without an FY-start `fy_start` → 422 `fy_start_required`.
 1. `counters_before != counters_after` → `aborted_moving` (quiescence guard; probe 19: quiet captures are stable,
    a mid-capture voucher is detected — `p19_A_capture_moving_counters_*.xml`).
 2. `counters_before != stored cursors` → `aborted_behind` (the server's own proof that the outbox is drained and the
    cursor caught up — Part 1 §6 "only when the outbox is empty and the cursor is caught up").
 3. No verified span (current FY not `complete`), or `sync_state` in `first_sync | restore_detected` → 
-   `aborted_incomplete` `no_verified_span`.
+   `aborted_incomplete` `no_verified_span`. *(As built: also `awaiting_first_connection`, and `as_on < E`.)*
 4. A required snapshot missing (`trial_balance` / `trial_balance_ledgerwise` as-on `as_on_date`, the anchor TB for
-   `E`) → `aborted_incomplete` with remediation `capture_snapshot {report_type, as_on}`.
+   `E`) → `aborted_incomplete` with remediation `capture_snapshot {report_type, as_on}`. *(As built: the anchor is
+   missing only when neither the ledger-level TB nor the group TB as-on the anchor date is stored — the group TB feeds
+   the no-ledger-anchor route, §10.2.)*
 5. Ledgers whose `balance_captured_at < capture_started_at` → they were not in this capture's ledger list: kept for
    step 10.4 (`missing_in_tally`), not a precondition failure.
 6. **TB imbalance guard (D10):** `imbalance` = Σ all parsed rows of the group TB (primary rows + synthetic rows).
@@ -837,6 +971,26 @@ workspace owner (`workspaces.user_id`) may read `sync-status` or post commands (
    `discarded_stale` (cause `stale_tally`, tray "Restart TallyPrime to refresh", Part 1 R4). If `alt_mst_id` moved or
    no baseline → record the new baseline and continue. Real values: company B **0.00** (`p18_B_tb_asof_2023-03-31.xml`,
    incl. the forex row); company A **non-zero** (seed opening defect, Part 1 header "Settled 2026-09-23").
+   *(Changed 2026-09-29, as built — rulings F2, I5, I6:)* "all parsed rows" means: first-occurrence **top-level group**
+   rows + top-level **ledger** rows directly under Primary (e.g. `Profit & Loss A/c`) + the `Unadjusted Forex
+   Gain/Loss` row (`Opening Stock` is already inside the stock-bearing group's row). **Top-level = the workspace's own
+   stored, live masters whose parent is Primary**, so a custom or renamed top-level group counts; before any group
+   master is stored it falls back to the 15 reserved primary-group names (and `Profit & Loss A/c`). The imbalance is
+   recomputed at parity time from the snapshot's cells with the **current** masters. A TB with no top-level group row
+   has imbalance NULL (unknown, never 0) → `aborted_incomplete` `tb_imbalance_unknown` + `capture_snapshot`. A
+   rebaseline is written only with a computed run, never by an abort.
+7. *(New 2026-09-29 — review I7, Task 14b C1.)* **Stale stored anchor.** A stored ledger-level TB (the D9 anchor; in
+   `bisect` also every month-end TB) is captured once and reused, but a later rename is exported retroactively
+   (probe 8), so its old-name row resolves to no live ledger — a false `masters_gap` + `ledger_gap` no remediation
+   fixes. Such a snapshot is **stale** when it has rows resolving to no live ledger **and** its
+   `counters.alt_mst_id != cursor_alt_mst_id` → `aborted_incomplete` **`anchor_stale`** + `capture_snapshot` for it.
+   Because precondition 2 already requires `counters_before == cursor`, a re-capture made now is never stale: a
+   genuinely missing master costs one re-capture, then classifies as `masters_gap`. `!=` rather than `<`: a snapshot
+   *above* the cursor comes from a counter space a restore/relink has since discarded. The group-TB anchor route is
+   not checked (deferred minor).
+8. *(New 2026-09-29, as built — 10c carry.)* After computing, a run with no mismatch that verified **no**
+   balance-sheet figure at either rung → `aborted_incomplete` `no_balance_sheet_verified` + `capture_snapshot` for the
+   anchor — never `ok`.
 
 ### 10.2 Inputs per run
 - `E` = verified edge (FY start). `as_on` = request `as_on_date` = **the current period's end** (probe 16's rule,
@@ -844,7 +998,15 @@ workspace owner (`workspaces.user_id`) may read `sync-status` or post commands (
 - Mirrored ledger balances captured at `≥ capture_started_at`.
 - TB (group) and ledger-level TB as-on `as_on`, from FY(`as_on`) start (D8).
 - Anchor per D9: ledger-level TB as-on `E − 1`; or, when `E = books_from`, as-on `books_from` minus our lines dated
-  `books_from`.
+  `books_from`. *(Changed 2026-09-29, as built:)* `E` = max(verified-edge FY start, `books_from`), so a company whose
+  books start mid-FY takes the books-start anchor. The books-start subtraction is **required by Tally's export**, not
+  a convention: a ledgerwise TB with `SVFROMDATE = SVTODATE = books_from` exports closing columns only, i.e. the
+  balance at the **end** of that day including its vouchers (G6, §13.3; LESSONS §15 rule 31). A ledger absent from the
+  TB but with day-one lines anchors at minus those lines. **No-ledger-anchor route:** when no ledgerwise anchor TB is
+  stored, the **group TB as-on the anchor date** is the input — first-occurrence primary rows, net of that TB's own
+  `Opening Stock` and of our day-one lines — and rung 2 compares BS groups as `anchor_g + Σ lines in [E, as_on] +
+  unrealised_g + Opening Stock` (§10.6); a group holding forex ledgers whose revaluation can't be attributed stays
+  `not_applicable` (`forex_unsplit`).
 - Lines: `countable` lines with `E ≤ voucher_date ≤ as_on` (**post-dated included** — probe 16: counted by Tally and
   exported `IsPostDated=Yes`, `p16_A_post_dated_voucher.xml`; cancelled, optional and deleted excluded).
 
@@ -917,7 +1079,10 @@ At `as_on`:
   (nominal ledgers restart each FY) vs the TB row → `match | mismatch | missing_in_db`.
 - **Primary groups (from the group TB):** rows matched by reserved primary-group name, **first occurrence**
   (`reads.primary_group_rows`: company A has a *ledger* also called `Capital Account` right after the group row,
-  `p16_A_tb_fy_end.xml`).
+  `p16_A_tb_fy_end.xml`). *(Changed 2026-09-29, as built:)* row **matching** stays reserved-name only — a custom
+  top-level group is not a rung-2 row, and its ledgers have no derivable nature (§4.4 `unmapped_primary`), so they
+  are `not_applicable` (`unclassified_group`), never `match`. Custom top-level groups count only in the §10.1 step 6
+  imbalance, which nets the workspace's own top-level masters.
   - Balance-sheet group g: `computed_g = Σ computed_L over live ledgers under g (any depth) + Σ accepted forex
     unrealised under g + (the TB's Opening Stock row, if g is the stock-bearing group)`. The Opening Stock row is
     read from the **same** response (LESSONS rule 19) and is not the Stock Summary closing.
@@ -933,15 +1098,21 @@ At `as_on`:
 |---|---|---|
 | A TB row resolves to no live ledger | `masters_gap` | `refetch_masters` |
 | A live ledger absent from the capture | `ledger_deleted` | `reconcile_masters {master_type: ledger}` |
-| Mismatch diff equals the ledger's amount on one cancelled/optional voucher | `flag_filter_inverted` | none — engineering flag |
-| Two ledgers differ by equal and opposite amounts | `voucher_missed_or_duplicated` | `month_bisect {fy_start, month_ends}` |
-| ≥ 3 BS ledgers differ by the same amount pattern as their anchor rows | `anchor_wrong` | `capture_snapshot {trial_balance_ledgerwise, E−1}` + `refetch_masters` |
-| One ledger differs | `ledger_gap` | `refetch_ledger_vouchers {ledger_guid, fy_start}` |
+| Mismatch diff equals ± the ledger's amount on one cancelled/optional voucher *(as built: optional only — a cancelled voucher exports no amounts, ruling F7)* | `flag_filter_inverted` | none — engineering flag |
+| Two ledgers differ by equal and opposite amounts *(as built, ruling F5: any set of ≥ 2 remaining mismatches whose diffs net to 0 ± tolerance — a dropped GST sale moves 4 ledgers)* | `voucher_missed_or_duplicated` | `month_bisect {fy_start, month_ends}` |
+| *(Changed 2026-09-29)* ≥ 3 remaining BS ledgers that have an anchor row show a **systematic anchor error**: (a) **shifted** — they share one identical non-zero diff (± tolerance); or (b) **dropped / double-counted** — each diff is ± its own anchor row (from the anchor snapshot's resolved rows or the anchor used): dropped gives `+row` (diff = Tally − ours), double-counted `−row` | `anchor_wrong` | `capture_snapshot {trial_balance_ledgerwise, E−1}` + `refetch_masters` |
+| One ledger differs *(as built: also the fallback for every mismatch no earlier row consumed, one remediation per ledger — classify never returns an unlabelled mismatch)* | `ledger_gap` | `refetch_ledger_vouchers {ledger_guid, fy_start}` |
 | Forex face mismatch / unexplained revaluation | `forex_gap` | `refetch_ledger_vouchers` for the forex ledger |
 | All ledgers match, a group doesn't | `group_walk_wrong` | none — engineering flag |
 | TB imbalance moved without a master change | `stale_tally` | run discarded; `tally_notice restart` |
 
 `month_ends` lists only month-ends with no stored TB (month-end snapshots are reused, Part 1 §6 "Month-bisect").
+
+*(Changed 2026-09-29 — row 5, Task 12 fix-round ruling:)* the earlier reading ("each differs by its own anchor row"
+only) made a shifted anchor unreachable, which defeated the row. **Known overlap:** three BS ledgers that each miss
+a same-amount, non-netting voucher also match (a) and classify `anchor_wrong`; that is harmless — the remediation
+(re-capture the E−1 ledgerwise TB + refetch masters) is cheap and non-destructive, and a persisting mismatch climbs
+the ladder as usual.
 
 ### 10.8 Escalation ladder (per workspace, `ladder` column)
 - Run with no mismatch → `ok`, `heal_attempts = 0`, offer cleared.
@@ -953,6 +1124,10 @@ At `as_on`:
 - A confirmed single-FY `full_resync` completes for that FY and the next run still mismatches → `hard_alert` + ops
   signal `engineering_flag`.
 - Aborted / discarded runs never change the ladder.
+- *(Changed 2026-09-29, as built — ladder rulings I1/I2:)* "the previous remediation ids" are
+  `ladder.pending_remediation_ids`; a previous run that issued **no** remediation counts as done, so a persistent
+  mismatch still climbs. `hard_alert` is lowered only by an `ok` run. `bisect` runs don't step the ladder; they
+  record `bisect_month`.
 
 ### 10.9 Month-bisect evaluation
 `scope = bisect` with `fy_start`: the engine evaluates rungs 1–2 at every stored month-end ledger-level TB in that
@@ -991,6 +1166,32 @@ Per-object codes inside `batch_rejected` — **retryable** (never quarantined): 
 `unparseable_amount`, `forex_base_missing`, `invalid_date`, `invalid_logical`, `missing_field`,
 `duplicate_posting_list`, `unknown_kind`. A 500 is always retried with the same `batch_id` (idempotent).
 
+*(Changed 2026-09-29 — the as-built code list; every code the build added, from `ApiError` call sites in
+`v2/cloud/`:)*
+- **`company_mismatch`** is raised for **batches only** — a snapshot body carries no company GUID (review M8).
+- **500 `internal_error`** (any route): an unhandled DB error. The body is `{"error": "internal_error", "detail":
+  ""}`; the log line carries only the exception **class** names, and the engine runs with `hide_parameters=True`, so
+  no bound business value reaches a log (review I1). Retried like any 500.
+- **409:** `run_kind_not_allowed` (runs: `incremental` with NULL cursors), `relink_not_prompted` (relink without a
+  matching `relink_prompt`), `ambiguous_master` from `/parity` (a TB row name matches two live ledgers; retryable).
+- **422 (request-level):** `cursor_after_required`, `batches_declared_required`, `invalid_status`, `invalid_run_kind`
+  (runs); `month_out_of_range` (coverage); `as_on_not_current_period`, `bad_as_on_date`, `fy_start_required`,
+  `invalid_scope` (parity; `invalid_scope` also on reconcile); `reconcile_list_incomplete` (reconcile);
+  `invalid_books_from` (bind); `invalid_report_type`, `unparseable_amount` (snapshots); `invalid_body` (batches:
+  bad gzip / JSON / shape). A body failing pydantic validation gets FastAPI's standard 422 `{"detail": [...]}`.
+- **404:** `run_not_found`, `fy_not_found`, `device_not_found`. **403:** `account_inactive` (login).
+- **Parity abort reasons** (`parity_runs.abort_reason`, not HTTP errors): `counters_moved`, `cursor_behind`,
+  `no_verified_span`, `snapshot_missing`, `month_ends_missing`, `tb_imbalance_unknown`, **`anchor_stale`**,
+  `no_balance_sheet_verified`, `stale_tally` (§10.1).
+- **Per-object, deterministic (quarantinable), added:** `invalid_counter`, `invalid_captured_at`,
+  `invalid_field_type` (a wrong-typed field or a non-object item) and `unexpected_parse_error` (a parser crash:
+  logged by exception class + object kind/index only). `quarantine_code_not_allowed`: a `quarantine` entry citing a
+  non-deterministic code. A stored rejection is replayed only when every code in it is deterministic; one holding a
+  retryable code is re-evaluated as a fresh attempt on the same `batch_id`.
+- **Warnings** (never reject): `guid_prefix_foreign`, `sign_vs_deemed_positive`, `ledger_guid_mismatch`,
+  `is_revenue_disagrees`, `base_type_unresolved`.
+- `sync_commands.status` includes **`cancelled`** (§4.2, §7.15).
+
 ---
 
 ## 12. Ingest pipeline and limits
@@ -1007,10 +1208,10 @@ One DB transaction per batch; any rejection rolls back everything.
 | 6 | Order: currencies → groups → voucher types → units → stock groups → ledgers → stock items → balances → vouchers; masters within a kind by `alter_id` ascending | Part 1 §5 "Masters before vouchers" |
 | 7 | Rung 0 per voucher (INR base, exact) | `p06_A_vouchers_nested.xml` (50/50), `p22_B_forex_sales.xml` (forex) |
 | 8 | Resolve names per type (D13): parent, ledger, party, voucher type, stock item, unit, currency. Empty party on a cancelled voucher is allowed | `p03_B_flagged_month_2023_02.xml` |
-| 9 | Upsert masters: `incoming.alter_id >= stored.alter_id` replaces, lower is `skipped_older`; renames keep the GUID and lines' joins (probe 8: old vouchers export the new name, their AlterIDs don't move, `p08_A_rename_*.xml`) | |
+| 9 | Upsert masters: `incoming.alter_id >= stored.alter_id` replaces, lower is `skipped_older`; renames keep the GUID and lines' joins (probe 8: old vouchers export the new name, their AlterIDs don't move, `p08_A_rename_*.xml`). *(Changed 2026-09-29:)* suspended for objects a `full_resync` is authoritative for (§8.7) — they replace at any alter_id and count `updated` | |
 | 10 | Derive nature / base_type / is_forex; re-derive descendants of a moved master | `p25_*` |
 | 11 | Balances (`ledger` master balances, `ledger_balance`, `stock_*`): applied only if `captured_at > balance_captured_at` (Part 1 "latest capture wins") | `p16_A_ledgers*.xml` |
-| 12 | Upsert vouchers by the alter_id rule; replace lines, inventory lines, bill allocations; set `countable`, `voucher_date`, `has_forex`; `raw` per §4.9 | |
+| 12 | Upsert vouchers by the alter_id rule (*Changed 2026-09-29:* per voucher, suspended where §8.7 makes the run authoritative); replace lines, inventory lines, bill allocations; set `countable`, `voucher_date`, `has_forex`; `raw` per §4.9 | |
 | 13 | Quarantine entries recorded; a stored GUID resolves an open quarantine row | — |
 | 14 | Warnings: GUID prefix (D14), sign vs `isdeemedpositive` (D23), `is_revenue` disagreement, ledger GUID cross-check mismatch | |
 | 15 | `last_synced_at` per §8.5; `sync_batches` row with the response | — |
@@ -1073,6 +1274,23 @@ same transcoder as the real captures.
 If Tally isn't available, each test that would use G1–G5 uses a FakeBooks-generated equivalent and is marked so;
 the gap stays listed in the tracker until captured.
 
+*(Changed 2026-09-29 — captured, as built:)* **G1–G5 were captured on 2026-09-25** (build task 0, read-only;
+`v2/tests/fixtures/sync/s1_*.xml` + `.json` sidecars): G1 `s1_A_tb_ledger_asof_2025-04-01.xml`; G2
+`s1_B_tb_ledger_asof_2023-03-31.xml` and `s1_B_tb_ledger_2025-04-01_2026-03-31.xml`; G3
+`s1_B_tb_group_asof_2026-03-31.xml`; G4 `s1_{A,B}_{voucher_types,currencies,stock_groups,units}.xml`,
+`s1_B_usd_ledger.xml`; G5 `s1_B_ledgers_touched.xml`. **G2's answer:** the USD ledger's ledger-level TB row is a
+**plain INR number** (`-132929.85`), never an expression — §10.5 (b) is the path real data takes (S1-R2 closed;
+LESSONS §15 rule 31).
+- **G6** (new) company B ledger-level TB as-on books_from 01-04-2022 — **captured 2026-09-29**,
+  `s1_B_tb_ledger_asof_2022-04-01.xml` (`SVFROMDATE = SVTODATE = 01-04-2022`, `ISLEDGERWISE = Yes`). Tally exports
+  **closing columns only** (`DSPCLDRAMT` / `DSPCLCRAMT`): the balance at the end of 01-04-2022, **including that
+  day's vouchers** — exactly G1's shape. So the books-start anchor is that TB **minus our own lines dated
+  books_from** (D9, as for G1), and it equals the loader's ledger openings for every ledger
+  (`test_g6_books_start_anchor_reconciles_with_the_dataset_openings`). B's books-start anchor is therefore now a
+  **Tally figure** (tests `anchor_source=tally`); the A5 dataset-openings anchor is kept as a variant
+  (`anchor_source=dataset`). The USD ledger has no row on 01-04-2022 (no opening; the unsuffixed `Gulf Office
+  Supplies LLC` row is the INR debtor).
+
 ### 13.4 Mock data for DB/API tests
 Users/workspaces are created by the test harness directly in the test DB (current tables' shape via a reflected
 `Table`, test-only), never through current app code. Device tokens minted by `v2.cloud.auth`.
@@ -1088,7 +1306,8 @@ Users/workspaces are created by the test harness directly in the test DB (curren
 3. **First sync:** run `running` → 24 months acked → both window FYs `complete`, run `completed`, cursors = counters
    at start, `sync_state = ready`, `last_synced_at` set; re-read everything.
 4. **Batch replay:** same `batch_id` twice → one set of rows, identical response, `replayed: true`.
-5. **Older alter_id:** voucher v at alter 105 then 104 → stored stays 105, lines unchanged.
+5. **Older alter_id:** voucher v at alter 105 then 104 → stored stays 105, lines unchanged. *(Changed 2026-09-29:
+   every run kind except where §8.7 makes a `full_resync` authoritative — scenario 21.)*
 6. **Voucher edit:** alter 106 with one line removed → exactly the new lines (count and amounts), bill allocations
    replaced.
 7. **Soft-delete via reconcile:** voucher `is_deleted`, its lines/inventory/bills gone, `reread_ledgers` lists the
@@ -1114,6 +1333,13 @@ Users/workspaces are created by the test harness directly in the test DB (curren
 19. **`Numeric` round-trip:** `-16538.66`, `132929.85`, `0.01` exact; forex face/rate exact.
 20. **Raw retention:** voucher in FY−2 stored with `raw = NULL`; after `add_fy`, maintenance slices null the FY that
     left the window, bounded per heartbeat.
+21. *(New 2026-09-29, §8.7.)* **Restore round-trip:** post-backup changes (a renamed ledger, altered vouchers in two
+    FYs) → restore → `restore_detected` → confirmed company resync posts the older objects at lower alter_ids →
+    `updated` (not `skipped_older`), old name and voucher lines back, `restore_reason` and the offer cleared, other
+    open confirms `cancelled`. FY-scoped variant: only that FY's vouchers are replaced (`updated` 1, `skipped_older` 2
+    for the master and the other-FY voucher). Parity afterwards: an anchor captured after the post-backup rename is
+    `anchor_stale` once, then `ok` after re-capture (`db/test_confirmed_resync_ingest.py`,
+    `db/test_parity_api.py::test_anchor_recaptured_before_a_restore_is_stale_after_it_then_computed`).
 
 ---
 
@@ -1128,6 +1354,13 @@ Users/workspaces are created by the test harness directly in the test DB (curren
 | `/api/sync/company` | ✓ | 401 | 401 | ✓ | — | 410 | take-over rules | 401 |
 | `/api/sync/{ws}/*` | ✓ | 401 | 401 | 403 | 403 | 410 | 409 | 401 |
 | web `sync-status`, commands, devices | — | 401 | — | — | 404 (not owner) | 404 | — | ✓ |
+
+*(Changed 2026-09-29 — two cells the table left open, pinned as built:)* **logout × expired access** → 401
+`token_expired` (logout authenticates with the device access token, so an expired one is refused like any device
+call; the agent refreshes first — from the code, `any_device` → `decode_access`; `test_state_matrix_api.py` omits
+this cell). **devices × deleted workspace** → not applicable: `GET /api/devices` names no workspace (the cell is
+omitted in `test_state_matrix_api.py`); a device whose workspace is deleted is revoked on its next device call (§8.1
+check 4).
 
 ### 15.2 Batch × content
 
@@ -1240,6 +1473,11 @@ fresh app instance and re-asserts the whole state from the DB via `GET /state` a
 **Not run in S1:** live Tally (tier B) except the optional read-only fixture capture; tier C; Part 2/3 UI tests;
 Claude-API evals.
 
+*(Changed 2026-09-29 — note only:)* the v2 suite prints one known warning, passlib's `'crypt' is deprecated and slated
+for removal in Python 3.13` `DeprecationWarning`, raised by the password helper copied from the current app
+(`v2/cloud/auth/passwords.py`, passlib). Accepted, not filtered; it must be resolved (replace passlib's `crypt`
+import path or pin the Python version) before v2 moves to Python 3.13.
+
 ---
 
 ## 17. Risks and things that need the user
@@ -1249,7 +1487,7 @@ Claude-API evals.
 | ID | Risk | Handling |
 |---|---|---|
 | S1-R1 | A licensed Windows Tally exports amounts/rows differently from Educational/Wine | Verbatim wire + strict parsers → an unexpected form is a loud `unparseable_amount`, never a silent zero; tier-C check before release |
-| S1-R2 | A forex ledger's ledger-level TB row form is unknown (G2) | §10.5 handles plain and expression; G2 capture decides the real path |
+| S1-R2 | A forex ledger's ledger-level TB row form is unknown (G2) | §10.5 handles plain and expression; G2 capture decides the real path. *(Closed 2026-09-29: G2 = plain INR number, §13.3.)* |
 | S1-R3 | The C47 set rule can hide two offsetting forex errors | Face check (a) runs on the mirrored balance every run; offsetting errors would need equal-and-opposite face errors too |
 | S1-R4 | Quarantine hides data | Counted on `sync-status`, ops signal, and parity shows the hole — never silent |
 | S1-R5 | UUID keys inflate line-table storage vs probe 21's estimate | Accepted (D22); the Q23 storage alert watches it |
@@ -1257,6 +1495,7 @@ Claude-API evals.
 | S1-R7 | `ambiguous_master` loop during renames | Retryable; masters processed by alter_id; the tracker/ops signal counts repeats |
 | S1-R8 | Reconcile with a truncated list soft-deletes real rows | D28 guard + soft-delete is reversible (a re-sent voucher is re-stored with `is_deleted = false`) |
 | S1-R9 | Lazy maintenance never runs if no heartbeat arrives | Nothing grows without heartbeats either; `purge` CLI covers deletion |
+| S1-R10 *(new 2026-09-29)* | **Login lockout:** the per-email login limiter counts failed attempts from `/api/agent/auth/login` **and** from the relink password re-check (device + web, §7.15), so a third party who knows the email — or a stolen device token hammering relink — can exhaust the owner's bucket and block the agent's login for the window (`login_rate_window_s`, 15 min) | Accepted as Minor: it matches the current app's limiter, only failed attempts count, and it closes the relink password-oracle (review I5). Revisit with a per-IP / per-device component if abuse is seen |
 
 ### 17.2 Genuinely needs the user
 1. **D5 — binding attaches to an existing workspace only.** Setup becomes "create a workspace on the web, then log
@@ -1268,7 +1507,23 @@ Claude-API evals.
    decision outside the code.
 4. **Q5 — the 30-day purge grace** is a product/legal call under the DPDP Act.
 5. **Build task 0** reads Tally live (read-only, companies A and B) to close gaps G1–G5; say if it should run or stay
-   on FakeBooks.
+   on FakeBooks. *(Done 2026-09-25; G6 added 2026-09-29 — §13.3.)*
+
+### 17.3 Contract notes for S2 (the agent) *(new 2026-09-29 — S1 build rulings)*
+The server enforces what it can; these it cannot, so the agent must:
+1. **`as_on` = Tally's current-period end** on every non-bisect `/parity` call (daily, recheck, post_resync). The
+   server's `as_on_not_current_period` guard (§10.1 step 0) is best-effort only — it can't catch an early `as_on`
+   inside the current FY, which would face-check the mirrored balances against the wrong span.
+2. **Keep the `confirm_resync` command id locally** until its `full_resync` completes — the ack only means
+   "received" (§7.6). After a restart without it, re-read `GET /state`: open confirms are listed with
+   `status: delivered`. Open the run with that `command_id` and the confirmed scope exactly (§7.8).
+3. **Re-offer quarantined GUIDs after a server version change.** `unexpected_parse_error` (a server parser crash) is
+   quarantinable so one object can't block the sync, but after a server fix the same bytes may parse — only a resend
+   un-quarantines them (review M19).
+4. **Send `counters` on every snapshot** — they date the snapshot for §10.1 step 7's staleness rule; re-capture the
+   TB named by an `anchor_stale` remediation at the current counters.
+5. **After a restore-driven resync, reconcile** vouchers first, then masters (§7.11): the resync's ingest never
+   deletes.
 
 ---
 

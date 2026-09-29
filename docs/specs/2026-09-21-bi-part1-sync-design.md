@@ -253,6 +253,26 @@
 >   snapshot key keeps `(workspace_id, report_type, as_on_date)` with `from_date` = FY start by convention; cursors
 >   advance on run completion; a `full_resync` run needs a user-confirmed command (decision 12, server-enforced);
 >   new `caught_up_at` beside `last_synced_at`.
+>
+> **Changed 2026-09-29 (S1 built — `v2/cloud/`; as-built edits in the S1 spec's "Changed 2026-09-29" block).** No
+> Part 1 decision is reversed; the build refines these places (the S1 spec wins where they differ):
+> - **§5 Cloud "upsert … only when `alter_id >=`"** — suspended inside a `full_resync` (always user-confirmed,
+>   decision 12), per object within the run's scope: company scope → every master and voucher; FY scope → only
+>   vouchers dated in that FY. After a restore/relink Tally is authoritative even at lower AlterIDs (S1 §8.7). Ingest
+>   still never deletes; post-backup objects leave via `/reconcile`.
+> - **§6 "The opening anchor" — the books-start date convention this spec left to S1 is now a measured fact:** a
+>   ledger-level TB as-on `books_from` (`SVFROMDATE = SVTODATE`) exports **closing** columns only, i.e. it includes
+>   that day's vouchers, so the books-start anchor = that TB **minus our own lines dated `books_from`** (G6, company B,
+>   2026-09-29; equals the loader's openings for every ledger; LESSONS §15 rule 31). A forex ledger's ledger-level TB
+>   row is a plain INR number (G2).
+> - **§6 Cause classifier, "Many ledgers differ by a constant → opening balances wrong"** — made concrete as S1
+>   `anchor_wrong`: ≥ 3 anchored balance-sheet ledgers either share one identical diff (shifted anchor) or each differ
+>   by ± their own anchor row (dropped / double-counted); action = re-capture the E−1 ledgerwise TB + refetch masters
+>   (not "refetch openings": master openings are never an anchor, C46). "Two ledgers equal-and-opposite" is widened to
+>   any set of ≥ 2 mismatches netting to 0 (a dropped GST sale moves 4 ledgers).
+> - **§6 anchors are reused** — a stored anchor / month-end TB with rows resolving to no live ledger, captured at
+>   another master counter than the cursor (a later rename, or a restore), is re-captured (`anchor_stale`) rather than
+>   read as a mismatch.
 
 ## 1. Context
 New product direction:
