@@ -198,25 +198,9 @@ def tb_row(raw: str, name: str) -> dict[str, Any]:
     return {"ledger": name, "found": False, "debit_text": "", "credit_text": "", "form": "absent"}
 
 
-USD_PARTY_BASE_NAME = USD_EXPORT_PARTY.removesuffix(" (USD)")
-
-
-def usd_row(raw: str) -> dict[str, Any]:
-    """The USD party's TB row (Task 14b C6b). The exact dataset name (``USD_EXPORT_PARTY``) first; failing that,
-    the dataset's name WITHOUT the "(USD)" suffix -- the name the G6 capture (TB as on 01-04-2022) carries the row
-    under. ``matched`` says which one was found (``exact`` / ``name_without_usd_suffix``)."""
-    row = tb_row(raw, USD_EXPORT_PARTY)
-    if row["found"]:
-        return {**row, "matched": "exact"}
-    row = tb_row(raw, USD_PARTY_BASE_NAME)
-    return {**row, "matched": "name_without_usd_suffix" if row["found"] else None}
-
-
-def _tb_observer(*named_rows: tuple[str, str | Callable[[str], dict[str, Any]]]) -> Callable[[str], dict[str, Any]]:
-    """``(key, row name)`` -> ``tb_row(raw, name)``; ``(key, finder)`` -> ``finder(raw)`` (e.g. ``usd_row``)."""
+def _tb_observer(*named_rows: tuple[str, str]) -> Callable[[str], dict[str, Any]]:
     def observe(raw: str) -> dict[str, Any]:
-        return {"rows": len(_tb_rows(raw)),
-                **{key: (name(raw) if callable(name) else tb_row(raw, name)) for key, name in named_rows}}
+        return {"rows": len(_tb_rows(raw)), **{key: tb_row(raw, name) for key, name in named_rows}}
     return observe
 
 
@@ -272,7 +256,7 @@ def plan(company_key: str, company: str, ledger_tb_template: str,
                                  ledger_tb_request(ledger_tb_template, company, A_BOOKS_FROM, A_BOOKS_FROM),
                                  _tb_observer(("opening_stock_row", "Opening Stock"))))
     else:
-        usd = ("usd_row", usd_row)
+        usd = ("usd_row", USD_EXPORT_PARTY)      # exact name only: the unsuffixed one is the INR debtor
         specs += [
             CaptureSpec("tb_ledger_2025-04-01_2026-03-31", "G2",
                         ledger_tb_request(ledger_tb_template, company, *B_TB_CURRENT), _tb_observer(usd)),

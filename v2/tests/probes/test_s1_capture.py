@@ -397,15 +397,23 @@ async def test_only_counters_sends_the_counters_read_once(tmp_path):
     assert _sidecar(out, "B", "counters")["company_guid"] == GUID
 
 
-def test_usd_row_is_found_by_the_dataset_name_without_the_usd_suffix_in_the_g6_capture():
-    """C6(b): the committed G6 capture (TB as on 01-04-2022) carries the USD party's row under the dataset's
-    ledger name WITHOUT the "(USD)" suffix; the observer finds it (and says which name matched) instead of
-    reporting it absent. Where the suffixed row exists (the FY 2025-26 capture) that one is still preferred."""
+def _plan_observer(step: str):
+    real = json.loads(REAL_RESULTS.read_text(encoding="utf-8"))["confirmed_requests"]["ledger_level_tb"]
+    return next(sp.observe for sp in s1.plan("B", B, real["xml_template"], None) if sp.step == step)
+
+
+def test_usd_row_matches_the_exact_usd_ledger_name_only():
+    """Task 14b fix round 1 (C6b revert): the USD party is its own ledger, "Gulf Office Supplies LLC (USD)". The
+    unsuffixed "Gulf Office Supplies LLC" is the INR debtor (`USD_DEBTOR`, no currency) -- a different ledger. In
+    the committed G6 capture (TB as on 01-04-2022) the USD ledger has no row (no opening, no voucher that day), so
+    G6's `usd_row` must report `found: False`, never the INR debtor's -9861.74. G2's captures, which carry both rows,
+    still report the USD ledger's own row."""
     g6 = (FIXTURES / "s1_B_tb_ledger_asof_2022-04-01.xml").read_text(encoding="utf-8")
-    assert s1.tb_row(g6, USD_EXPORT_PARTY)["found"] is False              # the old lookup's miss
-    row = s1.usd_row(g6)
-    assert row == {"ledger": USD_EXPORT_PARTY.removesuffix(" (USD)"), "found": True, "debit_text": "-9861.74",
-                   "credit_text": "", "form": "plain", "matched": "name_without_usd_suffix"}
-    current = (FIXTURES / "s1_B_tb_ledger_2025-04-01_2026-03-31.xml").read_text(encoding="utf-8")
-    assert s1.usd_row(current)["ledger"] == USD_EXPORT_PARTY and s1.usd_row(current)["matched"] == "exact"
-    assert s1._tb_observer(("usd_row", s1.usd_row))(g6)["usd_row"]["found"] is True
+    assert "<DSPDISPNAME>" + USD_DEBTOR + "</DSPDISPNAME>" in g6               # the INR debtor's row is there
+    row = _plan_observer("tb_ledger_asof_2022-04-01")(g6)["usd_row"]
+    assert row == {"ledger": USD_EXPORT_PARTY, "found": False, "debit_text": "", "credit_text": "",
+                   "form": "absent"}
+    for step in ("tb_ledger_2025-04-01_2026-03-31", "tb_ledger_asof_2023-03-31"):
+        raw = (FIXTURES / f"s1_B_{step}.xml").read_text(encoding="utf-8")
+        got = _plan_observer(step)(raw)["usd_row"]
+        assert got == s1.tb_row(raw, USD_EXPORT_PARTY) and got["found"] is True
