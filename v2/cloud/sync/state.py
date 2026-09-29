@@ -192,7 +192,11 @@ async def _coverage_json(session: AsyncSession, workspace_id: uuid.UUID) -> list
 
 async def get_state(session: AsyncSession, sw: SyncWorkspace) -> dict:
     """§7.7: cursors, coverage rows, open runs, pending commands, ``books_from``, ``base_currency_name`` — the
-    agent's start-up call; its SQLite copy is only a cache."""
+    agent's start-up call; its SQLite copy is only a cache.
+
+    Task 14b C5 (I3 follow-up ruling): ``commands`` also lists a ``delivered`` ``confirm_resync`` — an ack leaves
+    it open until its ``full_resync`` completes (I3), so an agent that acked it and then restarted recovers its id
+    here. Every entry carries its ``status``. Other command kinds: ``pending`` only, as before."""
     open_runs = (
         await session.execute(
             select(SyncRun).where(SyncRun.workspace_id == sw.workspace_id, SyncRun.status == "running")
@@ -201,8 +205,10 @@ async def get_state(session: AsyncSession, sw: SyncWorkspace) -> dict:
     pending_commands = (
         await session.execute(
             select(SyncCommand).where(
-                SyncCommand.workspace_id == sw.workspace_id, SyncCommand.status == "pending"
-            )
+                SyncCommand.workspace_id == sw.workspace_id,
+                (SyncCommand.status == "pending")
+                | ((SyncCommand.status == "delivered") & (SyncCommand.type == commands.RESYNC)),
+            ).order_by(SyncCommand.created_at, SyncCommand.id)
         )
     ).scalars().all()
 
@@ -218,7 +224,8 @@ async def get_state(session: AsyncSession, sw: SyncWorkspace) -> dict:
             for r in open_runs
         ],
         "commands": [
-            {"id": str(c.id), "type": c.type, "params": c.params or {}} for c in pending_commands
+            {"id": str(c.id), "type": c.type, "params": c.params or {}, "status": c.status}
+            for c in pending_commands
         ],
     }
 

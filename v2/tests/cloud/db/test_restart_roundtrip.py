@@ -545,3 +545,49 @@ async def test_a_running_resyncs_command_is_never_cancelled_by_a_wider_confirm(a
         "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
     assert r.status_code == 200, r.text
     assert (await _cmd_status(engine, fy), await _cmd_status(engine, company)) == ("done", "pending")
+
+
+# --- Task 14b C5: GET /state lists a delivered, still-open confirm_resync ------------------------------------------
+
+
+async def _state(client, ws, headers) -> dict:
+    r = await client.get(f"/api/sync/{ws}/state", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_state_lists_a_delivered_open_confirm_resync_until_its_run_completes(
+        app_client, session, engine, restart, clock):
+    """C5 (I3 follow-up): an agent that acked a `confirm_resync` and then restarted recovers its id from
+    `GET /state` (listed with its status, also across a server restart); the run opens with it; once the run
+    completes (`done`) it is gone. A delivered `recheck_now` is still not listed (other kinds unchanged)."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    below = await _restore_detected(app_client, ws, headers, clock)
+    cmd_id = await _confirm(app_client, ws, uid)
+    r = await app_client.post(f"/api/workspaces/{ws}/sync/commands", json={"type": "recheck_now"},
+                              headers=web_headers(uid))
+    assert r.status_code == 200, r.text
+    assert {c["id"] for c in (await _hb(app_client, ws, headers, clock))["commands"]} == {cmd_id, r.json()["id"]}
+    await _hb(app_client, ws, headers, clock, acked=[cmd_id, r.json()["id"]])
+    assert await _cmd_status(engine, cmd_id) == "delivered"
+    listed = [{"id": cmd_id, "type": "confirm_resync", "params": {"scope": "company"}, "status": "delivered"}]
+    assert (await _state(app_client, ws, headers))["commands"] == listed
+    c2 = await restart(app_client)                                     # the agent (and the server) restarted
+    assert (await _state(c2, ws, headers))["commands"] == listed
+    await _run_company_resync(c2, ws, headers, cmd_id, below)
+    assert await _cmd_status(engine, cmd_id) == "done"
+    assert (await _state(c2, ws, headers))["commands"] == []
+
+
+async def test_state_lists_pending_commands_with_their_status(app_client, session, engine, clock):
+    """C5: a pending command of any kind is listed as before, now with `status: pending`; a cancelled
+    (superseded) confirm is not listed."""
+    uid, ws, headers = await bind(app_client, session)
+    old = await _confirm(app_client, ws, uid)
+    new = await _confirm(app_client, ws, uid)
+    r = await app_client.post(f"/api/workspaces/{ws}/sync/commands", json={"type": "recheck_now"},
+                              headers=web_headers(uid))
+    assert await _cmd_status(engine, old) == "cancelled"
+    got = sorted((c["id"], c["type"], c["status"]) for c in (await _state(app_client, ws, headers))["commands"])
+    assert got == sorted([(new, "confirm_resync", "pending"), (r.json()["id"], "recheck_now", "pending")])
