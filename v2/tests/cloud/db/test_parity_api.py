@@ -1184,3 +1184,73 @@ async def test_m20_new_fy_without_vouchers_and_bisect_are_never_refused(app_clie
     r = await app_client.post(f"/api/sync/{b.ws}/parity", headers=b.headers,
                               json=body(b, scope="bisect", fy_start="2024-04-01", as_on_date="31-03-2025"))
     assert r.status_code == 200, r.text
+
+
+# --- Task 14b fix round 1 (C1 follow-up): a snapshot from a counter space that no longer exists is stale -----------
+
+
+async def test_anchor_recaptured_before_a_restore_is_stale_after_it_then_computed(app_client, session, engine):
+    """C1 follow-up (controller ruling: stale = unresolved rows AND `snap.alt_mst_id != cursor`). A post-backup
+    rename -> `anchor_stale` -> the anchor is re-captured under the new name at counters N -> the backup is restored
+    -> a confirmed company resync restores the old name (C2) and the cursor falls to M < N. The stored anchor (new
+    name, N) no longer resolves: it must be asked for again once (`anchor_stale`), not computed into a false
+    `masters_gap` that no remediation fixes; after a fresh re-capture at M the run is computed (`ok`) — no loop."""
+    b = await setup_b(app_client, session)
+    assert (await parity(app_client, b))["status"] == "ok"
+    pre = dict(b.counters)
+    anchor = _anchor_as_on(FY25)
+    cash = next(m for m in b.cap.masters() if m["kind"] == "ledger" and m["data"]["name"] == "Cash")
+    new = "Cash on Hand (Main)"
+
+    # post-backup rename, then the I7 re-capture of every TB at the new counters N
+    n_counters = {"alt_vch_id": pre["alt_vch_id"], "alt_mst_id": pre["alt_mst_id"] + 5}
+    r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers,
+                              json={"kind": "incremental", "counters_at_start": pre})
+    run_id = r.json()["run_id"]
+    n = await _ingest(app_client, b, [{"kind": "ledger", "data": {**cash["data"], "name": new,
+                                                                  "alterid": str(n_counters["alt_mst_id"])}}],
+                      run_id=run_id)
+    r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n,
+        "cursor_after": n_counters})
+    assert r.status_code == 200, r.text
+    b.counters = n_counters
+    t1 = SNAP_AT + timedelta(minutes=10)
+    for rt in ("trial_balance", "trial_balance_ledgerwise"):
+        await _snap(app_client, b, rt, AS_ON, at=t1, cells=_renamed_cells(b, rt, AS_ON, "Cash", new))
+    res = await parity(app_client, b)
+    assert (res["status"], res["abort_reason"]) == ("aborted_incomplete", "anchor_stale"), res
+    await _snap(app_client, b, "trial_balance_ledgerwise", anchor, at=t1, purpose="anchor",
+                cells=_renamed_cells(b, "trial_balance_ledgerwise", anchor, "Cash", new))
+    assert (await parity(app_client, b))["status"] == "ok"
+
+    # restore -> confirmed company resync posts the restored (old-name, lower alter_id) master; cursor M < N
+    r = await app_client.post(f"/api/sync/{b.ws}/heartbeat", headers=b.headers, json={
+        "tally_status": "ours", "pc_clock": "2026-09-25T06:30:00+00:00", "counters": pre,
+        "seen_company": {"guid": b.cap.guid, "name": pf.B_NAME}})
+    assert r.status_code == 200 and r.json()["sync_state"] == "restore_detected", r.text
+
+    async def during(rid: str) -> int:
+        return await _ingest(app_client, b, [cash], run_id=rid)
+
+    await _company_resync(app_client, b, pre, during)
+    async with fresh(engine) as s:
+        assert (await one(s, "SELECT name FROM tally_ledgers WHERE workspace_id=:w AND guid=:g", w=b.ws,
+                          g=cash["data"]["guid"]))["name"] == "Cash"
+    t2 = SNAP_AT + timedelta(minutes=20)
+    for rt in ("trial_balance", "trial_balance_ledgerwise"):          # today's as-on TBs from the restored Tally
+        await _snap(app_client, b, rt, AS_ON, at=t2)
+    before = await whole_state(engine, b)
+
+    res = await parity(app_client, b)
+    assert (res["status"], res["abort_reason"]) == ("aborted_incomplete", "anchor_stale"), res
+    assert [(r["action"], r["params"]) for r in res["remediation"]] == [
+        ("capture_snapshot", {"report_type": "trial_balance_ledgerwise", "as_on": anchor.isoformat()})]
+    mid = await whole_state(engine, b)
+    assert (mid["ladder"], mid["last_parity"], mid["lines"]) == \
+        (before["ladder"], before["last_parity"], before["lines"])      # no false alert
+
+    await _snap(app_client, b, "trial_balance_ledgerwise", anchor, at=t2, purpose="anchor")
+    for _ in range(2):                                                  # computed, and stays computed
+        res = await parity(app_client, b)
+        assert (res["status"], res["abort_reason"]) == ("ok", None), res

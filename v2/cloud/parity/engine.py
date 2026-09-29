@@ -190,21 +190,26 @@ def _stale_after_master_change(snap: _Snap, unresolved: list[str], cursor_alt_ms
     ledger rename is exported retroactively (probe 8, §12 step 9) -- the stored row keeps the old name and resolves
     to nothing, which would read as a false ``masters_gap`` + ``ledger_gap`` mismatch that no remediation fixes
     (the ladder then climbs to ``hard_alert``). Such a snapshot is treated as stale -- re-capture it -- when it has
-    rows resolving to no live ledger AND it was captured before the workspace's current master cursor
-    (``snap.counters.alt_mst_id < sw.cursor_alt_mst_id``).
+    rows resolving to no live ledger AND it was not captured at the workspace's current master cursor
+    (``snap.counters.alt_mst_id != sw.cursor_alt_mst_id``).
 
     Task 14b C1 (I7 residual): the bound is the workspace's OWN current counter space, not the mirrored ledgers'
     ``alter_id``s -- after a restore (counters go backwards) or a relink (another company's counter space) the
     mirror still holds ledgers above the new Tally's ``AltMstID``, and comparing against them made every re-capture
     stale again (an endless ``anchor_stale`` loop). Parity already requires ``counters_before == cursor``
     (precondition 2), so a snapshot re-captured now carries at least the cursor and is never stale: a genuinely
-    missing master causes at most one re-capture, then flows to the normal ``masters_gap`` classification."""
+    missing master causes at most one re-capture, then flows to the normal ``masters_gap`` classification.
+
+    Task 14b fix round 1 (controller ruling): ``!=``, not ``<``. At parity time ``counters_before == cursor`` and
+    Tally's counters only fall on a restore / relink, so a snapshot ABOVE the cursor comes from a counter space
+    that no longer exists (e.g. an anchor re-captured after a post-backup rename, then the backup restored and the
+    confirmed resync putting the old name back): it is re-captured too, never computed into a false mismatch."""
     if not unresolved or cursor_alt_mst_id is None:
         return False
     mst = (snap.counters or {}).get("alt_mst_id")
     if mst is None:
         return False
-    return int(mst) < int(cursor_alt_mst_id)
+    return int(mst) != int(cursor_alt_mst_id)
 
 
 async def _ranged_sums(session: AsyncSession, ws: uuid.UUID, a: date, b: date) -> dict[str, tuple]:
