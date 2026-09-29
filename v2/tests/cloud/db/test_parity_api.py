@@ -1130,3 +1130,57 @@ async def test_unresolved_anchor_row_after_restore_or_relink_is_computed_never_a
             run = await run_row(s, res["parity_run_id"])
         assert run["lines_compared"] > 0
     assert "refetch_masters" in {r["action"] for r in res["remediation"]}, res
+
+
+# --- Task 14b C4 (M20 tightening): the "latest voucher" bound ignores optional and future-dated vouchers ----------
+
+
+async def _add_voucher(app_client, b: B, day: str, **flags) -> None:
+    """One extra copy of a June-2025 payment, re-dated to ``day`` (YYYYMMDD) with ``flags`` (e.g. isoptional="Yes"),
+    ingested through a normal incremental (cursor unchanged)."""
+    src = next(v for v in b.cap.vouchers(date(2025, 6, 1), date(2025, 6, 30))
+               if len(v["data"]["ledger_entries"]) == 2 and v["data"]["iscancelled"] == "No"
+               and v["data"]["isoptional"] == "No")
+    v = json.loads(json.dumps(src))
+    v["data"].update(guid=v["data"]["guid"][:-8] + "0000fffe", masterid="65534", vouchernumber="65534",
+                     date=day, **flags)
+    r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers,
+                              json={"kind": "incremental", "counters_at_start": b.counters})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    n = await _ingest(app_client, b, [v], run_id=run_id)
+    r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n,
+        "cursor_after": b.counters})
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("day,flags,refused", [
+    ("20260501", {}, True),                                   # control: a real FY 2026-27 voucher (<= today IST)
+    ("20260501", {"isoptional": "Yes"}, False),               # optional: not books data (§10.2)
+    ("20270515", {}, False),                                  # a typo'd future-FY, non-post-dated (after today)
+    ("20260601", {"ispostdated": "Yes"}, False),              # post-dated
+], ids=["control_real_later_fy", "optional_later_fy", "typo_future_fy", "post_dated_later_fy"])
+async def test_m20_bound_ignores_optional_and_future_dated_vouchers(app_client, session, engine, day, flags,
+                                                                    refused):
+    """C4: the M20 lower bound is the FY of the latest non-deleted, non-optional, non-post-dated voucher dated on
+    or before today (IST, clock 2026-09-25). An optional voucher, a post-dated one, or a voucher mistyped into a
+    future FY must not refuse the current period's daily run (31-03-2026); a real FY 2026-27 voucher still does."""
+    b = await setup_b(app_client, session)
+    await _add_voucher(app_client, b, day, **flags)
+    r = await app_client.post(f"/api/sync/{b.ws}/parity", json=body(b), headers=b.headers)
+    if refused:
+        assert (r.status_code, r.json()["error"]) == (422, "as_on_not_current_period"), r.text
+    else:
+        assert r.status_code == 200, r.text
+
+
+async def test_m20_new_fy_without_vouchers_and_bisect_are_never_refused(app_client, session, engine):
+    """C4 pins: (1) a daily run in a brand-new FY that holds no voucher yet (31-03-2027, later than the latest
+    voucher's FY) is never refused by M20; (2) bisect of a past FY is exempt from the bound."""
+    b = await setup_b(app_client, session, edge=FY24)
+    r = await app_client.post(f"/api/sync/{b.ws}/parity", json=body(b, as_on_date="31-03-2027"), headers=b.headers)
+    assert r.status_code == 200, r.text
+    r = await app_client.post(f"/api/sync/{b.ws}/parity", headers=b.headers,
+                              json=body(b, scope="bisect", fy_start="2024-04-01", as_on_date="31-03-2025"))
+    assert r.status_code == 200, r.text

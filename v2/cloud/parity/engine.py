@@ -278,17 +278,24 @@ async def _flagged_amounts(session: AsyncSession, ws: uuid.UUID, a: date, b: dat
     return out
 
 
-async def _require_as_on_not_past_mirrored_fy(session: AsyncSession, ws: uuid.UUID, as_on: date) -> None:
+async def _require_as_on_not_past_mirrored_fy(session: AsyncSession, ws: uuid.UUID, as_on: date,
+                                              today: date) -> None:
     """S1 review M20 (rulings F3/F25): outside bisect, ``as_on`` must lie in Tally's current period -- the FY the
     mirrored ledger balances (and their face fields) describe; a daily run at a past ``as_on`` would face-check a
     current-period opening against another FY's lines (a false ``forex_face_mismatch``). The server stores no
-    "current period", so it takes the FY of the latest non-deleted, non-post-dated voucher it holds as the lower
-    bound of that period (Tally's period can't end before a voucher it contains): ``FY(as_on)`` older than that FY
-    -> 422 ``as_on_not_current_period``, nothing stored. A later ``as_on`` (e.g. a new FY with no voucher yet) is
-    never refused here."""
-    latest = (await session.execute(select(func.max(TallyVoucher.date)).where(
-        TallyVoucher.workspace_id == ws, TallyVoucher.is_deleted.is_(False),
-        TallyVoucher.is_post_dated.is_(False)))).scalar_one_or_none()
+    "current period", so it takes the FY of the latest voucher it holds as the lower bound of that period (Tally's
+    period can't end before a voucher it contains): ``FY(as_on)`` older than that FY -> 422
+    ``as_on_not_current_period``, nothing stored. A later ``as_on`` (e.g. a new FY with no voucher yet) is never
+    refused here.
+
+    Task 14b C4 (controller ruling): the bound counts only books data that proves the period -- a voucher that is
+    not deleted, not post-dated, not optional (§10.2: optional vouchers are not books data, and are often dated
+    ahead) and dated on or before ``today`` (IST): a voucher mistyped into a future FY must not refuse every
+    daily run until someone finds it."""
+    v = TallyVoucher
+    latest = (await session.execute(select(func.max(v.date)).where(
+        v.workspace_id == ws, v.is_deleted.is_(False), v.is_post_dated.is_(False), v.is_optional.is_(False),
+        v.date <= today))).scalar_one_or_none()
     if latest is not None and fy_start_of(as_on) < fy_start_of(latest):
         raise ApiError(422, "as_on_not_current_period")
 
@@ -414,7 +421,8 @@ async def run_parity(session: AsyncSession, sw: SyncWorkspace, body: ParityReque
         if fy_arg != fy_start_of(fy_arg):
             raise ApiError(422, "fy_start_required")
     else:
-        await _require_as_on_not_past_mirrored_fy(session, sw.workspace_id, as_on)          # review M20
+        await _require_as_on_not_past_mirrored_fy(session, sw.workspace_id, as_on,
+                                                  ist_date(clock.now()))      # review M20, C4
 
     await session.refresh(sw, with_for_update=True)     # one parity run at a time per workspace (ladder)
     tol = Decimal(settings.parity_tolerance_paise) / 100
