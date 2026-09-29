@@ -1262,3 +1262,80 @@ async def test_patch_run_malformed_body_is_422(app_client, session, clock, body)
     r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", json=body, headers=headers)
     assert r.status_code == 422, r.text
     assert (await _run_row(session, run_id))["status"] == "running"
+
+
+# --- S1 review I6: coverage acks are validated; a re-opened first sync re-opens a `complete` window FY ---------------
+
+
+@pytest.mark.parametrize("body,code", [
+    ({"fy_start": "2025-04-01", "month": "1999-01"}, "month_out_of_range"),      # far outside the FY
+    ({"fy_start": "2025-04-01", "month": "2025-03"}, "month_out_of_range"),      # the month before fy_start
+    ({"fy_start": "2026-04-01", "month": "2026-10"}, "month_out_of_range"),      # after today IST (2026-09-25)
+    ({"fy_start": "2025-04-01", "month": "2025-4"}, None),                       # not YYYY-MM
+    ({"fy_start": "2025-04-01", "month": "2025-13"}, None),
+    ({"fy_start": "not-a-date", "month": "2025-05"}, None),                      # was a 500
+])
+async def test_coverage_ack_bad_month_or_fy_start_is_422_and_nothing_changes(app_client, session, clock, body, code):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    before = await _coverage_rows(session, ws)
+    r = await app_client.patch(f"/api/sync/{ws}/coverage", json=body, headers=headers)
+    assert r.status_code == 422, r.text
+    if code:
+        assert r.json()["error"] == code
+    session.expire_all()
+    assert await _coverage_rows(session, ws) == before
+
+
+async def test_coverage_ack_month_before_books_from_is_422(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session, books_from="20220615")
+    r = await app_client.patch(f"/api/sync/{ws}/coverage", json={"fy_start": "2022-04-01", "month": "2022-05"},
+                               headers=headers)
+    assert (r.status_code, r.json()["error"]) == (422, "month_out_of_range")
+    await _ack(app_client, headers, ws, "2022-04-01", "2022-06")               # books_from's own month is fine
+
+
+async def test_bogus_month_can_no_longer_complete_an_fy(app_client, session, clock):
+    """The probe from the review: 11 real months + one bogus month used to reach `complete`."""
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    for m in _fy_months("2025-04-01", 11):
+        await _ack(app_client, headers, ws, "2025-04-01", m)
+    r = await app_client.patch(f"/api/sync/{ws}/coverage", json={"fy_start": "2025-04-01", "month": "1999-01"},
+                               headers=headers)
+    assert r.status_code == 422
+    row = await _coverage_row(session, ws, date(2025, 4, 1))
+    assert (row["state"], row["months_complete"]) == ("running", 11)
+
+
+async def test_reopened_first_sync_in_a_later_month_reopens_a_complete_window_fy(app_client, session, clock):
+    """F15 (Task 7 M5, promoted): the current FY went `complete` at the bind-time total (Apr..Sep = 6); the first
+    sync then fails fatally and a NEW first sync opens in October. The recomputed total is 7, so the row must drop
+    back to `running` (and the verified edge with it) — never stay `complete` with October never synced."""
+    uid, login_body, headers = await login_device(app_client, session, device_name="ACCOUNTS-PC")
+    ws = await make_workspace(session, uid)
+    r = await app_client.post("/api/sync/company", json={**BIND_BODY, "workspace_id": str(ws)}, headers=headers)
+    assert r.status_code == 200, r.text
+    r = await app_client.post(f"/api/sync/{ws}/runs",
+                              json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+                              headers=headers)
+    run_id = r.json()["run_id"]
+    for m in _fy_months("2026-04-01", 6):
+        body = await _ack(app_client, headers, ws, "2026-04-01", m, run_id=run_id)
+    assert body["state"] == "complete" and body["edges"]["verified"] == "2026-04-01"
+    r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", json={"status": "failed", "error_code": "unrecoverable"},
+                               headers=headers)
+    assert r.status_code == 200 and (await _sw_row(session, ws))["sync_state"] == "error"
+
+    clock.advance(days=10)                                             # 2026-10-05 IST
+    r = await app_client.post("/api/agent/auth/refresh", json={"refresh_token": login_body["refresh_token"]})
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    r = await app_client.post(f"/api/sync/{ws}/runs",
+                              json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 2, "alt_mst_id": 2}},
+                              headers=headers)
+    assert r.status_code == 200, r.text
+    session.expire_all()
+    row = await _coverage_row(session, ws, date(2026, 4, 1))
+    assert (row["state"], row["months_total"], row["months_complete"]) == ("running", 7, 6)
+    sw = await _sw_row(session, ws)
+    assert sw["oldest_complete_fy"] is None                           # the verified edge no longer claims it
+    body = await _ack(app_client, headers, ws, "2026-04-01", "2026-10", run_id=r.json()["run_id"])
+    assert body["state"] == "complete"

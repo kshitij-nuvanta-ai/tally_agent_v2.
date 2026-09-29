@@ -228,6 +228,18 @@ def _row_json(row: SyncFyCoverage, edges_pair: tuple) -> dict:
     }
 
 
+def _require_month_in_range(month: str, row: SyncFyCoverage, books_from: date, today_ist: date) -> None:
+    """S1 review I6: an acked month must lie in ``[max(fy_start, books_from), min(fy_end, today IST)]`` (by calendar
+    month) — else 422 ``month_out_of_range`` before any write. Without it any ``YYYY-MM`` string counted toward
+    ``months_total`` and could complete an FY (and move the verified edge parity trusts) with a real month never
+    synced."""
+    m = date(int(month[:4]), int(month[5:7]), 1)
+    lo = max(row.fy_start, books_from)
+    hi = min(row.fy_end, today_ist)
+    if not (date(lo.year, lo.month, 1) <= m <= date(hi.year, hi.month, 1)):
+        raise ApiError(422, "month_out_of_range")
+
+
 async def ack_month(session: AsyncSession, sw: SyncWorkspace, fy_start: date, month: str, clock: Clock) -> dict:
     """§7.10 ``{"fy_start", "month", "run_id"}``: adds the month to ``months_done`` (idempotent via ``apply``'s
     own replay handling), recomputes state, both edges and the backfill copy. ``run_id`` is accepted by the API
@@ -239,6 +251,7 @@ async def ack_month(session: AsyncSession, sw: SyncWorkspace, fy_start: date, mo
     ).scalar_one_or_none()
     if row is None:
         raise ApiError(404, "fy_not_found")
+    _require_month_in_range(month, row, sw.books_from, ist_date(clock.now()))
 
     now = clock.now()
     new_cov = apply(to_cov(row), "month_ack", month)

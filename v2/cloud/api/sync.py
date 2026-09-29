@@ -188,8 +188,9 @@ async def patch_run_route(
 
 
 class CoveragePatchRequest(BaseModel):
-    fy_start: str = Field(..., min_length=1, max_length=20)
-    month: str | None = Field(None, max_length=10)
+    # S1 review I6: typed — a malformed fy_start / month is a 422, never a 500 or a bogus months_done entry.
+    fy_start: date
+    month: str | None = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     run_id: uuid.UUID | None = None
     action: Literal["add_fy"] | None = None
 
@@ -210,7 +211,7 @@ async def patch_coverage(
 ) -> dict:
     device, sw = bound
     clock = request.app.state.clock
-    fy_start = date.fromisoformat(body.fy_start)
+    fy_start = body.fy_start
 
     if body.action == "add_fy":
         result = await coverage.add_fy(session, sw, fy_start, clock)

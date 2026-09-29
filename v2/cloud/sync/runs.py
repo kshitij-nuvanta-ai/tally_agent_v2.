@@ -146,11 +146,20 @@ async def _recompute_window_months_total(session: AsyncSession, sw: SyncWorkspac
             )
         )
     ).scalars().all()
+    now = clock.now()
     for row in rows:
         fresh_row = fresh.get(row.fy_start)
         if fresh_row is not None:
             row.months_total = fresh_row.months_total
+            # S1 review I6 (F15, Task 7 M5): a row that went `complete` at the OLD, smaller total is no longer
+            # complete — it drops back to `running` (so the agent re-syncs the missing month and the verified edge
+            # stops claiming it). `completed_at` is cleared; `write_cov` sets it again on the real last ack.
+            if row.state == "complete" and len(row.months_done or []) < row.months_total:
+                row.state = "running"
+                row.completed_at = None
     await session.flush()
+    await coverage.persist_edges_and_backfill(session, sw, clock)
+    sw.updated_at = now
 
 
 async def _open_first_sync(
