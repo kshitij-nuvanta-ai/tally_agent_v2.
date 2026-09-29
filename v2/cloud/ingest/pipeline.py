@@ -368,19 +368,43 @@ def _ledger_has_expression(p: PMaster) -> bool:
     return any(getattr(p.fields.get(k), "fx_amount", None) is not None for k in ("openingbalance", "closingbalance"))
 
 
-def is_confirmed_resync(run: SyncRun) -> bool:
-    """Task 14b C2 (controller ruling): a CONFIRMED ``full_resync`` -- whole-company or single-FY; opening one
-    requires the user's ``confirm_resync`` command (D16, ``runs._require_confirmed_resync_command``), so the run
-    carries its ``command_id``. Inside such a run Tally is authoritative (restore / relink / a suspect FY the user
-    chose to re-read), so the §12 step 9 / 12 alter_id rule is suspended: incoming objects replace stored ones
-    even at a lower ``alter_id``. Every other run kind keeps the rule."""
-    return run.kind == "full_resync" and run.command_id is not None
+@dataclass(frozen=True)
+class ResyncAuthority:
+    """Task 14b C2 + fix round 1 (controller rulings): inside a CONFIRMED ``full_resync`` Tally is authoritative
+    (restore / relink / an FY the user chose to re-read), so the §12 step 9 / 12 alter_id rule is suspended --
+    decided PER OBJECT and bounded by the run's own scope:
+
+    - whole-company scope: every master and every voucher replaces the stored row even at a lower ``alter_id``;
+    - single-FY scope: masters keep the rule (``skipped_older``); a voucher is authoritative only when its date
+      lies in the run's FY (``fy_start_of(date) == scope.fy_start``);
+    - every other run kind: nothing is authoritative.
+
+    Opening any ``full_resync`` already requires the user's ``confirm_resync`` command (D16,
+    ``runs._require_confirmed_resync_command``); the ``command_id`` check below is defensive only."""
+    masters: bool = False
+    all_vouchers: bool = False
+    fy_start: date | None = None
+
+    @classmethod
+    def of(cls, run: SyncRun) -> "ResyncAuthority":
+        if run.kind != "full_resync" or run.command_id is None:
+            return cls()
+        scope = run.scope or {}
+        if scope.get("company"):
+            return cls(masters=True, all_vouchers=True)
+        try:
+            return cls(fy_start=date.fromisoformat(scope.get("fy_start") or ""))
+        except ValueError:
+            return cls()
+
+    def voucher(self, v: PVoucher) -> bool:
+        return self.all_vouchers or (self.fy_start is not None and fy_start_of(v.date) == self.fy_start)
 
 
 async def _store_all(session: AsyncSession, sw: SyncWorkspace, run: SyncRun, ordered: list, resolved: dict,
                      clock: Clock) -> tuple[Counter, list[tuple[str, str]]]:
     ws_id = sw.workspace_id
-    authoritative = is_confirmed_resync(run)                           # C2: alter_id rule suspended
+    authority = ResyncAuthority.of(run)                                # C2: alter_id rule suspended per object
     counts: Counter = Counter()
     base_name: str | None = None
     groups_touched = vts_touched = False
@@ -394,7 +418,7 @@ async def _store_all(session: AsyncSession, sw: SyncWorkspace, run: SyncRun, ord
                 base_name = await _base_currency_name(session, sw)
             currency = parse_name(p.fields["currencyname"]) if p.fields.get("currencyname") else None
             derived["is_forex"] = is_forex_ledger(currency, base_name, _ledger_has_expression(p))
-        result = await store.upsert_master(session, ws_id, p, derived, authoritative=authoritative)
+        result = await store.upsert_master(session, ws_id, p, derived, authoritative=authority.masters)
         counts[result] += 1
         if p.kind == "currency" and is_base_currency(p.fields.get("expandedsymbol") or "") and result != \
                 "skipped_older":
@@ -420,7 +444,7 @@ async def _store_all(session: AsyncSession, sw: SyncWorkspace, run: SyncRun, ord
         items = [(v, resolved[v.index], fy_start_of(v.date) in raw_fys) for v in vouchers]
         base_types = await store.voucher_type_base_types(session, ws_id, {r.voucher_type_guid for _, r, _ in items})
         for result in await store.upsert_vouchers(session, ws_id, items, run.id, base_types,
-                                                  authoritative=authoritative):
+                                                  authoritative=[authority.voucher(v) for v in vouchers]):
             counts[result] += 1
     return counts, derivation_warnings
 

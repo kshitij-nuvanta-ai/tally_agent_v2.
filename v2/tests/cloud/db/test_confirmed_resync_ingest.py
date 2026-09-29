@@ -14,6 +14,8 @@ from __future__ import annotations
 import copy
 from datetime import date
 
+from v2.tests.cloud.db.test_parity_api import FY24
+
 from v2.tests.cloud import parity_fakebooks as pf
 from v2.tests.cloud.conftest import requires_db, web_headers
 from v2.tests.cloud.db.ingest_helpers import fresh, one, post_batch, batch, voucher_state
@@ -175,3 +177,35 @@ async def test_incremental_with_a_lower_alter_id_is_still_skipped_older(app_clie
     assert (counts["updated"], counts["skipped_older"]) == (0, 2)
     assert (await _ledger(engine, b, cash["data"]["guid"]))["name"] == NEW
     assert await _voucher(engine, b, pay["data"]["guid"]) == altered_view
+
+
+async def test_fy_scoped_resync_is_authoritative_only_for_its_own_fy_vouchers(app_client, session, engine):
+    """C2 follow-up (controller ruling): authority is decided per object. In an FY-scoped (FY 2025-26) confirmed
+    resync, masters keep the alter_id rule (a lower-alter_id master is `skipped_older`), and so does a voucher dated
+    in ANOTHER FY; only a voucher of the run's own FY replaces the stored row at a lower alter_id."""
+    b = await setup_b(app_client, session, edge=FY24)
+    june24 = (date(2024, 6, 1), date(2024, 6, 30))
+    other = next(copy.deepcopy(v) for v in b.cap.vouchers(*june24)
+                 if len(v["data"]["ledger_entries"]) == 2 and v["data"]["iscancelled"] == "No"
+                 and v["data"]["isoptional"] == "No")
+    orig_pay = await _voucher(engine, b, _payment(b)["data"]["guid"])
+    cash, pay, _, _ = await _post_backup_changes(app_client, engine, b)
+    # also move an FY 2024-25 voucher above the backup (a second incremental)
+    moved = {"alt_vch_id": b.counters["alt_vch_id"] + 1, "alt_mst_id": b.counters["alt_mst_id"]}
+    run_id = await _run(app_client, b, "incremental", b.counters)
+    altered_other = _with_amount(copy.deepcopy(other), "4000.00", moved["alt_vch_id"], "other FY, after the backup")
+    assert (await _post(app_client, b, run_id, [altered_other]))["updated"] == 1
+    await _complete(app_client, b, run_id, 1, cursor_after=moved)
+    b.counters = moved
+    other_view = await _voucher(engine, b, other["data"]["guid"])
+
+    r = await app_client.post(f"/api/workspaces/{b.ws}/sync/commands", headers=web_headers(b.uid),
+                              json={"type": "confirm_resync", "scope": "fy", "fy_start": "2025-04-01"})
+    assert r.status_code == 200, r.text
+    run_id = await _run(app_client, b, "full_resync", b.counters, scope={"fy_start": "2025-04-01"},
+                        command_id=r.json()["id"])
+    counts = await _post(app_client, b, run_id, [cash, other, pay])
+    assert (counts["updated"], counts["skipped_older"]) == (1, 2), counts
+    assert (await _ledger(engine, b, cash["data"]["guid"]))["name"] == NEW            # master: rule kept
+    assert await _voucher(engine, b, other["data"]["guid"]) == other_view            # other FY: rule kept
+    assert await _voucher(engine, b, pay["data"]["guid"]) == orig_pay                # own FY: replaced
