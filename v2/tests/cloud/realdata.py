@@ -154,19 +154,40 @@ def ledger_balance_delta(before_file: str, after_file: str) -> dict[str, tuple[s
     return {n: (before[n], after[n]) for n in before if before[n] != after.get(n)}
 
 
-def _probe16_voucher(voucher_file: str, ledgers_file: str, narration: str) -> dict:
+PROBE16 = {
+    "post_dated": ("p16_A_post_dated_voucher.xml", "p16_A_ledgers_with_post_dated.xml", "S0-throwaway 16 post-dated"),
+    "future": ("p16_A_future_voucher.xml", "p16_A_ledgers_with_future_voucher.xml", "S0-throwaway 16 future"),
+}
+
+
+def _probe16_parts(which: str) -> tuple[dict, dict[str, str]]:
+    """The probe-16 throwaway voucher + ``{key: provenance}`` for every key its own capture does NOT hold (Review
+    Focus 1, fix round 1): ``inferred:<ledgers capture>`` for the flags and the ledger lines read off the balance
+    delta, ``synthetic:G4`` for the A4 AlterID."""
+    voucher_file, ledgers_file, narration = PROBE16[which]
     delta = ledger_balance_delta("p16_A_ledgers.xml", ledgers_file)
     assert delta["Cash"] == ("23000.00", "23001.00") and delta["Electricity"] == ("-12000.00", "-12001.00"), delta
     obj = next(v for v in vouchers(voucher_file) if v["data"].get("narration") == narration)
     data = dict(obj["data"])
-    data.setdefault("alterid", "1")
-    data.setdefault("iscancelled", "No")
-    data.setdefault("isoptional", "No")
+    provenance: dict[str, str] = {}
+    if "alterid" not in data:
+        data["alterid"] = "1"
+        provenance["alterid"] = "synthetic:G4"
+    for flag in ("iscancelled", "isoptional"):
+        if flag not in data:
+            data[flag] = "No"
+            provenance[flag] = f"inferred:{ledgers_file}"
     data["ledger_entries"] = [
         {"ledgername": "Electricity", "isdeemedpositive": "Yes", "amount": "-1.00"},
         {"ledgername": "Cash", "isdeemedpositive": "No", "amount": "1.00"},
     ]
-    return {"kind": "voucher", "data": data}
+    provenance["ledger_entries"] = f"inferred:{ledgers_file}"
+    return {"kind": "voucher", "data": data}, provenance
+
+
+def _probe16_voucher(voucher_file: str, ledgers_file: str, narration: str) -> dict:
+    which = next(k for k, v in PROBE16.items() if v == (voucher_file, ledgers_file, narration))
+    return _probe16_parts(which)[0]
 
 
 def a_post_dated_voucher() -> dict:
@@ -250,6 +271,20 @@ class Assembled:
 
     def copy(self) -> "Assembled":
         return copy.deepcopy(self)
+
+    def add_probe16(self, which: str) -> dict:
+        """Append probe 16's ``post_dated`` / ``future`` throwaway voucher, recording where every key came from: its
+        own capture, or -- for a key no capture holds -- ``inferred:<file>`` / ``synthetic:G4`` in ``sources``, and
+        the voucher itself marked ``("voucher", guid) -> "inferred"`` in ``synthetic_ids``."""
+        obj, provenance = _probe16_parts(which)
+        voucher_file = PROBE16[which][0]
+        for key in obj["data"]:
+            src = provenance.get(key, voucher_file)
+            if src not in self.sources.setdefault(key, []):
+                self.sources[key].append(src)
+        self.synthetic_ids[("voucher", obj["data"]["guid"])] = "inferred"
+        self.vouchers.append(obj)
+        return obj
 
 
 def _company(counters_file: str, track: _Track) -> tuple[str, date]:
@@ -400,8 +435,8 @@ def pure_parity(assembled: Assembled, *, snapshots: dict[str, Snapshot], mirrore
     from v2.cloud.parity import classify as classify_mod
     from v2.cloud.parity import engine
     from v2.cloud.parity import ladder as ladder_mod
-    from v2.cloud.parity.anchors import anchor_amounts, plan
-    from v2.cloud.parity.model import bs_verified, build_sums, has_problem
+    from v2.cloud.parity.anchors import anchor_amounts, plan, resolve_rows
+    from v2.cloud.parity.model import BS_NATURES, bs_verified, build_sums, has_problem, is_pl_account
     from v2.contract.parse import amount as parse_amount
     from v2.contract.tally_rules import PRIMARY_PARENT
     from v2.tests.cloud import parity_realdata as prd
@@ -422,6 +457,7 @@ def pure_parity(assembled: Assembled, *, snapshots: dict[str, Snapshot], mirrore
                     raise
                 anchor_unresolved.append(name)
         anchor_rows, anchor_source = [], "dataset"
+        anchor_tb_rows = dict(anchors)                  # the dataset's own rows (no TB to resolve)
     elif "anchor" in snapshots:
         day_one = None
         if anchor_plan.subtract_lines_dated is not None:
@@ -430,8 +466,10 @@ def pure_parity(assembled: Assembled, *, snapshots: dict[str, Snapshot], mirrore
         snap = snapshots["anchor"]
         anchors, anchor_unresolved = anchor_amounts(snap.rows, index, day_one, ledgerwise_flags=snap.flags)
         anchor_rows, anchor_source = snap.rows, snap.source or "tb"
+        anchor_tb_rows = resolve_rows(snap.rows, index)[0]
     else:
         anchors, anchor_unresolved, anchor_rows, anchor_source = None, [], [], "none"
+        anchor_tb_rows = {}
 
     ledger_ins = []
     for l in ledgers:
@@ -457,7 +495,9 @@ def pure_parity(assembled: Assembled, *, snapshots: dict[str, Snapshot], mirrore
     ctx = classify_mod.Context(
         anchor_rows=ev.anchors, flagged_amounts=flagged, forex_guids={l.guid for l in ledger_ins if l.is_forex},
         fy_start=fy_start, verified_edge=verified_edge,
-        month_ends_without_tb=[d for d in engine.month_ends(fy_start, as_on) if d != as_on])
+        month_ends_without_tb=[d for d in engine.month_ends(fy_start, as_on) if d != as_on],
+        bs_guids=frozenset(l.guid for l in ledger_ins if l.nature in BS_NATURES and not is_pl_account(l)),
+        anchor_tb_rows=anchor_tb_rows)
     lines, remediations = classify_mod.classify(ev.lines, ctx)
 
     top_groups = {parse_name(g["name"]) for g in groups if (parse_name(g.get("parent")) or PRIMARY_PARENT)

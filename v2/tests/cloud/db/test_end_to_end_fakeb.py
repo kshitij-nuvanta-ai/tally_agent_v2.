@@ -44,6 +44,7 @@ class Flow:
     coverage: list[dict] = field(default_factory=list)
     batches: int = 0
     log: list[str] = field(default_factory=list)
+    posted: list[dict] = field(default_factory=list)          # every accepted wire object, in order
 
     @property
     def web(self) -> dict:
@@ -71,6 +72,7 @@ class Flow:
             assert r.status_code == 200, r.text
             out.append(r.json())
             self.batches += 1
+            self.posted += objects[i:i + size]
         return out
 
     async def ack(self, fy: date, month: str) -> dict:

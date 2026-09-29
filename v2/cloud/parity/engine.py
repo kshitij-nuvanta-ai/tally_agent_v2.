@@ -463,7 +463,9 @@ async def _run(session, sw, body, run: _Run, as_on, fy_arg, tol, now, clock, bef
     ctx = classify_mod.Context(
         anchor_rows=ev.anchors, flagged_amounts=await _flagged_amounts(session, ws, edge, as_on),
         forex_guids={l.guid for l in led.ins if l.is_forex}, fy_start=fy_start, verified_edge=edge,
-        month_ends_without_tb=[d for d in month_ends(fy_start, as_on) if d not in stored_lw])
+        month_ends_without_tb=[d for d in month_ends(fy_start, as_on) if d not in stored_lw],
+        bs_guids=frozenset(l.guid for l in led.ins if l.nature in BS_NATURES and not is_pl_account(l)),
+        anchor_tb_rows=resolve_rows(lw_anchor.rows, led.index)[0] if ledger_anchor_ok else {})
     lines, remediations = classify_mod.classify(ev.lines, ctx)
 
     had_mismatch = has_problem(lines)

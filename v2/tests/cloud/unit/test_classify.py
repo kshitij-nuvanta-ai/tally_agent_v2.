@@ -86,12 +86,61 @@ def test_mismatches_not_netting_to_zero_fall_back_to_ledger_gap_per_ledger():
 def test_three_bs_ledgers_diff_like_their_anchor_rows_is_anchor_wrong():
     anchor_rows = {"a": D("500.00"), "b": D("500.00"), "c": D("500.00")}
     lines = [ledger_line("a", D("500.00")), ledger_line("b", D("500.00")), ledger_line("c", D("500.00"))]
-    out, rem = classify(lines, ctx(anchor_rows=anchor_rows, verified_edge=date(2025, 4, 1)))
+    out, rem = classify(lines, ctx(anchor_rows=anchor_rows, verified_edge=date(2025, 4, 1),
+                                   bs_guids=frozenset({"a", "b", "c"})))
     assert {l.cause for l in out} == {"anchor_wrong"}
     actions = [r.action for r in rem]
     assert actions == ["capture_snapshot", "refetch_masters"]
     snap = next(r for r in rem if r.action == "capture_snapshot")
     assert snap.params == {"report_type": "trial_balance_ledgerwise", "as_on": date(2025, 3, 31).isoformat()}
+
+
+ANCHOR_REMEDIATIONS = [("capture_snapshot", {"report_type": "trial_balance_ledgerwise", "as_on": "2025-03-31"}),
+                       ("refetch_masters", {})]
+
+
+def test_shifted_anchor_three_bs_ledgers_one_shared_diff_is_anchor_wrong():
+    """Row 5 (a), Task 12 fix round 1: an anchor shifted by +1000 on three BS ledgers -> each diff is -1000.00
+    (tally - our), never equal to its own (shifted) anchor -- the shared non-zero diff is the signature."""
+    used = {"cash": D("1000.00"), "bank": D("-867050.00"), "party": D("-61500.00")}
+    lines = [ledger_line(g, D("-1000.00")) for g in used] + [ledger_line("other", D("-1000.00"))]
+    out, rem = classify(lines, ctx(anchor_rows=used, bs_guids=frozenset(used)))
+    assert {l.guid: l.cause for l in out} == {"cash": "anchor_wrong", "bank": "anchor_wrong",
+                                              "party": "anchor_wrong", "other": "ledger_gap"}
+    assert [(r.action, r.params) for r in rem][:2] == ANCHOR_REMEDIATIONS
+
+
+def test_dropped_anchor_rows_diff_like_the_anchor_snapshot_row_is_anchor_wrong():
+    """Row 5 (b): three BS ledgers whose anchor row is in the anchor SNAPSHOT but was not used (absent from
+    ``anchor_rows``) -> each diff equals its own snapshot row."""
+    tb_rows = {"a": D("500.00"), "b": D("-1200.00"), "c": D("7300.50")}
+    lines = [ledger_line(g, amt) for g, amt in tb_rows.items()]
+    out, rem = classify(lines, ctx(anchor_rows={}, anchor_tb_rows=tb_rows, bs_guids=frozenset(tb_rows)))
+    assert {l.cause for l in out} == {"anchor_wrong"}
+    assert [(r.action, r.params) for r in rem] == ANCHOR_REMEDIATIONS
+
+
+def test_double_counted_anchor_diff_minus_the_row_is_anchor_wrong():
+    tb_rows = {"a": D("500.00"), "b": D("-1200.00"), "c": D("7300.50")}
+    lines = [ledger_line(g, -amt) for g, amt in tb_rows.items()]
+    out, _ = classify(lines, ctx(anchor_rows=dict(tb_rows), anchor_tb_rows=tb_rows, bs_guids=frozenset(tb_rows)))
+    assert {l.cause for l in out} == {"anchor_wrong"}
+
+
+def test_three_equal_diffs_on_non_bs_ledgers_are_not_anchor_wrong():
+    """Negative: the same shared diff on ledgers that are NOT balance-sheet (nominal) is no anchor pattern."""
+    used = {"rent": D("0.00"), "sales": D("0.00"), "freight": D("0.00")}
+    lines = [ledger_line(g, D("-1000.00")) for g in used]
+    out, rem = classify(lines, ctx(anchor_rows=used, bs_guids=frozenset()))
+    assert {l.cause for l in out} == {"ledger_gap"}
+    assert {r.action for r in rem} == {"refetch_ledger_vouchers"}
+
+
+def test_two_bs_ledgers_sharing_a_diff_are_not_enough():
+    used = {"a": D("10.00"), "b": D("20.00")}
+    out, _ = classify([ledger_line(g, D("-1000.00")) for g in used],
+                      ctx(anchor_rows=used, bs_guids=frozenset(used)))
+    assert {l.cause for l in out} == {"ledger_gap"}
 
 
 def test_single_ledger_diff_is_ledger_gap_refetch_ledger_vouchers():

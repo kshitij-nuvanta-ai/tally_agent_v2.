@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -28,6 +28,11 @@ class Context:
     fy_start: date
     verified_edge: date
     month_ends_without_tb: list[date]
+    # Row 5 (Task 12 fix round 1, controller ruling): the balance-sheet ledgers of this run (nature in BS_NATURES,
+    # never `Profit & Loss A/c`), and the anchor SNAPSHOT's own resolved per-ledger rows -- separate from
+    # ``anchor_rows`` (the anchors actually used), so a row the run failed to use is still visible here.
+    bs_guids: frozenset[str] = field(default_factory=frozenset)
+    anchor_tb_rows: dict[str, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -89,11 +94,35 @@ def classify(lines: list[Line], ctx: Context) -> tuple[list[Line], list[Remediat
             }))
             remaining = []
 
-    # Row 5: >= 3 BS ledgers whose diff matches their own anchor row (a systematically wrong anchor) -> anchor_wrong.
-    anchor_idxs = [i for i in remaining
-                   if result[i].guid in ctx.anchor_rows and result[i].diff is not None
-                   and abs(result[i].diff - ctx.anchor_rows[result[i].guid]) <= TOL]
-    if len(anchor_idxs) >= 3:
+    # Row 5: >= 3 balance-sheet ledgers with an anchor row whose diffs show the anchor pattern -> anchor_wrong
+    # (Task 12 fix round 1, controller ruling on §10.7 "the same amount pattern as their anchor rows"):
+    #   (a) shifted anchor -- they share ONE identical non-zero diff (within tolerance): a constant shift s on the
+    #       anchor gives every such ledger diff = -s;
+    #   (b) dropped / double-counted anchor -- each diff is (plus or minus) its own anchor row, taken from the
+    #       anchor snapshot's resolved rows (``anchor_tb_rows``) or the used anchor (``anchor_rows``): an anchor
+    #       left out gives diff = +row (diff is tally - our), one counted twice gives diff = -row.
+    def _has_anchor(guid) -> bool:
+        return guid in ctx.anchor_rows or guid in ctx.anchor_tb_rows
+
+    candidates = [i for i in remaining if result[i].guid in ctx.bs_guids and _has_anchor(result[i].guid)
+                  and result[i].diff is not None and abs(result[i].diff) > TOL]
+    shifted: list[int] = []
+    for i in candidates:
+        if result[i].guid not in ctx.anchor_rows:
+            continue
+        cluster = [j for j in candidates if result[j].guid in ctx.anchor_rows
+                   and abs(result[j].diff - result[i].diff) <= TOL]
+        if len(cluster) > len(shifted):
+            shifted = cluster
+
+    def _like_own_row(i: int) -> bool:
+        rows = [r for r in (ctx.anchor_tb_rows.get(result[i].guid), ctx.anchor_rows.get(result[i].guid))
+                if r is not None and abs(r) > TOL]
+        return any(abs(abs(result[i].diff) - abs(r)) <= TOL for r in rows)
+
+    dropped = [i for i in candidates if _like_own_row(i)]
+    anchor_idxs = sorted(set(shifted if len(shifted) >= 3 else []) | set(dropped if len(dropped) >= 3 else []))
+    if anchor_idxs:
         for i in anchor_idxs:
             _set(i, "anchor_wrong")
         remediations.append(_remediation("capture_snapshot", {

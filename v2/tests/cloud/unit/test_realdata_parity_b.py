@@ -212,10 +212,7 @@ def _only_ledger_problems(result: rd.ParityResult) -> dict[str, tuple]:
     ("drop_one_inr_sale", "voucher_missed_or_duplicated"),
     ("duplicate_one_receipt", "voucher_missed_or_duplicated"),
     ("drop_a_ledger_master", "masters_gap"),
-    pytest.param("shift_anchor_by_1000_on_3_ledgers", "anchor_wrong", marks=pytest.mark.xfail(
-        strict=True, reason="FINDING (task-12 report): §10.7's anchor_wrong signature as built in Task 10b "
-                            "(diff == the ledger's own anchor row) cannot see an anchor shifted by a constant -- the "
-                            "three ledgers come out ledger_gap. Not tuned; reported to the controller.")),
+    ("shift_anchor_by_1000_on_3_ledgers", "anchor_wrong"),        # classifier row 5 (a), fix round 1
 ], ids=lambda x: f"{x}-{ANCHOR_ID}" if isinstance(x, str) and x.startswith(("drop", "dup", "shift")) else x)
 def test_company_b_seeded_faults(fault, expect):
     b = rd.assemble_b_fy2022().copy()
@@ -241,13 +238,16 @@ def test_company_b_seeded_faults(fault, expect):
         assert {r.action for r in result.remediations} == {"month_bisect"}
 
 
-def test_seeded_fault_shift_anchor_observed_cause_is_ledger_gap_anchor_source_dataset():
-    """The observed (not the wanted) classification of ``shift_anchor_by_1000_on_3_ledgers`` -- pinned so the
-    finding stays visible: the three shifted ledgers each differ by -1000.00 and fall to row 6 (`ledger_gap`)."""
+def test_seeded_fault_shift_anchor_is_anchor_wrong_with_its_remediations_anchor_source_dataset():
+    """Task 12 fix round 1 (controller ruling on §10.7 row 5): the three shifted ledgers (diff -1000.00 each) are
+    `anchor_wrong`, and the run asks for the anchor TB as-on E-1 again plus a masters refetch."""
     b = rd.assemble_b_fy2022().copy()
     result = _run(b, **fault_shift_anchor_by_1000_on_3_ledgers(b))
     problems = {l.name: (l.diff, l.verdict, l.cause) for l in result.problems() if l.scope == "ledger"}
-    assert problems == {n: (D("-1000.00"), "mismatch", "ledger_gap") for n in SHIFTED}
+    assert problems == {n: (D("-1000.00"), "mismatch", "anchor_wrong") for n in SHIFTED}
+    assert [(r.action, r.params) for r in result.remediations] == [
+        ("capture_snapshot", {"report_type": "trial_balance_ledgerwise", "as_on": "2022-03-31"}),
+        ("refetch_masters", {})]
 
 
 # --- F7: flag_filter_inverted on a FakeBooks optional-voucher twin ------------------------------------------------

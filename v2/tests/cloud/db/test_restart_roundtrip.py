@@ -81,6 +81,29 @@ def cov(after: dict) -> dict[str, tuple]:
     return {r["fy_start"]: (r["state"], r["months_complete"]) for r in after["state"]["coverage"]}
 
 
+BOUND = {**{t: 0 for t in V2_TABLES}, "sync_workspaces": 1, "agent_devices": 1, "sync_fy_coverage": 5}
+MASTER_TABLES = {"currency": "tally_currencies", "group": "tally_groups", "voucher_type": "tally_voucher_types",
+                 "unit": "tally_units", "stock_group": "tally_stock_groups", "ledger": "tally_ledgers",
+                 "stock_item": "tally_stock_items"}
+
+
+def data_counts(posted: list[dict]) -> dict[str, int]:
+    """The rows the accepted wire objects must have produced -- one per master / voucher / ledger line / bill."""
+    out = {t: 0 for t in MASTER_TABLES.values()}
+    vouchers = {}
+    for o in posted:
+        if o["kind"] in MASTER_TABLES:
+            out[MASTER_TABLES[o["kind"]]] += 1
+        elif o["kind"] == "voucher":
+            vouchers[o["data"]["guid"]] = o["data"]
+    out["tally_vouchers"] = len(vouchers)
+    out["tally_voucher_ledger_lines"] = sum(len(v.get("ledger_entries", [])) for v in vouchers.values())
+    out["tally_bill_allocations"] = sum(len(e.get("bill_allocations", [])) for v in vouchers.values()
+                                        for e in v.get("ledger_entries", []))
+    out["tally_voucher_inventory_lines"] = sum(len(v.get("inventory_entries", [])) for v in vouchers.values())
+    return out
+
+
 PENDING_5 = {f"{y}-04-01": ("pending", 0) for y in range(2022, 2027)}
 
 
@@ -126,7 +149,7 @@ async def test_restart_after_takeover(app_client, session, engine, restart):
     assert after["sw"]["active_device_id"] == after["devices"][1]["id"]
     old = await c2.get(f"/api/sync/{ws}/state", headers=h1)                  # the old device stays revoked
     assert (old.status_code, old.json()["error"]) == (401, "device_revoked")
-    assert after["counts"]["agent_devices"] == 2 and after["counts"]["sync_workspaces"] == 1
+    assert after["counts"] == {**BOUND, "agent_devices": 2}                    # no run, command or coverage row
 
 
 # --- ingest --------------------------------------------------------------------------------------------------------
@@ -161,6 +184,7 @@ async def test_restart_after_coverage_ack(app_client, session, engine, restart):
     c2, after = await roundtrip(app_client, restart, engine, ws, headers, uid)
     assert cov(after) == {**PENDING_5, "2025-04-01": ("running", 1)}
     assert after["sw"]["oldest_complete_fy"] is None
+    assert after["counts"] == {**BOUND, "sync_runs": 1}                        # the ack adds no row
     r = await c2.patch(f"/api/sync/{ws}/coverage", headers=headers,          # the same ack again: counted once
                        json={"fy_start": "2025-04-01", "month": "2025-04", "run_id": run_id})
     assert r.status_code == 200, r.text
@@ -213,7 +237,7 @@ async def test_restart_after_restore_detected(app_client, session, engine, resta
     r = await c2.post(f"/api/sync/{ws}/runs", headers=headers,              # still enforced on the new app
                       json={"kind": "incremental", "counters_at_start": below})
     assert (r.status_code, r.json()["error"]) == (409, "restore_detected")
-    assert after["counts"]["sync_runs"] == 1
+    assert after["counts"] == {**BOUND, "sync_runs": 1}                        # detection writes no command/run
 
 
 async def test_restart_after_relink(app_client, session, engine, restart, clock):
@@ -232,7 +256,7 @@ async def test_restart_after_relink(app_client, session, engine, restart, clock)
     assert after["status"]["relink_prompt"] is None and after["status"]["restore_reason"] == "relink"
     assert after["status"]["resync_offered"]["reason"] == "relink"
     assert after["state"]["sync_state"] == r.json()["sync_state"]
-    assert after["counts"]["sync_workspaces"] == 1
+    assert after["counts"] == BOUND                                            # relink queues no command or run
 
 
 # --- parity / quarantine / commands ---------------------------------------------------------------------------------
@@ -253,13 +277,20 @@ async def test_restart_after_parity_ladder_state(app_client, session, engine, re
     assert after["sw"]["ladder"]["state"] == "suspect"
     assert after["status"]["last_parity"]["state"] == "ok"                     # suspect is invisible
     assert after["status"]["last_parity"]["mismatch_count"] == 0
-    assert after["counts"]["parity_runs"] == 1 and after["counts"]["parity_lines"] > 0
+    async with fresh(engine) as s:
+        lines_compared = (await s.execute(text("SELECT lines_compared FROM parity_runs WHERE workspace_id = :w"),
+                                          {"w": flow.ws})).scalar_one()
+    assert lines_compared > 0
+    assert after["counts"] == {**BOUND, **data_counts(flow.posted), "sync_runs": 1, "sync_batches": flow.batches,
+                               "tally_report_snapshots": 3, "parity_runs": 1, "parity_lines": lines_compared}
     flow.client = c2
     again = await flow.parity(remediation_done=[r["id"] for r in res["remediation"]])
     assert again["status"] == "alert" and again["ladder"] == {"state": "alert", "heal_attempts": 1,
                                                               "resync_offered_fy": None}
     later = await whole(c2, engine, flow.ws, flow.headers, flow.uid)
-    assert later["counts"]["parity_runs"] == 2 and later["status"]["last_parity"]["state"] == "alert"
+    assert later["status"]["last_parity"]["state"] == "alert"
+    # exactly one more run, comparing the same ledgers/groups again; nothing else written
+    assert later["counts"] == {**after["counts"], "parity_runs": 2, "parity_lines": 2 * lines_compared}
 
 
 async def test_restart_after_quarantine_count(app_client, session, engine, restart):

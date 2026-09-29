@@ -6,8 +6,14 @@ gets the synthetic AlterID ``1``, and is marked ``G4`` too.
 """
 from __future__ import annotations
 
-from v2.tests.cloud.realdata import (B_FY2022_MONTHS, CAPTURES_A, assemble_a, assemble_b_fy2022, masters,
-                                     synthetic_identity, vouchers)
+import pytest
+
+from v2.tests.cloud.realdata import (B_FY2022_MONTHS, CAPTURES_A, PROBE16, SYNC, assemble_a, assemble_b_fy2022,
+                                     masters, synthetic_identity, vouchers)
+
+
+def _is_marked(src: str) -> bool:
+    return src.startswith(("inferred:", "synthetic:"))
 
 
 def test_assembler_never_fills_a_value_no_capture_holds():
@@ -19,6 +25,29 @@ def test_assembler_never_fills_a_value_no_capture_holds():
                 continue
             assert a.sources.get(key), f"{key} has no source capture"
     assert all(set(a.sources[k]) <= set(CAPTURES_A) for k in a.sources)
+    assert not any(_is_marked(src) for srcs in a.sources.values() for src in srcs)   # the 50 need no inference
+
+
+@pytest.mark.parametrize("which", ["post_dated", "future"])
+def test_inferred_keys_allowed_only_when_marked(which):
+    """Fix round 1 (Review Focus 1): probe 16's throwaway voucher carries keys no capture of it holds (flags, the
+    lines read off the balance delta, the A4 AlterID). They are recorded as ``inferred:<capture>`` /
+    ``synthetic:G4`` in ``sources`` and the voucher is marked in ``synthetic_ids`` -- anything else still has to be
+    a capture."""
+    a = assemble_a()
+    obj = a.add_probe16(which)
+    assert a.synthetic_ids[("voucher", obj["data"]["guid"])] == "inferred"
+    marked_vouchers = {g for (kind, g), gap in a.synthetic_ids.items() if kind == "voucher" and gap == "inferred"}
+    inferred = {k: [s for s in srcs if _is_marked(s)] for k, srcs in a.sources.items()}
+    inferred = {k: v for k, v in inferred.items() if v}
+    assert set(inferred) == {"alterid", "iscancelled", "isoptional", "ledger_entries"}
+    assert marked_vouchers                                   # inferred keys exist only because a marked voucher does
+    for srcs in inferred.values():
+        for src in srcs:
+            evidence = src.split(":", 1)[1]
+            assert evidence == "G4" or (SYNC / evidence).exists(), src
+    for k, srcs in a.sources.items():
+        assert {s for s in srcs if not _is_marked(s)} <= set(CAPTURES_A) | {PROBE16[which][0]}, k
 
 
 def test_assembler_master_keys_all_come_from_captures_except_g4_identity():

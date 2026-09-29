@@ -91,12 +91,12 @@ def test_company_a_post_dated_and_future_vouchers_counted(which, ledgers_file):
     """§10.2 (probe 16): Tally's closing counts both throwaways (Cash 23,000.00 -> 23,001.00 in each capture), and
     so does rung 1 -- the voucher dated 31-03-2026 (post-dated or not) is inside [E, as_on]. Without it our Cash is
     exactly 1.00 short (still inside the inclusive ₹1.00 tolerance, so the proof is the figures, not the verdict)."""
-    extra = rd.a_post_dated_voucher() if which == "post_dated" else rd.a_future_voucher()
-    assert extra["data"]["date"] == "20260331"
     a = rd.assemble_a()
     after = {o["data"]["name"]: o["data"].get("closingbalance") for o in rd.masters(ledgers_file, "ledger")}
     with_it = a.copy()
-    with_it.vouchers.append(extra)
+    extra = with_it.add_probe16(which)                  # its inferred keys are marked (Review Focus 1)
+    assert extra["data"]["date"] == "20260331"
+    assert with_it.synthetic_ids[("voucher", extra["data"]["guid"])] == "inferred"
     cash = _run(with_it, mirrored=after).ledger("Cash")
     assert (cash.our, cash.tally, cash.diff, cash.verdict) == (D("23001.00"), D("23001.00"), D("0.00"), "match")
     without = _run(a, mirrored=after).ledger("Cash")
