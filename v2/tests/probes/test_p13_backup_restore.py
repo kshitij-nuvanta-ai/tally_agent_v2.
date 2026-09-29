@@ -2,7 +2,7 @@ import copy
 
 from v2.probes import p13_backup_restore as p13
 from v2.probes.runner import run_probe
-from v2.tests.probes.fakes import ScriptedIO, a_tally, make_harness, objects_xml, ready_store
+from v2.tests.probes.fakes import COMPANY_A, ScriptedIO, a_tally, make_harness, objects_xml, ready_store
 
 
 def _fake(new_guid=False, restore_works=True):
@@ -100,3 +100,45 @@ async def test_nothing_read_back_after_restore_blocks(tmp_path):
     part = store.probe_entry(13)["parts"]["A"]
     assert part["outcome"] == "BLOCKED"
     assert part["summary"] == "Nothing read back after the restore"
+
+
+# --- M2 (retro): the counters must be seen to rise before "fall back" is judged -----------------------------------
+
+
+async def test_counters_not_risen_is_blocked_not_different(tmp_path):
+    fake_, counters = a_tally({"AltVchId": 50, "AltMstId": 266, "GUID": "g-1"})
+    state = {"vouchers": [{"GUID": f"g-1-{i:08x}", "MasterId": str(i), "Narration": f"seed {i}"} for i in range(1, 8)],
+             "snapshot": None}
+    fake_.route("S0P13Vouchers", lambda body: objects_xml("VOUCHER", state["vouchers"]))
+
+    def act(action):
+        if action.kind == "backup_company":
+            state["snapshot"] = (copy.deepcopy(state["vouchers"]), dict(counters))
+        elif action.kind == "create_voucher":
+            state["vouchers"].append({"GUID": "g-1-00000033", "MasterId": "51", "Narration": action.params["narration"]})
+        elif action.kind == "restore_company":
+            state["vouchers"], saved = state["snapshot"]
+            counters.update(saved)
+
+    io = ScriptedIO(on_action=act)
+    client, store, capture = make_harness(tmp_path, fake_)
+    ready_store(store)
+    await run_probe(p13.PROBE, labels=None, client=client, store=store, capture=capture, io=io)
+    part = store.probe_entry(13)["parts"]["A"]
+    assert part["outcome"] == "BLOCKED", part["summary"]
+    assert "did not rise" in part["summary"]
+
+
+async def test_missing_altvchid_is_blocked_not_different(tmp_path):
+    fake, on_action = _fake()
+    fake.routes = [(m, h) for m, h in fake.routes if m != "S0CompanyCounters"]
+    fake.route("S0CompanyCounters", lambda body: objects_xml("COMPANY", [{
+        "Name": COMPANY_A, "GUID": "g-1", "AltMstId": "266", "BooksFrom": "20250401", "LastVoucherDate": "20260301",
+        "AlterID": "266"}]))
+    io = ScriptedIO(on_action=on_action)
+    client, store, capture = make_harness(tmp_path, fake)
+    ready_store(store)
+    await run_probe(p13.PROBE, labels=None, client=client, store=store, capture=capture, io=io)
+    part = store.probe_entry(13)["parts"]["A"]
+    assert part["outcome"] == "BLOCKED", part["summary"]
+    assert "unreadable" in part["summary"] or "did not rise" in part["summary"]

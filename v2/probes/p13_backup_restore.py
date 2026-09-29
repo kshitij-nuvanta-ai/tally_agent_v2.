@@ -77,6 +77,10 @@ async def run_a(ctx: ProbeContext) -> PartResult:
         return PartResult(Outcome.BLOCKED, "The throwaway voucher is still there after the restore — the restore didn't "
                                            "happen" + suffix)
     ctx.resolve_abort(CLEANUP_NOTE)
+    before_vch, throwaway_vch = _number(before.get("AltVchId")), _number(after_throwaway.get("AltVchId"))
+    if before_vch is None or throwaway_vch is None or not rose:
+        return PartResult(Outcome.BLOCKED, "The counters did not rise on the throwaway voucher, or AltVchId is unreadable "
+                                           "- can't judge whether they fall back" + suffix)
     differences, impacts = [], []
     if not same_guid:
         differences.append("the company GUID changed on restore")
