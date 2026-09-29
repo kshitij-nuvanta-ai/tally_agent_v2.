@@ -1,6 +1,6 @@
-"""S1 build task 0: capture the S1 fixture gaps G1–G5 from live Tally — READ-ONLY (S1 spec §13.3, §5.3, §10.5).
+"""S1 build task 0: capture the S1 fixture gaps G1–G6 from live Tally — READ-ONLY (S1 spec §13.3, §5.3, §10.5).
 
-    uv run --project v2 python -m v2.probes.setup.s1_capture --company B      # G2, G3, G4, G5
+    uv run --project v2 python -m v2.probes.setup.s1_capture --company B      # G2, G3, G4, G5, G6
     uv run --project v2 python -m v2.probes.setup.s1_capture --company A      # G1, G4
 
 Every capture lands in `--out` (default `v2/tests/fixtures/sync/`) as `s1_<company>_<step>.xml` (the raw response
@@ -54,6 +54,7 @@ COMPANY_KEYS = ("A", "B")
 
 # Dates — every one on day 1 or 31 (C43: Educational Tally ignores a date variable on any other day).
 A_BOOKS_FROM = "01-04-2025"                              # G1: D9's books-start anchor, as on books_from
+B_BOOKS_FROM = "01-04-2022"                              # G6: B's books-start anchor, as on books_from
 B_TB_CURRENT = ("01-04-2025", "31-03-2026")              # G2: the current FY to its end
 B_TB_PAST = ("01-04-2022", "31-03-2023")                 # G2: as on 31-03-2023 (p18_B's date, §10.5's real numbers)
 B_GROUP_TB = ("01-04-2025", "31-03-2026")                # G3: the group TB as on 31-03-2026
@@ -263,6 +264,9 @@ def plan(company_key: str, company: str, ledger_tb_template: str,
                         ledger_tb_request(ledger_tb_template, company, *B_TB_PAST), _tb_observer(usd)),
             CaptureSpec("tb_group_asof_2026-03-31", "G3", group_tb_request(company, *B_GROUP_TB),
                         _tb_observer(("unadjusted_forex_row", UNADJUSTED_FOREX_ROW), usd)),
+            CaptureSpec("tb_ledger_asof_2022-04-01", "G6",
+                        ledger_tb_request(ledger_tb_template, company, B_BOOKS_FROM, B_BOOKS_FROM),
+                        _tb_observer(usd)),
         ]
     for kind, tdl_type, tag, fields in MASTER_KINDS:
         specs.append(CaptureSpec(kind, "G4", masters_request(kind, tdl_type, fields, company),
@@ -294,7 +298,8 @@ def _summary(name: str, gap: str, observations: dict[str, Any]) -> str:
 
 # --- run -----------------------------------------------------------------------------------------------------------
 async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: ResultsStore,
-              say: Callable[[str], None] = print, overwrite: bool = False) -> list[str]:
+              say: Callable[[str], None] = print, overwrite: bool = False,
+              only: str | None = None) -> list[str]:
     """Capture every gap for company `company_key` ("A" or "B") into `out_dir`. Returns the fixture names."""
     if company_key not in COMPANY_KEYS:
         raise GuardError(f"Company {company_key!r}: the S1 capture reads company A or B only")
@@ -304,6 +309,10 @@ async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: Re
     if confirmed is None:
         raise GuardError("No confirmed ledger_level_tb request in results.json (probe 17) — nothing was sent")
     specs = plan(company_key, company, confirmed["xml_template"], store.confirmed("company_counters"))
+    if only is not None:                                 # a single step (e.g. a newly added gap); the rest are untouched
+        specs = [spec for spec in specs if spec.step == only]
+        if not specs:
+            raise GuardError(f"--only {only!r}: no such step for company {company_key} — nothing was sent")
     for spec in specs:                                   # every guard, for every request, before the first send
         check_export_only(spec.xml)
         check_request(spec.xml)
@@ -347,14 +356,16 @@ async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: Re
 # --- CLI -----------------------------------------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m v2.probes.setup.s1_capture",
-                                     description="S1 task 0: read-only capture of fixture gaps G1–G5")
+                                     description="S1 task 0: read-only capture of fixture gaps G1–G6")
     parser.add_argument("--company", choices=COMPANY_KEYS, required=True,
-                        help="A: G1 + G4; B: G2, G3, G4 (with the USD ledger), G5")
+                        help="A: G1 + G4; B: G2, G3, G4 (with the USD ledger), G5, G6")
     parser.add_argument("--out", type=Path, default=FIXTURES_DIR)
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--results", type=Path, default=RESULTS_PATH,
                         help="results.json holding the confirmed requests and the recorded licence (read only)")
+    parser.add_argument("--only", metavar="STEP", help="capture just this one step (its existing file still needs "
+                        "--overwrite to be replaced)")
     parser.add_argument("--overwrite", action="store_true", help="replace existing s1_<company>_* captures")
     return parser
 
@@ -366,7 +377,8 @@ def main(argv: list[str] | None = None, *, transport: httpx.AsyncBaseTransport |
 
     async def go() -> list[str]:
         try:
-            return await run(client, args.company, args.out, store=store, overwrite=args.overwrite)
+            return await run(client, args.company, args.out, store=store, overwrite=args.overwrite,
+                             only=args.only)
         finally:
             await client.close()
 

@@ -19,6 +19,7 @@ A, B = COMPANIES["A"], COMPANIES["B"]
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "sync"
 REAL_RESULTS = Path(__file__).resolve().parents[2] / "probes" / "results" / "results.json"
 B_FILES = ("counters", "tb_ledger_2025-04-01_2026-03-31", "tb_ledger_asof_2023-03-31", "tb_group_asof_2026-03-31",
+           "tb_ledger_asof_2022-04-01",
            "voucher_types", "currencies", "stock_groups", "units", "usd_ledger", "ledgers_touched")
 A_FILES = ("counters", "tb_ledger_asof_2025-04-01", "voucher_types", "currencies", "stock_groups", "units")
 
@@ -68,7 +69,7 @@ async def test_company_b_writes_every_capture_with_the_standard_sidecar(tmp_path
         assert side["company_name"] == B and side["company_guid"] == GUID
         assert side["capture"] == "s1_task0" and side["environment"]["licence"] == "educational"
         assert side["request_xml"] and "observations" in side
-    assert {_sidecar(out, "B", s)["gap"] for s in B_FILES} == {"context", "G2", "G3", "G4", "G5"}
+    assert {_sidecar(out, "B", s)["gap"] for s in B_FILES} == {"context", "G2", "G3", "G4", "G5", "G6"}
 
 
 async def test_only_export_requests_are_sent(tmp_path):
@@ -347,3 +348,33 @@ def test_main_maps_unreachable_tally_to_exit_1(tmp_path, capsys):
     argv = ["--company", "A", "--out", str(tmp_path / "out"), "--results", str(store.path)]
     assert s1.main(argv, transport=httpx.MockTransport(refuse)) == 1
     assert "not reachable" in capsys.readouterr().err
+
+
+async def test_g6_b_books_start_ledger_tb_is_as_on_01_04_2022(tmp_path):
+    out, _ = await _run(tmp_path, _books_b())
+    g6 = _sidecar(out, "B", "tb_ledger_asof_2022-04-01")
+    assert g6["gap"] == "G6"
+    assert _vars(g6["request_xml"]) == {"SVFROMDATE": "01-04-2022", "SVTODATE": "01-04-2022", "ISLEDGERWISE": "Yes"}
+    assert "rows" in g6["observations"]
+
+
+async def test_only_captures_a_single_step_and_leaves_existing_files_alone(tmp_path):
+    out, _ = await _run(tmp_path, _books_b())
+    keep = (out / "s1_B_units.xml").read_bytes()
+    (out / "s1_B_tb_ledger_asof_2022-04-01.xml").unlink()
+    (out / "s1_B_tb_ledger_asof_2022-04-01.xml.json").unlink()
+    books = _books_b()
+    names = await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+                         say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
+    assert names == ["s1_B_tb_ledger_asof_2022-04-01.xml"]
+    assert len(_non_list(books)) == 1 and (out / "s1_B_units.xml").read_bytes() == keep
+    with pytest.raises(FileExistsError):                  # --only still never overwrites without --overwrite
+        await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+                     say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
+    with pytest.raises(GuardError):
+        await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+                     say=lambda _m: None, only="nope")
+
+
+def test_parser_only_option():
+    assert s1.build_parser().parse_args(["--company", "B", "--only", "units"]).only == "units"
