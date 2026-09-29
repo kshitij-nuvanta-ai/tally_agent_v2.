@@ -298,3 +298,60 @@ async def test_web_matrix(app_client, session, clock, route, variant):
         assert _error(r) in ("workspace_not_found", "device_not_found")
 
 
+
+
+# --- S1 review I8: §14 scenario 17 as specified — another user's BOUND workspace with data, re-read unchanged -------
+
+
+async def _tenant_rows(engine, ws, uid) -> dict:
+    """Every v2 row of ``ws`` (whole rows, not counts) + its owner's devices + the workspace row, from a FRESH
+    session."""
+    from v2.cloud.models import V2_TABLES
+    from v2.tests.cloud.db.ingest_helpers import fresh
+    out = {}
+    async with fresh(engine) as s:
+        for t in V2_TABLES:
+            rows = (await s.execute(text(f"SELECT * FROM {t} WHERE workspace_id = :w"), {"w": ws})).mappings().all()
+            out[t] = sorted((dict(r) for r in rows), key=repr)
+        out["owner_devices"] = [dict(r) for r in (await s.execute(text(
+            "SELECT * FROM agent_devices WHERE user_id = :u ORDER BY id"), {"u": uid})).mappings()]
+        out["workspace"] = dict((await s.execute(text("SELECT * FROM workspaces WHERE id = :w"), {"w": ws}))
+                                .mappings().one())
+    return out
+
+
+async def test_cross_tenant_device_refused_on_every_route_and_other_tenant_unchanged(app_client, session, engine,
+                                                                                    clock):
+    """§14.17 / R19: D1 (user 1, bound to W1) against W2 — another USER's workspace, BOUND, holding data (masters,
+    an open run, a relink prompt) — gets 403 ``wrong_workspace`` on every ``{ws}`` route, the web routes answer 404
+    to user 1, and a fresh-session re-read of all of W2's rows is identical before and after."""
+    env1, h1 = await setup(app_client, session, clock, "valid_active")           # user 1: D1 bound to W1
+    env2, h2 = await setup(app_client, session, clock, "valid_active")           # user 2: D2 bound to W2
+    assert env1.uid != env2.uid
+    r = await app_client.post(f"/api/sync/{env2.ws}/batches",                    # W2 holds real data
+                              content=gz(batch(env2.run_id, realdata.b_masters())),
+                              headers={**h2, "Content-Encoding": "gzip", "Content-Type": "application/json"})
+    assert r.status_code == 200, r.text
+    before = await _tenant_rows(engine, env2.ws, env2.uid)
+    assert before["tally_ledgers"] and before["sync_runs"] and before["sync_batches"]
+
+    for route in SYNC_ROUTES:
+        # D1's token, W2's path — and W2's own run id wherever a body names a run.
+        r = await _sync_call(app_client, route, env2.ws, env2, h1, clock)
+        assert (r.status_code, _error(r)) == (403, "wrong_workspace"), (route, r.text)
+    r = await app_client.patch(f"/api/sync/{env2.ws}/runs/{env2.run_id}", headers=h1,
+                               json={"status": "failed", "error_code": "unrecoverable"})
+    assert (r.status_code, _error(r)) == (403, "wrong_workspace")
+    for method, path, body in (("get", f"/api/workspaces/{env2.ws}/sync-status", None),
+                               ("post", f"/api/workspaces/{env2.ws}/sync/commands", {"type": "recheck_now"}),
+                               ("post", f"/api/workspaces/{env2.ws}/sync/commands",
+                                {"type": "confirm_resync", "scope": "company"}),
+                               ("post", f"/api/workspaces/{env2.ws}/sync/commands",
+                                {"type": "confirm_relink", "password": PASSWORD})):
+        r = await getattr(app_client, method)(path, headers=web_headers(env1.uid),
+                                              **({"json": body} if body else {}))
+        assert (r.status_code, _error(r)) == (404, "workspace_not_found"), (path, r.text)
+    r = await app_client.delete(f"/api/devices/{env2.d1['device_id']}", headers=web_headers(env1.uid))
+    assert r.status_code == 404, r.text
+
+    assert await _tenant_rows(engine, env2.ws, env2.uid) == before
