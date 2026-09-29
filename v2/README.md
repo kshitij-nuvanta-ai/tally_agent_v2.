@@ -38,3 +38,42 @@ The seed backup is at `Z:\Users\nuvanta-mac-3\work\Tally prime\seed_data` inside
   Tally's licence box (the operator waits up to 15 minutes).
 - The operator stops only a TallyPrime it started on `s0probe` (`--stop-any-tally` overrides) and never edits
   `tally.ini` (it backs it up once as `tally.ini.before-s0`). Log: `v2/probes/results/logs/s0-auto-<date>.log`.
+
+## Cloud (S1)
+The cloud app (`v2/cloud/`) is a separate FastAPI service that ingests the desktop agent's sync and serves the web
+`sync-status` / device endpoints. It creates its own `v2_*` tables next to the current app's tables in Postgres and
+never touches the current app's tables.
+
+    # create / upgrade the v2 tables (idempotent; needs V2_DATABASE_URL or DATABASE_URL)
+    PYTHONPATH=. uv run --project v2 python -m v2.cloud migrate
+
+    # delete every v2 row of workspaces soft-deleted past the grace period (V2_PURGE_GRACE_DAYS);
+    # --workspace limits it to one workspace, --now ignores the grace period; logs row counts only
+    PYTHONPATH=. uv run --project v2 python -m v2.cloud purge [--workspace ID] [--now]
+
+    # serve (the port is V2_PORT, default 8100; `main.py` exposes a module-level `app = create_app()`)
+    V2_DEVICE_TOKEN_SECRET=... PYTHONPATH=. uv run --project v2 uvicorn v2.cloud.main:app --port 8100
+
+Settings are read from the environment (or `.env`) with the `V2_` prefix (`v2/cloud/config.py`). Startup fails fast
+(`validate_for_serving`) if `database_url` is empty, either secret is under 32 characters, or the two secrets are equal.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `V2_DATABASE_URL` | `""` | **Required.** Falls back to `DATABASE_URL`. Secret (contains credentials). |
+| `V2_WEB_JWT_SECRET` | `""` | **Required, secret**, min 32 chars. Falls back to `JWT_SECRET` (the current app's web session secret). |
+| `V2_DEVICE_TOKEN_SECRET` | `""` | **Required, secret**, min 32 chars, must differ from the web JWT secret. |
+| `V2_PORT` | `8100` | |
+| `V2_DEVICE_ACCESS_MINUTES` | `15` | Device access-token lifetime. |
+| `V2_DEVICE_REFRESH_DAYS` | `90` | Device refresh-token lifetime. |
+| `V2_TAKEOVER_LOGIN_MAX_AGE_MINUTES` | `10` | Max age of the web login accepted for a device takeover. |
+| `V2_INGEST_MAX_GZIP_BYTES` | `5242880` | Ingest body limit (compressed). |
+| `V2_INGEST_MAX_DECOMPRESSED_BYTES` | `52428800` | Ingest body limit (decompressed). |
+| `V2_INGEST_MAX_OBJECTS` | `500` | Objects per ingest request. |
+| `V2_PARITY_TOLERANCE_PAISE` | `100` | Parity comparison tolerance. |
+| `V2_QUARANTINE_ERROR_THRESHOLD` | `50` | Errors before a run is quarantined. |
+| `V2_STORAGE_ALERT_BYTES` | `5368709120` | Storage ops-signal threshold (5 GiB). |
+| `V2_LOGIN_RATE_MAX` / `V2_LOGIN_RATE_WINDOW_S` | `5` / `900` | Login rate limit. |
+| `V2_DEVICE_RATE_MAX` / `V2_DEVICE_RATE_WINDOW_S` | `600` / `60` | Device endpoint rate limit. |
+| `V2_MAINTENANCE_SLICE_SECONDS` / `V2_MAINTENANCE_SLICE_ROWS` | `2.0` / `5000` | Lazy-maintenance slice budget. |
+| `V2_STORAGE_ESTIMATE_INTERVAL_SECONDS` | `3600` | Storage estimate refresh cadence. |
+| `V2_PURGE_GRACE_DAYS` | `30` | Grace period before `purge` deletes a soft-deleted workspace's data. |
