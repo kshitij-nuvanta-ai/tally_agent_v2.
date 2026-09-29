@@ -35,6 +35,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+from typing import Literal
+
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +45,7 @@ from v2.cloud.clock import Clock, fy_start_of, ist_date
 from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice, SyncBatch, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
 from v2.cloud.sync import coverage, state
+from v2.contract.models import Counters
 
 # A8 (controller ruling): "fatal code" is undefined in the spec. These are the codes that move a failed
 # first_sync run straight to `sync_state = error` (§8.2). Any other error code leaves `first_sync` untouched
@@ -53,19 +56,22 @@ _KINDS = ("first_sync", "incremental", "backfill", "full_resync")
 
 
 class RunCreate(BaseModel):
-    kind: str
+    """S1 review I2: ``counters_at_start`` is REQUIRED for every kind and typed as the contract's ``Counters`` —
+    a ``first_sync`` opened without it would complete with NULL cursors and wedge the workspace (no incremental,
+    no new first_sync); malformed counters are a 422, never a DB ``DataError`` 500."""
+    kind: Literal["first_sync", "incremental", "backfill", "full_resync"]
     scope: dict | None = None
     command_id: uuid.UUID | None = None
-    counters_at_start: dict | None = None
+    counters_at_start: Counters
     progress_total: int | None = None
 
 
 class RunPatch(BaseModel):
-    status: str
+    status: Literal["completed", "failed"]
     progress_done: int | None = None
     progress_total: int | None = None
     batches_declared: int | None = None
-    cursor_after: dict | None = None
+    cursor_after: Counters | None = None
     error_code: str | None = None
 
 
@@ -75,7 +81,7 @@ def cursor_on_completion(run: SyncRun, body: RunPatch) -> dict | None:
     never the batch-reported ``cursor_after``, which those kinds don't even send); ``backfill`` and a single-FY
     ``full_resync`` never move the cursor."""
     if run.kind == "incremental":
-        return body.cursor_after
+        return body.cursor_after.model_dump() if body.cursor_after is not None else None
     if run.kind == "first_sync" or (run.kind == "full_resync" and (run.scope or {}).get("company")):
         return run.counters_at_start
     return None
@@ -171,7 +177,7 @@ async def _open_first_sync(
         status="running",
         progress_done=0,
         progress_total=body.progress_total,
-        counters_at_start=body.counters_at_start,
+        counters_at_start=body.counters_at_start.model_dump(),
         started_at=now,
     )
     session.add(run)
@@ -268,7 +274,7 @@ async def _create_run(
         status="running",
         progress_done=0,
         progress_total=body.progress_total,
-        counters_at_start=body.counters_at_start,
+        counters_at_start=body.counters_at_start.model_dump(),
         started_at=now,
     )
     session.add(run)
@@ -418,6 +424,10 @@ async def patch_run(
         # field — `batches_declared` (>= 0) is now required, checked before any mutation.
         if body.batches_declared is None:
             raise ApiError(422, "batches_declared_required")
+        # S1 review I2: an incremental's cursor IS the agent's `cursor_after` — completing one without it would
+        # leave the cursor where it was (or NULL), so it is refused before any mutation.
+        if run.kind == "incremental" and body.cursor_after is None:
+            raise ApiError(422, "cursor_after_required")
         accepted = await _count_accepted_batches(session, run.id)
         if accepted < body.batches_declared:
             raise ApiError(409, "batches_missing", missing=body.batches_declared - accepted)

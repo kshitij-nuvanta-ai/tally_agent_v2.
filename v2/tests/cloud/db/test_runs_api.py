@@ -9,6 +9,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import text
 
 from v2.tests.cloud.conftest import login_device, make_workspace, requires_db, web_headers
@@ -315,7 +316,7 @@ async def test_takeover_interrupts_a_non_first_sync_run_too(app_client, session,
     assert r_takeover.status_code == 200, r_takeover.text
 
     r_open_b = await app_client.post(
-        f"/api/sync/{ws}/runs", json={"kind": "backfill"}, headers=headers_b
+        f"/api/sync/{ws}/runs", json={"kind": "backfill", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}}, headers=headers_b
     )
     assert r_open_b.status_code == 200, r_open_b.text
 
@@ -431,7 +432,7 @@ async def test_backfill_completion_in_error_with_null_cursors_stays_error_and_fi
     assert sw_after_fail["sync_state"] == "error"
     assert sw_after_fail["cursor_alt_vch_id"] is None and sw_after_fail["cursor_alt_mst_id"] is None
 
-    r_open_backfill = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "backfill"}, headers=headers)
+    r_open_backfill = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "backfill", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}}, headers=headers)
     assert r_open_backfill.status_code == 200, r_open_backfill.text
     backfill_run_id = r_open_backfill.json()["run_id"]
 
@@ -514,7 +515,7 @@ async def test_full_resync_without_confirmed_command_409_resync_not_confirmed(ap
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
 
     r = await app_client.post(
-        f"/api/sync/{ws}/runs", json={"kind": "full_resync", "scope": {"company": True}}, headers=headers
+        f"/api/sync/{ws}/runs", json={"kind": "full_resync", "scope": {"company": True}, "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}}, headers=headers
     )
     assert r.status_code == 409, r.text
     assert r.json()["error"] == "resync_not_confirmed"
@@ -694,7 +695,7 @@ async def test_full_resync_without_command_in_restore_detected_is_resync_not_con
     await _set_state_row(session, ws, "restore_detected")
 
     r = await app_client.post(
-        f"/api/sync/{ws}/runs", json={"kind": "full_resync", "scope": {"company": True}}, headers=headers
+        f"/api/sync/{ws}/runs", json={"kind": "full_resync", "scope": {"company": True}, "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}}, headers=headers
     )
     assert r.status_code == 409, r.text
     assert r.json()["error"] == "resync_not_confirmed"
@@ -908,7 +909,7 @@ async def test_backfill_completion_leaves_cursor(app_client, session, clock):
     await _set_cursors(session, ws, 100, 50)
     await _set_state_row(session, ws, "ready")
 
-    r_open = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "backfill"}, headers=headers)
+    r_open = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": "backfill", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}}, headers=headers)
     run_id = r_open.json()["run_id"]
 
     r = await app_client.patch(
@@ -1151,14 +1152,14 @@ async def test_patch_run_closed_run_409(app_client, session, clock):
     run_id = r_open.json()["run_id"]
     r1 = await app_client.patch(
         f"/api/sync/{ws}/runs/{run_id}",
-        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0, "cursor_after": {"alt_vch_id": 2, "alt_mst_id": 2}},
         headers=headers,
     )
     assert r1.status_code == 200, r1.text
 
     r2 = await app_client.patch(
         f"/api/sync/{ws}/runs/{run_id}",
-        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0},
+        json={"status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0, "cursor_after": {"alt_vch_id": 2, "alt_mst_id": 2}},
         headers=headers,
     )
     assert r2.status_code == 409, r2.text
@@ -1199,3 +1200,60 @@ async def test_patch_run_403_wrong_workspace_when_another_devices_run(app_client
     )
     assert r.status_code == 403, r.text
     assert r.json()["error"] == "wrong_workspace"
+
+
+# --- S1 review I2: run bodies are validated (a first_sync without counters must never wedge the workspace) ---------
+
+
+@pytest.mark.parametrize("kind", ["first_sync", "incremental", "backfill", "full_resync"])
+async def test_open_run_without_counters_at_start_is_422_and_nothing_stored(app_client, session, clock, kind):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(f"/api/sync/{ws}/runs", json={"kind": kind}, headers=headers)
+    assert r.status_code == 422, r.text
+    n = (await session.execute(text("SELECT count(*) FROM sync_runs WHERE workspace_id = :w"), {"w": ws})).scalar_one()
+    assert n == 0
+    assert (await _sw_row(session, ws))["sync_state"] == "awaiting_first_connection"
+
+
+@pytest.mark.parametrize("body", [
+    {"kind": "first_sync", "counters_at_start": {"alt_vch_id": "abc", "alt_mst_id": 1}},
+    {"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1}},
+    {"kind": "nonsense", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+])
+async def test_open_run_malformed_body_is_422_not_500(app_client, session, clock, body):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(f"/api/sync/{ws}/runs", json=body, headers=headers)
+    assert r.status_code == 422, r.text
+
+
+async def test_incremental_completed_without_cursor_after_is_422_and_run_stays_open(app_client, session, clock):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    await _set_cursors(session, ws, 10, 10)
+    await _set_state_row(session, ws, "ready")
+    r = await app_client.post(f"/api/sync/{ws}/runs",
+                              json={"kind": "incremental", "counters_at_start": {"alt_vch_id": 12, "alt_mst_id": 11}},
+                              headers=headers)
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", json={"status": "completed", "batches_declared": 0},
+                               headers=headers)
+    assert r.status_code == 422, r.text
+    assert r.json()["error"] == "cursor_after_required"
+    assert (await _run_row(session, run_id))["status"] == "running"
+    sw = await _sw_row(session, ws)
+    assert (sw["cursor_alt_vch_id"], sw["cursor_alt_mst_id"]) == (10, 10)
+
+
+@pytest.mark.parametrize("body", [
+    {"status": "done", "batches_declared": 0},
+    {"status": "completed", "batches_declared": 0, "cursor_after": {"alt_vch_id": "x", "alt_mst_id": 1}},
+])
+async def test_patch_run_malformed_body_is_422(app_client, session, clock, body):
+    uid, ws, device_id, headers = await _login_and_bind(app_client, session)
+    r = await app_client.post(f"/api/sync/{ws}/runs",
+                              json={"kind": "first_sync", "counters_at_start": {"alt_vch_id": 1, "alt_mst_id": 1}},
+                              headers=headers)
+    run_id = r.json()["run_id"]
+    r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", json=body, headers=headers)
+    assert r.status_code == 422, r.text
+    assert (await _run_row(session, run_id))["status"] == "running"
