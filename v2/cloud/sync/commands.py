@@ -1,15 +1,23 @@
 """Server -> agent commands (S1 spec §7.15, D16): a ``sync_commands`` row per command, delivered on the next
 heartbeat (``pending`` -> ``delivered``) and acknowledged by a later heartbeat (``delivered`` -> ``done``).
+
+S1 review I3 (controller ruling): a heartbeat ack means "received", not "executed". A ``confirm_resync`` therefore
+stays ``delivered`` when acked — it is still the user's authorisation for the ``full_resync`` it names (D16) — and is
+closed only by that run's completion (``runs._apply_completion_transition`` -> ``done``) or by a superseding
+confirm (``supersede_open_resyncs`` -> ``cancelled``). Every other command kind keeps ack -> ``done``.
 """
 from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.clock import Clock
-from v2.cloud.models import SyncCommand
+from v2.cloud.models import SyncCommand, SyncRun
+
+RESYNC = "confirm_resync"
+OPEN = ("pending", "delivered")
 
 
 async def enqueue(
@@ -64,6 +72,7 @@ async def ack(session: AsyncSession, ws_id: uuid.UUID, ids: list[str], clock: Cl
                 SyncCommand.workspace_id == ws_id,
                 SyncCommand.id.in_(uuids),
                 SyncCommand.status == "delivered",
+                SyncCommand.type != RESYNC,          # I3: ack = received; a resync stays open for its run
             )
         )
     ).scalars().all()
@@ -72,3 +81,20 @@ async def ack(session: AsyncSession, ws_id: uuid.UUID, ids: list[str], clock: Cl
         row.done_at = now
     if rows:
         await session.flush()
+
+
+async def cancel_open_resyncs(session: AsyncSession, ws_id: uuid.UUID, clock: Clock,
+                              keep: uuid.UUID | None = None) -> None:
+    """Open (``pending``/``delivered``) ``confirm_resync`` commands of ``ws_id`` that no still-``running`` run is
+    using -> ``cancelled`` (``done_at`` = now). ``keep`` is never touched. Used when a newer confirm supersedes
+    them (I3) and when a whole-company resync completes (I4: nothing left to resync)."""
+    in_use = select(SyncRun.command_id).where(SyncRun.workspace_id == ws_id, SyncRun.status == "running",
+                                              SyncRun.command_id.is_not(None))
+    q = (update(SyncCommand)
+         .where(SyncCommand.workspace_id == ws_id, SyncCommand.type == RESYNC, SyncCommand.status.in_(OPEN),
+                SyncCommand.id.not_in(in_use))
+         .values(status="cancelled", done_at=clock.now())
+         .execution_options(synchronize_session="fetch"))
+    if keep is not None:
+        q = q.where(SyncCommand.id != keep)
+    await session.execute(q)

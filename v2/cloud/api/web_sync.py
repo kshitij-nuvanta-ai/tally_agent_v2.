@@ -109,5 +109,8 @@ async def post_command(
 
     params = body.model_dump(exclude={"type", "password"}, exclude_none=True)
     cmd = await commands.enqueue(session, ws, body.type, params, requested_by="web")
+    if body.type == "confirm_resync":
+        # S1 review I3: the newest user confirm supersedes any still-open one (not bound to a running run).
+        await commands.cancel_open_resyncs(session, ws, clock, keep=cmd.id)
     await session.commit()
     return {"id": str(cmd.id), "type": cmd.type, "params": cmd.params or {}, "status": cmd.status}

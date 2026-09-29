@@ -329,3 +329,98 @@ async def test_restart_after_command_delivery_not_redelivered(app_client, sessio
     later = await whole(c2, engine, ws, headers, uid)
     assert later["commands"] == after["commands"] and later["counts"]["sync_commands"] == 1
 
+
+
+# --- S1 review I3 / I4: the D16 restore -> confirm -> deliver -> ack -> resync path, and its resolution -------------
+
+
+async def _restore_detected(client, ws, headers, clock) -> dict:
+    below = {"alt_vch_id": COUNTERS["alt_vch_id"] - 1, "alt_mst_id": COUNTERS["alt_mst_id"]}
+    r = await client.post(f"/api/sync/{ws}/heartbeat", headers=headers, json={
+        "tally_status": "ours", "pc_clock": clock.now().isoformat(), "counters": below,
+        "seen_company": {"guid": realdata.COMPANY_B_GUID, "name": B_BIND["company_name"]}})
+    assert r.status_code == 200 and r.json()["sync_state"] == "restore_detected", r.text
+    return below
+
+
+async def _hb(client, ws, headers, clock, acked=()):
+    r = await client.post(f"/api/sync/{ws}/heartbeat", headers=headers, json={
+        "tally_status": "closed", "pc_clock": clock.now().isoformat(), "acked_commands": list(acked)})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def _confirm(client, ws, uid) -> str:
+    r = await client.post(f"/api/workspaces/{ws}/sync/commands", headers=web_headers(uid),
+                          json={"type": "confirm_resync", "scope": "company"})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+async def _cmd_status(engine, cmd_id) -> str:
+    async with fresh(engine) as s:
+        return (await s.execute(text("SELECT status FROM sync_commands WHERE id = :i"), {"i": cmd_id})).scalar_one()
+
+
+async def _run_company_resync(client, ws, headers, cmd_id, counters) -> str:
+    r = await client.post(f"/api/sync/{ws}/runs", headers=headers, json={
+        "kind": "full_resync", "scope": {"company": True}, "command_id": cmd_id, "counters_at_start": counters})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    for c in r.json()["coverage"]:                        # re-ack every month of every FY (whole-company pass)
+        y, m = int(c["fy_start"][:4]), int(c["fy_start"][5:7])
+        for _ in range(c["months_total"]):
+            rr = await client.patch(f"/api/sync/{ws}/coverage", headers=headers,
+                                    json={"fy_start": c["fy_start"], "month": f"{y:04d}-{m:02d}", "run_id": run_id})
+            assert rr.status_code == 200, rr.text
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    r = await client.patch(f"/api/sync/{ws}/runs/{run_id}", headers=headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
+    assert r.status_code == 200, r.text
+    return run_id
+
+
+async def test_acked_confirm_resync_still_opens_the_resync_and_completion_marks_it_done(
+        app_client, session, engine, clock):
+    """I3: a heartbeat ack means "received", not "executed" — acking a delivered `confirm_resync` must leave it
+    usable for the `full_resync` it authorises; only that run's completion closes it (`done`)."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    below = await _restore_detected(app_client, ws, headers, clock)
+    cmd_id = await _confirm(app_client, ws, uid)
+    assert [c["id"] for c in (await _hb(app_client, ws, headers, clock))["commands"]] == [cmd_id]
+    assert (await _hb(app_client, ws, headers, clock, acked=[cmd_id]))["commands"] == []
+    assert await _cmd_status(engine, cmd_id) == "delivered"          # acked, still open
+    run_id = await _run_company_resync(app_client, ws, headers, cmd_id, below)
+    assert await _cmd_status(engine, cmd_id) == "done"
+    async with fresh(engine) as s:
+        run = (await s.execute(text("SELECT status, command_id FROM sync_runs WHERE id = :i"), {"i": run_id})).one()
+    assert (run.status, run.command_id) == ("completed", uuid.UUID(cmd_id))
+
+
+async def test_acked_recheck_now_still_goes_done(app_client, session, engine, clock):
+    """I3: other command kinds keep ack -> done."""
+    uid, ws, headers = await bind(app_client, session)
+    r = await app_client.post(f"/api/workspaces/{ws}/sync/commands", headers=web_headers(uid),
+                              json={"type": "recheck_now"})
+    cmd_id = r.json()["id"]
+    await _hb(app_client, ws, headers, clock)
+    await _hb(app_client, ws, headers, clock, acked=[cmd_id])
+    assert await _cmd_status(engine, cmd_id) == "done"
+
+
+async def test_superseding_confirm_resync_cancels_the_open_one(app_client, session, engine, clock):
+    """I3: a newer user confirm supersedes an open (pending/delivered, not running) `confirm_resync`."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    below = await _restore_detected(app_client, ws, headers, clock)
+    old = await _confirm(app_client, ws, uid)
+    await _hb(app_client, ws, headers, clock)
+    await _hb(app_client, ws, headers, clock, acked=[old])
+    new = await _confirm(app_client, ws, uid)
+    assert await _cmd_status(engine, old) == "cancelled"
+    r = await app_client.post(f"/api/sync/{ws}/runs", headers=headers, json={
+        "kind": "full_resync", "scope": {"company": True}, "command_id": old, "counters_at_start": below})
+    assert (r.status_code, r.json()["error"]) == (409, "resync_not_confirmed")
+    await _run_company_resync(app_client, ws, headers, new, below)
+    assert (await _cmd_status(engine, old), await _cmd_status(engine, new)) == ("cancelled", "done")
