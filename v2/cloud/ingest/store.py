@@ -102,9 +102,14 @@ async def _master_row(session: AsyncSession, model, ws_id: uuid.UUID, guid: str)
     return (await session.execute(select(model).where(model.workspace_id == ws_id, model.guid == guid))).scalar_one_or_none()
 
 
-async def upsert_master(session: AsyncSession, ws_id: uuid.UUID, p: PMaster, derived: dict) -> UpsertResult:
+async def upsert_master(session: AsyncSession, ws_id: uuid.UUID, p: PMaster, derived: dict, *,
+                        authoritative: bool = False) -> UpsertResult:
     """§12 step 9: `incoming.alter_id >= stored.alter_id` replaces (a rename keeps the GUID, so lines still join),
-    lower is `skipped_older`. Balances are NOT written here -- `apply_balance` orders them by `captured_at`."""
+    lower is `skipped_older`. Balances are NOT written here -- `apply_balance` orders them by `captured_at`.
+
+    ``authoritative`` (Task 14b C2, controller ruling): the batch belongs to a CONFIRMED ``full_resync`` -- after a
+    restore / relink Tally is the truth the user confirmed, so the alter_id rule is suspended and a lower
+    ``alter_id`` replaces the stored row too (``updated``)."""
     model = MASTER_MODELS[p.kind]
     cols = master_columns(p, derived)
     row = await _master_row(session, model, ws_id, p.guid)
@@ -112,7 +117,7 @@ async def upsert_master(session: AsyncSession, ws_id: uuid.UUID, p: PMaster, der
         session.add(model(workspace_id=ws_id, guid=p.guid, **cols))
         await session.flush()
         return "inserted"
-    if p.alter_id < row.alter_id:
+    if p.alter_id < row.alter_id and not authoritative:
         return "skipped_older"
     if p.kind == "ledger" and row.is_forex and (row.closing_fx_amount is not None or row.opening_fx_amount is not None):
         cols["is_forex"] = True                          # D30: "ever carried an expression amount" is sticky
@@ -328,11 +333,12 @@ def _voucher_row(ws_id: uuid.UUID, v: PVoucher, r: ResolvedVoucher, base_type: s
 
 async def upsert_vouchers(session: AsyncSession, ws_id: uuid.UUID,
                           items: list[tuple[PVoucher, ResolvedVoucher, bool]], run_id: uuid.UUID,
-                          base_types: dict[str, str | None]) -> list[UpsertResult]:
+                          base_types: dict[str, str | None], *, authoritative: bool = False) -> list[UpsertResult]:
     """Bulk §12 step 12 for a batch's vouchers (results in `items` order). One SELECT for the stored alter_ids,
     one bulk INSERT / executemany UPDATE for the voucher rows, one DELETE per child table for the replaced
     vouchers, one bulk INSERT per child table. Two copies of one GUID in the same batch: the highest alter_id
-    wins, the other is `skipped_older`."""
+    wins, the other is `skipped_older`. ``authoritative`` (C2, a confirmed ``full_resync``): a stored row with a
+    higher alter_id is replaced too (``updated``); the in-batch duplicate rule is unchanged."""
     results: list[UpsertResult | None] = [None] * len(items)
     winner: dict[str, int] = {}
     for i, (v, _, _) in enumerate(items):
@@ -359,7 +365,7 @@ async def upsert_vouchers(session: AsyncSession, ws_id: uuid.UUID,
         row = _voucher_row(ws_id, v, r, base_types.get(r.voucher_type_guid), run_id, keep_raw)
         if guid in stored:
             vid, stored_alter = stored[guid]
-            if v.alter_id < stored_alter:
+            if v.alter_id < stored_alter and not authoritative:
                 results[i] = "skipped_older"
                 continue
             updates.append({**row, "_id": vid, "updated_at": now})

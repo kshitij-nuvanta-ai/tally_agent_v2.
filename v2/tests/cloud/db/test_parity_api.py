@@ -1038,10 +1038,11 @@ async def test_daily_as_on_outside_the_mirrored_period_is_422_and_nothing_stored
 # --- Task 14b C1 (I7 residual): no anchor_stale loop after a restore / relink ----------------------------------------
 
 
-async def _company_resync(app_client, b: B, counters: dict) -> None:
-    """User confirms a whole-company resync; the agent runs it at ``counters`` (posting nothing), re-acking every
-    month of the FYs from FY25 (the verified edge stays FY25, as in ``setup_b``); completion moves the cursor to
-    ``counters`` and the workspace back to ``ready``."""
+async def _company_resync(app_client, b: B, counters: dict, during=None) -> str:
+    """User confirms a whole-company resync; the agent runs it at ``counters`` (posting nothing unless ``during``
+    -- ``async (run_id) -> batches posted`` -- does), re-acking every month of the FYs from FY25 (the verified
+    edge stays FY25, as in ``setup_b``); completion moves the cursor to ``counters`` and the workspace back to
+    ``ready``."""
     r = await app_client.post(f"/api/workspaces/{b.ws}/sync/commands", headers=web_headers(b.uid),
                               json={"type": "confirm_resync", "scope": "company"})
     assert r.status_code == 200, r.text
@@ -1050,6 +1051,7 @@ async def _company_resync(app_client, b: B, counters: dict) -> None:
         "counters_at_start": counters})
     assert r.status_code == 200, r.text
     run_id = r.json()["run_id"]
+    n = await during(run_id) if during is not None else 0
     for c in r.json()["coverage"]:
         if date.fromisoformat(c["fy_start"]) < FY25:
             continue
@@ -1058,9 +1060,10 @@ async def _company_resync(app_client, b: B, counters: dict) -> None:
                                         json={"fy_start": c["fy_start"], "month": month, "run_id": run_id})
             assert rr.status_code == 200, rr.text
     r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
-        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n})
     assert r.status_code == 200, r.text
     b.counters = counters
+    return run_id
 
 
 @pytest.mark.parametrize("cause", ["restore", "relink"])
