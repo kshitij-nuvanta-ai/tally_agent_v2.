@@ -1,7 +1,7 @@
 import pytest
 
 from v2.probes.actions import ASK_KINDS, PAUSE_KINDS, Action
-from v2.probes.companies import COMPANIES
+from v2.probes.companies import COMPANIES, SEED_COMPANY
 from v2.probes.core import ProbeBlocked
 from v2.probes.operator.auto import build_auto_operator
 from v2.probes.operator.tally_control import CLICK_NEEDED, OperatorError, TallyProcess
@@ -243,3 +243,41 @@ def test_every_step_is_logged_to_the_file(tmp_path):
     op.ask("edition?", Action("edition"))
     text = log.read_text(encoding="utf-8")
     assert "STEP create_voucher" in text and "ASK  edition" in text
+
+
+# --- M8 (retro): a restore wipes the company's vouchers, so the operator forgets its voucher refs ---------------
+
+
+def _with_folders(op, live=A):
+    write_company_folder(op.config.company_folder("A"), live)
+    write_company_folder(op.config.seed_folder("A"), SEED_COMPANY)
+    return op
+
+
+def test_restore_clears_voucher_refs(tmp_path):
+    op, books, _, _ = _operator(tmp_path)
+    _with_folders(op)
+    op.wait("backup", Action("backup_company", {"label": "A", "tag": "m8"}))
+    op.wait("create", _voucher("r1"))
+    assert op.vouchers == {"r1": "51"}
+    op.wait("restore", Action("restore_company", {"label": "A", "tag": "m8"}))
+    assert op.vouchers == {}
+    op.wait("create-again", _voucher("r1"))              # the same ref is usable again
+    assert "r1" in op.vouchers
+
+
+def test_restore_seed_clears_voucher_refs(tmp_path):
+    op, *_ = _operator(tmp_path, FakeBooks(name=SEED_COMPANY))
+    _with_folders(op, live=SEED_COMPANY)
+    op.vouchers["r1"] = "51"
+    op.wait("restore-seed", Action("restore_seed"))
+    assert op.vouchers == {}
+
+
+def test_probe13_twice_in_one_process_does_not_block_on_ref(tmp_path):
+    op, *_ = _operator(tmp_path)
+    _with_folders(op)
+    for _ in range(2):                                   # probe 13's pattern: backup → create p13-v4 → restore
+        op.wait("backup", Action("backup_company", {"label": "A", "tag": "p13"}))
+        op.wait("create", _voucher("p13-v4"))
+        op.wait("restore", Action("restore_company", {"label": "A", "tag": "p13"}))

@@ -163,6 +163,7 @@ class AutoOperator:
 
     def _restore_seed(self, params: dict[str, Any]) -> None:
         company_a.restore_seed_copy(self.control, self.config)
+        self.vouchers.clear()          # the restored company has none of this run's vouchers (retro M8)
 
     def _rename_company(self, params: dict[str, Any]) -> None:
         if params["from"] == SEED_COMPANY and params["to"] == COMPANIES["A"]:
@@ -237,6 +238,7 @@ class AutoOperator:
 
     def _restore_company(self, params: dict[str, Any]) -> None:
         company_a.restore_company(self.control, self.config, params["label"], params["tag"])
+        self.vouchers.clear()          # a restore drops every voucher created since the backup (retro M8)
 
     # --- ask handlers -----------------------------------------------------------------------------------------------
     def _wine_version(self, params: dict[str, Any]) -> str:
