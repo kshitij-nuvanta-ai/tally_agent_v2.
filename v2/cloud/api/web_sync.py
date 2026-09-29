@@ -11,8 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.api.dependencies import web_user
-from v2.cloud.auth.passwords import verify_password
+from v2.cloud.api.dependencies import check_user_password, web_user
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
 from v2.cloud.models import SyncWorkspace
@@ -90,11 +89,7 @@ async def post_command(
         if not sw.relink_prompt:
             raise ApiError(409, "relink_not_prompted")
         # `body.password` is guaranteed non-empty here — the model validator above requires it for this type.
-        row = (
-            await session.execute(text("SELECT password_hash FROM users WHERE id = :i"), {"i": user_id})
-        ).mappings().first()
-        if row is None or not verify_password(body.password, row["password_hash"]):
-            raise ApiError(401, "invalid_credentials")
+        await check_user_password(request, session, user_id, body.password)       # I5: throttled like /login
 
         new_guid = sw.relink_prompt.get("guid")
         new_name = sw.relink_prompt.get("name")

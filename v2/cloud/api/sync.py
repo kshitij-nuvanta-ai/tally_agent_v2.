@@ -11,11 +11,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from v2.cloud.api.dependencies import any_device, active_device
-from v2.cloud.auth.passwords import verify_password
+from v2.cloud.api.dependencies import active_device, any_device, check_user_password
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
 from v2.cloud.ingest import pipeline
@@ -119,11 +117,7 @@ async def relink(
     if not sw.relink_prompt or sw.relink_prompt.get("guid") != body.new_company_guid:
         raise ApiError(409, "relink_not_prompted")
 
-    row = (
-        await session.execute(text("SELECT password_hash FROM users WHERE id = :i"), {"i": device.user_id})
-    ).mappings().first()
-    if row is None or not verify_password(body.password, row["password_hash"]):
-        raise ApiError(401, "invalid_credentials")
+    await check_user_password(request, session, device.user_id, body.password)     # I5: throttled like /login
 
     await state.apply_relink(session, sw, body.new_company_guid, body.company_name, clock, device.user_id)
     await session.commit()

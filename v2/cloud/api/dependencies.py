@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.auth.device_tokens import decode_access
+from v2.cloud.auth.passwords import verify_password
 from v2.cloud.auth.web_jwt import decode_web_access
 from v2.cloud.db import session_dep
 from v2.cloud.errors import ApiError
@@ -27,6 +28,24 @@ def _bearer_token(request: Request) -> str:
     if not auth.startswith("Bearer "):
         raise ApiError(401, "token_invalid")
     return auth[len("Bearer ") :]
+
+
+async def check_user_password(request: Request, session: AsyncSession, user_id: uuid.UUID, password: str) -> None:
+    """S1 review I5: the relink password re-check (device §7.15 and web ``confirm_relink``) is throttled exactly
+    like ``/login`` — the SAME per-email limiter, checked first, a hit recorded only on a FAILED attempt — so a
+    stolen device token can't turn relink into a password oracle, and the two paths share one budget. 429
+    ``rate_limited`` (+ ``Retry-After``) at capacity; 401 ``invalid_credentials`` on a wrong password."""
+    row = (
+        await session.execute(text("SELECT email, password_hash FROM users WHERE id = :i"), {"i": user_id})
+    ).mappings().first()
+    if row is None:
+        raise ApiError(401, "invalid_credentials")
+    key = row["email"].strip().lower()
+    limiter = request.app.state.login_rate_limiter
+    limiter.check(key)
+    if not verify_password(password, row["password_hash"]):
+        limiter.record(key)
+        raise ApiError(401, "invalid_credentials")
 
 
 async def web_user(request: Request) -> uuid.UUID:
