@@ -103,7 +103,9 @@ def _ledger_in(l: dict, parents: dict[str, str], base: str | None, mirrored: Dec
     raw = LedgerIn(
         guid=l["guid"], name=parse_name(l["name"]), group_guid=parent or None,
         primary_group=derived.primary_group if derived else None, nature=derived.nature if derived else None,
-        is_forex=is_forex_ledger(l.get("currencyname"), base, ever_expression),
+        # exactly as ingest derives it (pipeline._store_all): an empty CurrencyName is "none given" -> base currency
+        is_forex=is_forex_ledger(parse_name(l["currencyname"]) if l.get("currencyname") else None, base,
+                                 ever_expression),
         mirrored_closing=mirrored,
         closing_fx=closing.fx_amount if closing is not None else None,
         closing_fx_rate=closing.fx_rate if closing is not None else None,

@@ -117,8 +117,9 @@ def test_the_dataset_module_is_pure():
 
 
 def _layer_violations(root: Path) -> list[str]:
-    """S1 Global Constraints: cloud never imports agent/probes, agent never imports cloud, contract imports neither."""
-    rules = {"cloud": ("v2.agent", "v2.probes"), "agent": ("v2.cloud",), "contract": ("v2.cloud", "v2.agent", "v2.probes")}
+    """S1 Global Constraints: cloud never imports agent/probes, agent never imports cloud, contract imports neither.
+    Task 12: cloud never imports the test-support modules either (``v2.tests``: ``realdata``, ``fakeb``, ...)."""
+    rules = {"cloud": ("v2.agent", "v2.probes", "v2.tests"), "agent": ("v2.cloud",), "contract": ("v2.cloud", "v2.agent", "v2.probes")}
     found = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root)
@@ -142,7 +143,9 @@ def test_layer_scanner_flags_each_rule(tmp_path):
     (tmp_path / "cloud" / "b.py").write_text("import v2.probes.reads\n")
     (tmp_path / "agent" / "c.py").write_text("from v2.cloud import main\n")
     (tmp_path / "contract" / "d.py").write_text("from ..cloud import x\n")
+    (tmp_path / "cloud" / "e.py").write_text("from v2.tests.cloud.fakeb import FakeB\n")
     (tmp_path / "cloud" / "ok.py").write_text("from v2.contract import parse\n")
     assert _layer_violations(tmp_path) == [
         "agent/c.py: agent imports v2.cloud", "cloud/a.py: cloud imports v2.agent",
-        "cloud/b.py: cloud imports v2.probes", "contract/d.py: contract imports v2.cloud"]
+        "cloud/b.py: cloud imports v2.probes", "cloud/e.py: cloud imports v2.tests",
+        "contract/d.py: contract imports v2.cloud"]
