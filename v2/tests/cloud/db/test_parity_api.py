@@ -1033,3 +1033,97 @@ async def test_daily_as_on_outside_the_mirrored_period_is_422_and_nothing_stored
     assert (r.status_code, r.json()["error"]) == (422, "as_on_not_current_period"), r.text
     assert await whole_state(engine, b) == before
     assert (await parity(app_client, b))["status"] == "ok"                    # the current period's end still runs
+
+
+# --- Task 14b C1 (I7 residual): no anchor_stale loop after a restore / relink ----------------------------------------
+
+
+async def _company_resync(app_client, b: B, counters: dict) -> None:
+    """User confirms a whole-company resync; the agent runs it at ``counters`` (posting nothing), re-acking every
+    month of the FYs from FY25 (the verified edge stays FY25, as in ``setup_b``); completion moves the cursor to
+    ``counters`` and the workspace back to ``ready``."""
+    r = await app_client.post(f"/api/workspaces/{b.ws}/sync/commands", headers=web_headers(b.uid),
+                              json={"type": "confirm_resync", "scope": "company"})
+    assert r.status_code == 200, r.text
+    r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers, json={
+        "kind": "full_resync", "scope": {"company": True}, "command_id": r.json()["id"],
+        "counters_at_start": counters})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    for c in r.json()["coverage"]:
+        if date.fromisoformat(c["fy_start"]) < FY25:
+            continue
+        for month in _months(date.fromisoformat(c["fy_start"]), c["months_total"], b.books_from):
+            rr = await app_client.patch(f"/api/sync/{b.ws}/coverage", headers=b.headers,
+                                        json={"fy_start": c["fy_start"], "month": month, "run_id": run_id})
+            assert rr.status_code == 200, rr.text
+    r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
+    assert r.status_code == 200, r.text
+    b.counters = counters
+
+
+@pytest.mark.parametrize("cause", ["restore", "relink"])
+async def test_unresolved_anchor_row_after_restore_or_relink_is_computed_never_an_anchor_stale_loop(
+        app_client, session, engine, cause):
+    """C1 (I7 residual, controller ruling): after a restore (counters go backwards) or a relink (a new company's
+    counter space) the mirror still holds ledgers whose `alter_id` is above the new Tally's `AltMstID`. A stored
+    TB with a row that resolves to no live ledger must NOT be `anchor_stale` for ever: a snapshot captured at the
+    current cursor is never stale, so parity computes a verdict (`masters_gap` on the unresolved row) — and does so
+    again on the next run, never an `anchor_stale` / re-capture loop."""
+    old, ghost = "Cash", "Cash on Hand (Main)"
+    b = await setup_b(app_client, session)
+    assert (await parity(app_client, b))["status"] == "ok"
+    pre = dict(b.counters)
+    if cause == "restore":
+        # a post-backup rename reaches the mirror at a higher alter_id; then the backup is restored in Tally
+        cash = next(m for m in b.cap.masters() if m["kind"] == "ledger" and m["data"]["name"] == old)
+        moved = {"alt_vch_id": pre["alt_vch_id"], "alt_mst_id": pre["alt_mst_id"] + 5}
+        r = await app_client.post(f"/api/sync/{b.ws}/runs", headers=b.headers,
+                                  json={"kind": "incremental", "counters_at_start": pre})
+        run_id = r.json()["run_id"]
+        n = await _ingest(app_client, b, [{"kind": "ledger", "data": {**cash["data"], "name": ghost,
+                                                                      "alterid": str(moved["alt_mst_id"])}}],
+                          run_id=run_id)
+        r = await app_client.patch(f"/api/sync/{b.ws}/runs/{run_id}", headers=b.headers, json={
+            "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": n,
+            "cursor_after": moved})
+        assert r.status_code == 200, r.text
+        r = await app_client.post(f"/api/sync/{b.ws}/heartbeat", headers=b.headers, json={
+            "tally_status": "ours", "pc_clock": "2026-09-25T06:30:00+00:00", "counters": pre,
+            "seen_company": {"guid": b.cap.guid, "name": pf.B_NAME}})
+        assert r.status_code == 200 and r.json()["sync_state"] == "restore_detected", r.text
+        now_counters = pre                                  # the restored Tally's counters (below the cursor)
+        cells_name = (ghost, old)                          # restored Tally shows the pre-rename name
+    else:
+        r = await app_client.post(f"/api/sync/{b.ws}/heartbeat", headers=b.headers, json={
+            "tally_status": "other_company_same_name", "pc_clock": "2026-09-25T06:30:00+00:00",
+            "seen_company": {"guid": "other-guid", "name": pf.B_NAME}})
+        assert r.status_code == 200, r.text
+        r = await app_client.post(f"/api/sync/{b.ws}/relink", headers=b.headers, json={
+            "new_company_guid": "other-guid", "company_name": pf.B_NAME, "password": "Passw0rd!Passw0rd"})
+        assert r.status_code == 200 and r.json()["sync_state"] == "restore_detected", r.text
+        now_counters = {"alt_vch_id": 5, "alt_mst_id": 5}   # the new company's own (small) counter space
+        cells_name = (old, ghost + " X")                   # a row naming a ledger the mirror doesn't hold
+    await _company_resync(app_client, b, now_counters)
+    async with fresh(engine) as s:
+        top = (await one(s, "SELECT max(alter_id) AS m FROM tally_ledgers WHERE workspace_id=:w", w=b.ws))["m"]
+        assert top > now_counters["alt_mst_id"]             # the leftover alter_ids the old I7 rule tripped on
+        assert (await sw_row(s, b.ws))["sync_state"] == "ready"
+
+    later = SNAP_AT + timedelta(minutes=10)
+    anchor = _anchor_as_on(FY25)
+    src, dst = cells_name
+    for rt, as_on, kw in (("trial_balance", AS_ON, {}), ("trial_balance_ledgerwise", AS_ON, {}),
+                          ("trial_balance_ledgerwise", anchor, {"purpose": "anchor"})):
+        cells = [{**c, "dspdispname": dst} if c.get("dspdispname") == src else c for c in b.cap.tb_cells(rt, as_on)]
+        await _snap(app_client, b, rt, as_on, at=later, cells=cells, **kw)
+
+    for _ in range(2):                                      # a second run is computed too: no re-capture loop
+        res = await parity(app_client, b)
+        assert res["abort_reason"] is None, (res["remediation"], res)
+        assert res["status"] in ("suspect", "alert"), res
+        async with fresh(engine) as s:
+            run = await run_row(s, res["parity_run_id"])
+        assert run["lines_compared"] > 0
+    assert "refetch_masters" in {r["action"] for r in res["remediation"]}, res
