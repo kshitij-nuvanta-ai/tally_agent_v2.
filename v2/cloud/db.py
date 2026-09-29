@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 
 def make_engine(url: str) -> AsyncEngine:
-    return create_async_engine(url, pool_pre_ping=True)
+    """``hide_parameters=True``: a DB error's ``str()``/traceback never carries bound business values (narration,
+    party/ledger names, amounts) into the server logs (Global Constraint "no business data in logs"; S1 review I1)."""
+    return create_async_engine(url, pool_pre_ping=True, hide_parameters=True)
 
 
 async def session_dep(request: Request) -> AsyncIterator[AsyncSession]:

@@ -31,7 +31,7 @@ def _configure(**kw):
 
 
 async def _online(url: str) -> None:
-    eng = create_async_engine(url)
+    eng = create_async_engine(url, hide_parameters=True)   # S1 review I1: no bound values in logs
     async with eng.connect() as conn:
         await conn.run_sync(lambda c: (_configure(connection=c), context.run_migrations()))
         await conn.commit()
