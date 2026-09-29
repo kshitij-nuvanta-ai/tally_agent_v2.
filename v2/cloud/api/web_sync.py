@@ -105,7 +105,8 @@ async def post_command(
     params = body.model_dump(exclude={"type", "password"}, exclude_none=True)
     cmd = await commands.enqueue(session, ws, body.type, params, requested_by="web")
     if body.type == "confirm_resync":
-        # S1 review I3: the newest user confirm supersedes any still-open one (not bound to a running run).
-        await commands.cancel_open_resyncs(session, ws, clock, keep=cmd.id)
+        # S1 review I3 + Task 14b C3: the newest user confirm supersedes still-open ones (not bound to a running
+        # run) of the SAME or a NARROWER scope only -- a company confirm covers every FY; FY X covers FY X.
+        await commands.cancel_open_resyncs(session, ws, clock, keep=cmd.id, scope=params)
     await session.commit()
     return {"id": str(cmd.id), "type": cmd.type, "params": cmd.params or {}, "status": cmd.status}

@@ -4,13 +4,14 @@ heartbeat (``pending`` -> ``delivered``) and acknowledged by a later heartbeat (
 S1 review I3 (controller ruling): a heartbeat ack means "received", not "executed". A ``confirm_resync`` therefore
 stays ``delivered`` when acked — it is still the user's authorisation for the ``full_resync`` it names (D16) — and is
 closed only by that run's completion (``runs._apply_completion_transition`` -> ``done``) or by a superseding
-confirm (``supersede_open_resyncs`` -> ``cancelled``). Every other command kind keeps ack -> ``done``.
+confirm of the same or a wider scope (``cancel_open_resyncs`` -> ``cancelled``). Every other command kind keeps
+ack -> ``done``.
 """
 from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from v2.cloud.clock import Clock
@@ -83,18 +84,34 @@ async def ack(session: AsyncSession, ws_id: uuid.UUID, ids: list[str], clock: Cl
         await session.flush()
 
 
+def covers(new: dict | None, old: dict | None) -> bool:
+    """Task 14b C3: does a confirm of scope ``new`` cover (supersede) an open confirm of scope ``old``? Same or
+    narrower only: a company confirm covers every confirm (company ⊇ any FY); an FY confirm covers only the SAME
+    FY. ``new`` / ``old`` are ``sync_commands.params`` (``{"scope": "company"}`` / ``{"scope": "fy",
+    "fy_start": ...}``)."""
+    new, old = new or {}, old or {}
+    if new.get("scope") == "company":
+        return True
+    return new.get("scope") == "fy" and old.get("scope") == "fy" and old.get("fy_start") == new.get("fy_start")
+
+
 async def cancel_open_resyncs(session: AsyncSession, ws_id: uuid.UUID, clock: Clock,
-                              keep: uuid.UUID | None = None) -> None:
+                              keep: uuid.UUID | None = None, scope: dict | None = None) -> None:
     """Open (``pending``/``delivered``) ``confirm_resync`` commands of ``ws_id`` that no still-``running`` run is
-    using -> ``cancelled`` (``done_at`` = now). ``keep`` is never touched. Used when a newer confirm supersedes
-    them (I3) and when a whole-company resync completes (I4: nothing left to resync)."""
+    using, and whose scope ``scope`` covers (``covers``: same or narrower) -> ``cancelled`` (``done_at`` = now).
+    ``keep`` is never touched. Used when a newer confirm supersedes them (I3; C3: only the same or a narrower
+    scope -- an FY confirm never cancels an open company confirm) and when a whole-company resync completes (I4:
+    nothing left to resync; ``scope`` = company)."""
+    scope = scope if scope is not None else {"scope": "company"}
     in_use = select(SyncRun.command_id).where(SyncRun.workspace_id == ws_id, SyncRun.status == "running",
                                               SyncRun.command_id.is_not(None))
-    q = (update(SyncCommand)
-         .where(SyncCommand.workspace_id == ws_id, SyncCommand.type == RESYNC, SyncCommand.status.in_(OPEN),
-                SyncCommand.id.not_in(in_use))
-         .values(status="cancelled", done_at=clock.now())
-         .execution_options(synchronize_session="fetch"))
+    q = select(SyncCommand).where(SyncCommand.workspace_id == ws_id, SyncCommand.type == RESYNC,
+                                  SyncCommand.status.in_(OPEN), SyncCommand.id.not_in(in_use))
     if keep is not None:
         q = q.where(SyncCommand.id != keep)
-    await session.execute(q)
+    now = clock.now()
+    rows = [r for r in (await session.execute(q)).scalars().all() if covers(scope, r.params)]
+    for row in rows:
+        row.status, row.done_at = "cancelled", now
+    if rows:
+        await session.flush()

@@ -480,3 +480,68 @@ async def test_confirm_issued_during_the_running_resync_is_cancelled_on_completi
     assert r.status_code == 200, r.text
     assert (await _cmd_status(engine, first), await _cmd_status(engine, second)) == ("done", "cancelled")
     assert (await _hb(app_client, ws, headers, clock))["commands"] == []
+
+
+# --- Task 14b C3: a confirm supersedes open confirms of the SAME or a NARROWER scope only -------------------------
+
+
+async def _confirm_fy(client, ws, uid, fy) -> str:
+    r = await client.post(f"/api/workspaces/{ws}/sync/commands", headers=web_headers(uid),
+                          json={"type": "confirm_resync", "scope": "fy", "fy_start": fy.isoformat()})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+async def test_fy_confirm_leaves_an_open_company_confirm_usable(app_client, session, engine, clock):
+    """C3: after a restore the user confirms the company resync (delivered + acked), then an FY-scoped confirm —
+    the narrower FY confirm must NOT cancel the broader company one; the agent's company `full_resync` still
+    opens with it and resolves the restore."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    below = await _restore_detected(app_client, ws, headers, clock)
+    company = await _confirm(app_client, ws, uid)
+    await _hb(app_client, ws, headers, clock)
+    await _hb(app_client, ws, headers, clock, acked=[company])
+    fy = await _confirm_fy(app_client, ws, uid, FY25)
+    assert (await _cmd_status(engine, company), await _cmd_status(engine, fy)) == ("delivered", "pending")
+    await _run_company_resync(app_client, ws, headers, company, below)
+    # the company resync is the widest re-read: completing it closes the FY confirm too (I4)
+    assert (await _cmd_status(engine, company), await _cmd_status(engine, fy)) == ("done", "cancelled")
+
+
+async def test_company_confirm_cancels_open_fy_confirms(app_client, session, engine, clock):
+    """C3: a company confirm supersedes every open FY confirm (company ⊇ any FY)."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    fy25, fy26 = await _confirm_fy(app_client, ws, uid, FY25), await _confirm_fy(app_client, ws, uid, FY26)
+    await _hb(app_client, ws, headers, clock)                           # fy25 + fy26 delivered
+    company = await _confirm(app_client, ws, uid)
+    assert [await _cmd_status(engine, c) for c in (fy25, fy26, company)] == ["cancelled", "cancelled", "pending"]
+
+
+async def test_fy_confirm_supersedes_the_same_fy_only(app_client, session, engine, clock):
+    """C3: FY X supersedes an open FY X confirm, never an FY Y one."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    fy25, fy26 = await _confirm_fy(app_client, ws, uid, FY25), await _confirm_fy(app_client, ws, uid, FY26)
+    again = await _confirm_fy(app_client, ws, uid, FY25)
+    assert [await _cmd_status(engine, c) for c in (fy25, fy26, again)] == ["cancelled", "pending", "pending"]
+
+
+async def test_a_running_resyncs_command_is_never_cancelled_by_a_wider_confirm(app_client, session, engine, clock):
+    """C3: an FY resync is running on its command; a company confirm (wider) must not cancel that in-use
+    command — the running run completes normally and marks it `done`."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    fy = await _confirm_fy(app_client, ws, uid, FY25)
+    r = await app_client.post(f"/api/sync/{ws}/runs", headers=headers, json={
+        "kind": "full_resync", "scope": {"fy_start": FY25.isoformat()}, "command_id": fy,
+        "counters_at_start": COUNTERS})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    company = await _confirm(app_client, ws, uid)
+    assert (await _cmd_status(engine, fy), await _cmd_status(engine, company)) == ("pending", "pending")
+    r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", headers=headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
+    assert r.status_code == 200, r.text
+    assert (await _cmd_status(engine, fy), await _cmd_status(engine, company)) == ("done", "pending")
