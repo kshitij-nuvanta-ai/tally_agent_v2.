@@ -1,6 +1,7 @@
 """Company A's lifecycle in automated mode (S0 spec §5.8): fresh seed copy, the rename, file-level backup / restore."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from pathlib import Path
@@ -13,6 +14,31 @@ from v2.probes.setup.writes import TallyWriter, WriteFailed
 _TAG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+def _copy_then_swap(source: Path, target: Path) -> None:
+    """Copy into a sibling temp folder first; only a complete copy replaces `target` (old kept until then)."""
+    tmp = target.with_name(f"{target.name}.tmp-{os.getpid()}")
+    old = target.with_name(f"{target.name}.old-{os.getpid()}")
+    for leftover in (tmp, old):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+    try:
+        shutil.copytree(source, tmp)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    had_target = target.exists()
+    if had_target:
+        os.replace(target, old)
+    try:
+        os.replace(tmp, target)
+    except BaseException:
+        if had_target:
+            os.replace(old, target)
+        raise
+    if had_target:
+        shutil.rmtree(old, ignore_errors=True)
+
+
 def replace_company_folder(source: Path, target: Path, config: OperatorConfig) -> None:
     """Copy `source` over `target`; `target` must be a company folder directly inside the s0probe data folder."""
     if target.parent.resolve() != config.data_dir.resolve():
@@ -20,9 +46,7 @@ def replace_company_folder(source: Path, target: Path, config: OperatorConfig) -
     if not source.is_dir():
         raise OperatorError(f"No company folder at {source}")
     try:
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(source, target)
+        _copy_then_swap(source, target)
     except OSError as exc:
         raise OperatorError(f"Couldn't copy {source} to {target}: {exc}") from exc
 
@@ -65,13 +89,12 @@ def backup_company(control: TallyControl, config: OperatorConfig, label: str, ta
     target = backup_folder(config, label, tag)          # validated before anything is stopped or touched
     control.stop()
     try:
-        if target.exists():
-            shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(config.company_folder(label), target)
+        _copy_then_swap(config.company_folder(label), target)
     except OSError as exc:
         raise OperatorError(f"Couldn't back up company {label} to {target}: {exc}") from exc
-    control.start(label)
+    finally:
+        control.start(label)          # Tally comes back up even when the copy failed
     control.wait_for_companies([COMPANIES[label]], click=True)
     return target
 

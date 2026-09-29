@@ -101,3 +101,54 @@ def test_backup_company_translates_a_copy_failure_into_an_operator_error(tmp_pat
     monkeypatch.setattr(company_a.shutil, "copytree", _broken_copytree)
     with pytest.raises(OperatorError, match="Couldn't back up"):
         company_a.backup_company(control, config, "A", "t1")
+
+
+# --- M3 (retro): copy to a sibling temp folder, then swap; Tally restarted in finally ---------------------------
+
+
+def _snapshot(folder):
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def _half_copytree(monkeypatch):
+    real = company_a.shutil.copytree
+
+    def _half(src, dst, *a, **kw):
+        real(src, dst, *a, **kw)
+        raise OSError("disk full halfway")
+
+    monkeypatch.setattr(company_a.shutil, "copytree", _half)
+
+
+def test_failed_copy_leaves_target_intact(tmp_path, monkeypatch):
+    config, *_ = _setup(tmp_path)
+    before = _snapshot(config.company_folder("A"))
+    _half_copytree(monkeypatch)
+    with pytest.raises(OperatorError, match="Couldn't copy"):
+        company_a.replace_company_folder(config.seed_folder("A"), config.company_folder("A"), config)
+    assert _snapshot(config.company_folder("A")) == before
+    assert [p.name for p in config.data_dir.iterdir() if ".tmp-" in p.name or ".old-" in p.name] == []
+
+
+def test_backup_reusing_tag_keeps_old_backup_until_new_copy_succeeds(tmp_path, monkeypatch):
+    config, books, runner, control, writer, _ = _setup(tmp_path, [TallyProcess(8, OWN_COMMAND)], dirty=False)
+    company_a.backup_company(control, config, "A", "t1")
+    folder = company_a.backup_folder(config, "A", "t1")
+    old = _snapshot(folder)
+    assert old
+    (config.company_folder("A") / "marker.txt").write_text("new", encoding="utf-8")
+    _half_copytree(monkeypatch)
+    with pytest.raises(OperatorError):
+        company_a.backup_company(control, config, "A", "t1")
+    assert _snapshot(folder) == old
+
+
+def test_backup_restarts_tally_even_when_copy_fails(tmp_path, monkeypatch):
+    config, books, runner, control, writer, _ = _setup(tmp_path, [TallyProcess(8, OWN_COMMAND)], dirty=False)
+    started = []
+    real_start = control.start
+    monkeypatch.setattr(control, "start", lambda label: (started.append(label), real_start(label))[1])
+    _half_copytree(monkeypatch)
+    with pytest.raises(OperatorError):
+        company_a.backup_company(control, config, "A", "t1")
+    assert started == ["A"]
