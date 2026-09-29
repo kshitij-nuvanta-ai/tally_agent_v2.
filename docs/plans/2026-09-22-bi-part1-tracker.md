@@ -35,7 +35,7 @@ re-review clean. Deferred minors in the ledger (window-from-coverage edge when c
 estimate still an hourly O(rows) walk; `storage_estimated_at` lives in the `ladder` jsonb).
 
 **Next concrete steps, in order:**
-1. **Task 12** — real-data parity (A, B) through the whole API + FakeBooks end-to-end + restart round-trips. Biggest
+1. 🟡 **Task 12 in progress** (dispatched 2026-09-29, BASE `a2cf879`; report → `task-12-report.md`) — real-data parity (A, B) through the whole API + FakeBooks end-to-end + restart round-trips. Biggest
    unknown. Preflight rulings F4, F7, F9, F13, T12 apply; recommend a cheap read-only **G6** capture (B ledgerwise TB
    as-on 2022-04-01) first so B's books-start anchor is a real Tally figure, not the dataset (A5).
 2. **Task 13** whole-branch review (most capable model) with the ledger's deferred-minor list → one fix wave.
@@ -686,7 +686,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 9 | Reconcile + snapshots | ✅ 2026-09-28 | `77d7b38` + review fixes `4337e43`, `626d774`; 1557 green (`logs/v2-s1-task9-fix2.log`) |
 | 10a/10b/10c | Parity core (anchors, rung 1, C47, rung 2); classifier/ladder/bisect; engine + `/parity` | ✅ 2026-09-28 | **10a ✅ 2026-09-28** (`f6312e0`, review clean first pass; 1618 green, `logs/v2-s1-task10a.log`; real A FY 2025-26 + B 2023-03-31 all diffs 0.00, USD party `match_revalued` 183.87); **10b ✅ 2026-09-28** (`5e4b09f` + review fixes `1117781`, `485c299`; 1651 green, `logs/v2-s1-task10b-fix2.log`); **10c ✅** (`5dde418`, `7aec62c` + review fix `c1cdd21`; 1703 green, `logs/v2-s1-task10c-fix1.log`) |
 | 11 | Maintenance slices + `purge` CLI | ✅ | built `db3632a`; review 2026-09-28: 6 Important + Task 8c JSON-null defect (`task-11-review.md`); fix round 1 `6999998` (1723 green, `logs/v2-s1-task11-fix1.log`); re-review clean 2026-09-29 (`task-11-fix1-rereview.md`) |
-| 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | ⬜ | |
+| 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | 🟡 | dispatched 2026-09-29 (BASE `a2cf879`); no G6 (Tally not running) → B books-start anchor from the dataset (A5/F9) |
 | 13 | Whole-branch code review → `docs/code-review-bi-s1-<date>.md`, fix round | ⬜ | |
 | 14 | S1 hardening backlog from S0 (probe harness) | ⬜ | |
 | 15 | Final verification + docs | ⬜ | |
@@ -826,3 +826,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-29 | **Resumed.** Postgres up. Task 11 fix round 1 dispatched to a fresh implementer (original context lost overnight): I1–I6 + the Task 8c `store.py` JSON-`'null'` fix and an `AVG_ROW_BYTES` re-measure (controller ruling: fixed in this round). |
 | 2026-09-29 | **Task 11 fix round 1 implemented** `6999998`, 1723 green (`logs/v2-s1-task11-fix1.log`). Maintenance isolated so it can never fail a heartbeat; storage estimate ≤ hourly + budget-gated (timestamp kept in `sync_workspaces.ladder` — no new migration); purge per workspace, survives the moved-device FK case; one `clock.window_fys` for coverage/state/pipeline; quarantine retention (resolved > 90 d); per-table purge counts asserted. **8c fix:** `JSONB(none_as_null=True)` → FY−2 `raw` is SQL `NULL`. Re-measured `tally_vouchers`: 363 B/row without raw, 4,533 B with raw → new `AVG_RAW_BYTES = 4170` so the estimate isn't low for the newest two FYs; script `v2/tests/cloud/db/measure_avg_row_bytes.py`. Scoped re-review dispatched. |
 | 2026-09-29 | **S1 Task 11 ✅.** Scoped re-review of `6999998`: all 7 findings ADDRESSED, no new Critical/Important (`task-11-fix1-rereview.md`). Minors to the ledger for Task 13: coverage-derived window when coverage lacks the previous FY; heartbeat-isolation test doesn't assert the ops log; hourly O(rows) estimate may need a planner estimate at 30 M rows; `pg_column_size` understates on-disk size. S1.23 ✅. Next: Task 12. |
+| 2026-09-29 | **S1 Task 12 🟡 dispatched** (BASE `a2cf879`). G6 **not** captured: Tally wasn't running (`localhost:9000` refused), so B's books-start anchor uses the dataset (A5/F9, `anchor_source=dataset`) — a gap for the Task 15 report. Preflight rulings F4, F7, F9, F13, T12 carried. |
