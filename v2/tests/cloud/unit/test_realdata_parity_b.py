@@ -7,9 +7,14 @@ the group TB `p18_B_tb_asof_2023-03-31.xml` (incl. the `Unadjusted Forex Gain/Lo
 TB as-on 31-03-2023 (`s1_B_tb_ledger_asof_2023-03-31.xml`; the brief's `..._tb_ledgerwise_...` name is advisory).
 Ruling F3: G2's rows are also rung 1's "Tally figure" for this past as-on (the mirrored masters are FY 2025-26).
 
-Books-start anchor (plan ambiguity A5, rulings F9): G6 -- B's ledger-level TB as-on books_from -- was NOT captured, so
-the anchor is ``company_b_data.generate()``'s ledger openings (the values setup-b wrote and ``_verify`` read back).
-Every test id here carries ``anchor_source=dataset``. That anchor is never posted through ``/snapshots``.
+Books-start anchor (plan ambiguity A5, rulings F9): when Task 12 was dispatched G6 -- B's ledger-level TB as-on
+books_from -- was not captured, so the anchor is ``company_b_data.generate()``'s ledger openings (the values setup-b
+wrote and ``_verify`` read back); every such test id carries ``anchor_source=dataset``, and that anchor is never posted
+through ``/snapshots``. G6 (`s1_B_tb_ledger_asof_2022-04-01.xml`) was captured during the task (controller commit
+3620693): closing columns only, i.e. the balance at the END of 01-04-2022 -- exactly A's G1 shape -- so it is consumed
+exactly as G1 is (D9: TB as-on books_from minus our own lines dated books_from). The two headline tests also run on it
+(``anchor_source=tally``), and ``test_g6_books_start_anchor_reconciles_with_the_dataset_openings`` pins that the
+G6-derived anchor equals the dataset openings ledger by ledger. Tests skip, naming G6, when it is absent.
 
 Seeded faults (each applied to a COPY of the assembled data) -- rulings F4 / F7 / T12:
 - ``drop_usd_sale_101``: on B-2023 no face is available (F3), so the USD party is ``mismatch`` /
@@ -33,6 +38,7 @@ from v2.tests.cloud import realdata as rd
 
 AS_ON, BOOKS_FROM = date(2023, 3, 31), date(2022, 4, 1)
 G2 = "s1_B_tb_ledger_asof_2023-03-31.xml"
+G6 = "s1_B_tb_ledger_asof_2022-04-01.xml"
 USD = "Gulf Office Supplies LLC (USD)"
 ANCHOR_ID = "anchor_source=dataset"
 
@@ -43,31 +49,47 @@ def _g2() -> rd.Snapshot:
     return rd.Snapshot.capture(G2)
 
 
+def _g6() -> rd.Snapshot:
+    if not (rd.SYNC / G6).exists():
+        pytest.skip("G6 not captured (company B ledger-level TB as-on books_from 01-04-2022)")
+    return rd.Snapshot.capture(G6)
+
+
 def dataset_anchor() -> dict[str, D]:
-    """A5: B's books-start anchor from the dataset's ledger openings (G6 not captured)."""
+    """A5: B's books-start anchor from the dataset's ledger openings (cross-checked against G6 below)."""
     return {spec.name: spec.opening for spec in company_b_data.generate("educational").ledgers if spec.opening}
 
 
 def _run(b: rd.Assembled | None = None, *, tb: rd.Snapshot | None = None,
-         anchor: dict[str, D] | None = None) -> rd.ParityResult:
+         anchor: dict[str, D] | None = None, anchor_source: str = "dataset") -> rd.ParityResult:
+    """``anchor_source="dataset"`` (A5) or ``"tally"`` (G6) -- the real ledger-level TB as-on books_from, if captured (then
+    the D9 books-start anchor is that TB minus our own lines dated 01-04-2022, exactly as the engine does it)."""
     b = b or rd.assemble_b_fy2022()
     lw = _g2()
-    return rd.pure_parity(b, snapshots={"trial_balance": tb or rd.Snapshot.capture("p18_B_tb_asof_2023-03-31.xml"),
-                                        "trial_balance_ledgerwise": lw},
-                          mirrored=rd.mirrored_from_tb(lw), as_on=AS_ON, verified_edge=BOOKS_FROM,
-                          dataset_anchor=dataset_anchor() if anchor is None else anchor)
+    snapshots = {"trial_balance": tb or rd.Snapshot.capture("p18_B_tb_asof_2023-03-31.xml"),
+                 "trial_balance_ledgerwise": lw}
+    if anchor_source == "tally":
+        snapshots["anchor"] = _g6()
+        return rd.pure_parity(b, snapshots=snapshots, mirrored=rd.mirrored_from_tb(lw), as_on=AS_ON,
+                              verified_edge=BOOKS_FROM)
+    return rd.pure_parity(b, snapshots=snapshots, mirrored=rd.mirrored_from_tb(lw), as_on=AS_ON,
+                          verified_edge=BOOKS_FROM, dataset_anchor=dataset_anchor() if anchor is None else anchor)
 
 
 def _breakdown(result: rd.ParityResult) -> list:
     return [(l.scope, l.name, l.our, l.tally, l.diff, l.verdict, l.cause) for l in result.problems()]
 
 
-@pytest.mark.parametrize("anchor_source", ["dataset"], ids=[ANCHOR_ID])
+ANCHORS = pytest.mark.parametrize("anchor_source", ["dataset", "tally"], ids=[ANCHOR_ID, "anchor_source=tally"])
+
+
+@ANCHORS
 def test_company_b_2023_rung2_ok_with_forex_18387(anchor_source):
     """§0 criterion 2: status `ok`, the USD party `match_revalued` with unrealised 183.87, `Export Sales` `match`,
-    `forex_unrealised_total == 183.87`."""
-    result = _run()
-    assert result.anchor_source == anchor_source
+    `forex_unrealised_total == 183.87` -- on the dataset anchor (A5) and, where G6 exists, on Tally's own books-start
+    ledger-level TB."""
+    result = _run(anchor_source=anchor_source)
+    assert result.anchor_source == (G6 if anchor_source == "tally" else "dataset")
     assert result.status == "ok", _breakdown(result)
     usd = result.ledger(USD)
     assert (usd.verdict, usd.unrealised, usd.our, usd.tally, usd.cause) == \
@@ -81,17 +103,37 @@ def test_company_b_2023_rung2_ok_with_forex_18387(anchor_source):
     assert (ca.our, ca.verdict) == (D("-1954753.74"), "match")
 
 
-@pytest.mark.parametrize("anchor_source", ["dataset"], ids=[ANCHOR_ID])
+@ANCHORS
 def test_company_b_2023_row_removed_forex_revaluation_unexplained(anchor_source):
     """§16: the same inputs with the `Unadjusted Forex Gain/Loss` cell dropped from the group TB -> the set rule
     rejects -> the USD party `mismatch`, cause `forex_revaluation_unexplained` (classified `forex_gap`)."""
     tb = rd.Snapshot.capture("p18_B_tb_asof_2023-03-31.xml").without("Unadjusted Forex Gain/Loss")
-    result = _run(tb=tb)
+    result = _run(tb=tb, anchor_source=anchor_source)
     assert result.status == "suspect"
     raw, classified = result.ledger(USD, raw=True), result.ledger(USD)
     assert (raw.verdict, raw.cause, raw.diff) == ("mismatch", "forex_revaluation_unexplained", D("183.87"))
     assert (classified.verdict, classified.cause) == ("mismatch", "forex_gap")
     assert result.forex_unrealised_total == D("0.00")
+
+
+def test_g6_books_start_anchor_reconciles_with_the_dataset_openings():
+    """G6 (closing at the end of 01-04-2022) minus our own FY 2022-23 lines dated 01-04-2022 -- the engine's D9 anchor
+    -- equals ``company_b_data``'s ledger openings for every ledger (A5's dataset anchor is the same figure)."""
+    from v2.cloud.parity.anchors import anchor_amounts
+    from v2.cloud.parity.model import build_sums
+    from v2.tests.cloud import parity_realdata as prd
+    g6 = _g6()
+    b = rd.assemble_b_fy2022()
+    index, ledgers, _, _ = prd._index_and_ledgers(b.masters)
+    facts = prd._line_facts(prd._parse_vouchers(b.vouchers), index)
+    day_one = build_sums([f for f in facts if f.voucher_date == BOOKS_FROM], verified_edge=BOOKS_FROM,
+                         as_on=BOOKS_FROM).total
+    assert day_one                                               # G6 does include day-1 activity
+    anchors, unresolved = anchor_amounts(g6.rows, index, day_one, ledgerwise_flags=g6.flags)
+    assert unresolved == []
+    by_name = {l["guid"]: l["name"] for l in ledgers}
+    derived = {by_name[g]: a for g, a in anchors.items() if a != 0}
+    assert derived == {n: a for n, a in dataset_anchor().items() if a != 0}
 
 
 def test_company_b_forex_tb_row_form_matches_g2():
