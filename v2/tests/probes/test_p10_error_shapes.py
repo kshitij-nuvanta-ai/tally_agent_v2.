@@ -154,3 +154,17 @@ async def test_timeout_with_a_popup_raised_keeps_the_popup_wording(tmp_path):
     assert rows["popup / modal open"]["transport"] == "timeout"
     assert rows["popup / modal open"]["gate_action"] == \
         "back off; tell the user to check Tally for an open popup (LESSONS §15 rule 10)"
+
+
+# --- M7 (retro): a "popup not raised" run created the stock group — leave a cleanup note -----------------------------
+
+
+async def test_popup_not_raised_records_stock_group_cleanup_note(tmp_path):
+    part, _ = await _run(tmp_path, popup_raised=False)
+    note = "delete stock group 'Electronics' created by probe 10"
+    assert note in part["observations"]["cleanup_needed"][0]
+
+
+async def test_popup_raised_records_no_stock_group_cleanup_note(tmp_path):
+    part, _ = await _run(tmp_path, popup_raised=True)
+    assert "cleanup_needed" not in part["observations"]

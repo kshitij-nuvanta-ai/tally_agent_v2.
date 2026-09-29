@@ -13,8 +13,11 @@ from v2.probes.context import ProbeContext
 from v2.probes.core import Outcome, PartResult, Probe
 from v2.probes.licence import LICENCE_REQUEST, parse_licence_info
 from v2.probes.reads import A_FY_FROM, A_FY_TO, master_request
+from v2.probes.setup.writes import POPUP_STOCK_GROUP
 
 POPUP_TIMEOUT_S = 10.0
+STOCK_GROUP_NOTE = (f"Cleanup: delete stock group {POPUP_STOCK_GROUP!r} created by probe 10 (the duplicate create succeeded, so no "
+                    "popup was raised and the group did not exist before)")
 POPUP_NOTE = "Dismiss the popup in Tally (or restart Tally) and open company {company!r} only"
 REOPEN_NOTE = "Start TallyPrime and open company {company!r} only"
 
@@ -58,6 +61,8 @@ async def run_a(ctx: ProbeContext) -> PartResult:
     ctx.pause("Make Tally busy with a modal: open a voucher entry screen (e.g. Vouchers → F5 Payment) and leave it open, "
               "unsaved.", Action("raise_popup", {"company": company}))
     popup_raised = getattr(ctx.io, "popup_raised", None)
+    if popup_raised is False:
+        ctx.on_abort(STOCK_GROUP_NOTE)      # the "duplicate" create really created the group
     popup = _shape(*await ctx.try_send("popup_read", cheap, timeout=POPUP_TIMEOUT_S))
     ctx.pause(f"Dismiss it (Esc, don't save) and make sure only {company!r} is open.",
               Action("dismiss_popup", {"label": ctx.part}))
@@ -112,6 +117,8 @@ async def run_a(ctx: ProbeContext) -> PartResult:
     ]
     ctx.observe("gate_table", table)
     ctx.observe("popup_raised", popup_raised)
+    if popup_raised is False:
+        ctx.observe("cleanup_needed", [STOCK_GROUP_NOTE])
     blind = [row["condition"] for row in table[2:5]
              if row["transport"] == "ok" and row["body"] == "data" or
              (row["condition"] == "Tally not running" and row["transport"] != "refused")]
