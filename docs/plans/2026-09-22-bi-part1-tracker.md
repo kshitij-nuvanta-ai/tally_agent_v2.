@@ -27,9 +27,11 @@ only); v2 with DB **1948 passed**; current app DB suite **268 passed** after v2 
 `logs/v2-s1-final-*.log`, `logs/db-suite-run-after-s1.log`). **Tally:** open on company B (not needed any more).
 
 **Open items carried out of S1:**
-- **Manual real-app pass not run** (Task 15 Step 5): `.env` `DATABASE_URL` points at port 5434 where nothing runs; the
-  only Postgres is :5432 (has a `tallyagent` DB with dev users). Someone must confirm which DB is the dev DB; then run
-  `python -m v2.cloud migrate` there + the curl walk-through (routes in `v2/README.md`). Nothing was written.
+- **Manual real-app pass ✅** (2026-09-29, user-approved) on :5432 `tallyagent` — the dev DB now has the v2 tables plus a
+  throwaway user `s1-manual-test@example.com` (`1998fbba-…`) and workspace "S1 manual test" (`17b9e6e8-…`) for the user to
+  delete if wanted. `.env` `DATABASE_URL` still says :5434 (stale — nothing runs there); fix when convenient. Scratch DB
+  `tallyagent_v2_review` (structure only) also exists on :5432 — drop when no longer needed. passlib/bcrypt version-read
+  warning appears in both server logs (harmless).
 - **G-gaps:** none blocking — G1, G2, G6 captured; B's books-start anchor is now a Tally figure (G6), dataset variant kept.
 - **Deferred minors:** the SDD ledger `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/progress.md` (`minor (deferred)`
   lines) and the review doc's triage table — incl. logout×expired-token untested, pydantic 422 bypasses the §11
@@ -42,8 +44,7 @@ only); v2 with DB **1948 passed**; current app DB suite **268 passed** after v2 
   in the change log below (notably: §10.7 `anchor_wrong` widened; ack = received; confirmed resync overrides the
   alter_id rule within its scope; `unexpected_parse_error` stays quarantinable).
 
-**Next concrete steps:** (1) user decides on push + PR `feat/bi-s1-cloud` → `dev`; (2) optional manual dev-DB pass
-once the dev DB is identified; (3) S2 spec (Windows agent) → plan.
+**Next concrete steps:** (1) user decides on push + PR `feat/bi-s1-cloud` → `dev`; (2) S2 spec (Windows agent) → plan.
 
 ---
 
@@ -691,7 +692,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | ✅ | `f5e44bb`, `4d412a7`, fix `41ab9a4` (v2 1883 passed, `logs/v2-s1-task12-fix1.log`; DB `logs/v2-s1-db-task12.log`); A ok (G1), B-2023 ok on dataset AND G6 anchors; review `task-12-review.md`, re-review clean `task-12-fix1-rereview.md` |
 | 13 | Whole-branch code review → `docs/code-review-bi-s1-2026-09-29.md`, fix round | ✅ | review 0 C / 8 I / 20 M; fix wave I1–I8 + M20 (`0327c88`…`53b246e`, doc `d4e0c8a`), v2 1918 passed (`logs/v2-s1-task13-fixwave.log`); re-review `task-13-fixwave-rereview.md`: 8/9 addressed, I7 restore-loop residual + 4 more carried by ruling into Task 14b |
 | 14 | S1 hardening backlog from S0 (probe harness) + Task 13 carries | ✅ | **14a** S0 retro M2 `3bce70f`, M3 `b92ca92`, M7 `1f101d7` + isolation fix `5b3197a`, M8 `0302348` (913 passed, `logs/v2-s1-task14a-fix1.log`; reviews Approve); **14b** C1 `d7a2d8d`+`fec6ede`, C2 `8335a69`+`5ab6832`, C3 `f378cb1`, C4 `be640c0`, C5 `1308165`, C6 `9d5dcc2`+`7274b08` (v2 1948 passed, `logs/v2-s1-task14b-fix1.log`; re-review Approved) |
-| 15 | Final verification + docs | ✅ | suites as S1.25; isolation 8 passed; scope: only `v2/`, `docs/`, `LESSONS.md` (ruled OK); README `942d020`; spec as-built + Part-1 header `611a403`; LESSONS §15 rule 31 `5451faf`. **Step 5 manual dev-DB pass NOT run** — `.env` points at :5434 (nothing listening), only :5432 up and it's unclear which is the dev DB; nothing was written (user: "do what you think is best" → skipped) |
+| 15 | Final verification + docs | ✅ | suites as S1.25; isolation 8 passed; scope: only `v2/`, `docs/`, `LESSONS.md` (ruled OK); README `942d020`; spec as-built + Part-1 header `611a403`; LESSONS §15 rule 31 `5451faf`. **Step 5 manual pass ✅** on the dev DB = **:5432 `tallyagent`** (the only Postgres running; `.env`'s :5434 is stale): v2 migrate (10 app tables unchanged + 22 v2), then all 9 calls 2xx — current app register/login/workspace, v2 agent login → workspaces → bind → heartbeat → state → web sync-status (`logs/v2-s1-manual-walkthrough.log`, `logs/v2-s1-dev-migrate.log`, counts `logs/v2-s1-counts-{before,after}.txt`). Throwaway user `s1-manual-test@example.com` + workspace "S1 manual test" left in place |
 
 ### S1 items (spec-level; flipped as the tasks above land)
 
@@ -845,3 +846,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-29 | **Task 14b fix round 1** — `7274b08` G6 `usd_row` exact name only (reports absent); `5ab6832` resync authority per object within the run's scope (FY resync: masters and other-FY vouchers keep `skipped_older`); `fec6ede` snapshot stale when its counter ≠ the cursor (rename-after-backup → restore now re-captures once, then `ok`). v2 **1948 passed, 0 failed** — the isolation test is green again after 14a's fix. Scoped re-review dispatched. |
 | 2026-09-29 | **S1 Task 14 ✅** — 14b re-review Approved (all 3 addressed; minors → ledger). **S0 exceptions (f)/(g): M2/M3/M7/M8 ✅.** **Task 15 started:** 15a (no-DB + DB v2 suites, then the current app's DB suite on the shared test DB, isolation/scope, README), 15b (20 queued S1 spec edits + Part-1 header + LESSONS §15 G6 rule), and Step 5's manual pass — **user approved** migrating the v2 tables into the dev `tallyagent` DB and a curl walk-through. |
 | 2026-09-29 | **S1 Task 15 ✅ — S1 BUILT.** Controller verified every count against its log: v2 no-DB 1511 passed / 437 skipped (all "TEST_DATABASE_URL not set"); v2 with DB 1948 passed / 0 skipped; current app DB suite 268 passed after v2 (CLAUDE.md's 249 reference is out of date — the suite grew; no `drop_all`/v2 errors). Isolation 8 passed. Scope: only `LESSONS.md` outside `v2/`+`docs/` — ruled OK (Task 15 mandates it). Docs: S1 spec as-built (20 items; full §11 code list; Part-1 header: no decision reversed, 4 refinements) `611a403`; LESSONS §15 rule 31 (ledgerwise TB as-on D is closing-only; G2 forex row plain INR) `5451faf`; `v2/README.md` Cloud section `942d020`. **Manual dev-DB pass skipped:** `.env` points at :5434 (down); the :5432 `tallyagent` might or might not be the dev DB — user said "do what you think is best", so nothing was migrated. Branch not pushed; PR to `dev` awaits the user. |
+| 2026-09-29 | **Task 15 Step 5 done** after all (user asked to run it): the only running Postgres is :5432 (`.env`'s :5434 is stale), so `tallyagent` there is the dev DB. v2 migrate clean (10 app tables unchanged + 22 v2 tables); the user approved one throwaway test user, and the walk-through returned 2xx on every call — current app register/login/workspace, v2 agent login, agent workspaces, bind, heartbeat, `/state`, web `sync-status`. Rows: users +1, workspaces +1, `agent_devices` +1, `sync_workspaces` +1. **S1 fully verified, incl. the real-app pass.** |
