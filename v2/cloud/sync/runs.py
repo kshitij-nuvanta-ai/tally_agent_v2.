@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from v2.cloud.clock import Clock, fy_start_of, ist_date
 from v2.cloud.errors import ApiError
 from v2.cloud.models import AgentDevice, SyncBatch, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
-from v2.cloud.sync import coverage, state
+from v2.cloud.sync import commands, coverage, state
 from v2.contract.models import Counters
 
 # A8 (controller ruling): "fatal code" is undefined in the spec. These are the codes that move a failed
@@ -384,6 +384,15 @@ async def _apply_completion_transition(session: AsyncSession, sw: SyncWorkspace,
         # over the generic §8.2 `error` row below.
         if (sw.sync_state, "company_resync_completed") in state.TRANSITIONS:
             state.transition(sw, "company_resync_completed")
+        # S1 review I4: the confirmed whole-company resync IS the resolution of a restore / relink — clear the
+        # reason and the restore/relink offer so sync-status stops offering a resync that has just been done, and
+        # cancel any other still-open confirm (it would trigger a second full re-read). A parity offer (FY-scoped)
+        # is the ladder's own and is left to the engine.
+        sw.restore_reason = None
+        offer = (sw.ladder or {}).get("resync_offered")
+        if offer and offer.get("reason") in ("restore", "relink"):
+            sw.ladder = {k: v for k, v in sw.ladder.items() if k != "resync_offered"}
+        await commands.cancel_open_resyncs(session, sw.workspace_id, clock, keep=run.command_id)
         return
 
     # §8.2 window-driven transitions: `first_sync`'s own event, and (I2) the SAME `error -> ready / first_sync`

@@ -424,3 +424,59 @@ async def test_superseding_confirm_resync_cancels_the_open_one(app_client, sessi
     assert (r.status_code, r.json()["error"]) == (409, "resync_not_confirmed")
     await _run_company_resync(app_client, ws, headers, new, below)
     assert (await _cmd_status(engine, old), await _cmd_status(engine, new)) == ("cancelled", "done")
+
+
+@pytest.mark.parametrize("cause", ["restore", "relink"])
+async def test_restart_after_confirmed_resync_resolves_restore_or_relink(app_client, session, engine, restart, clock,
+                                                                         cause):
+    """I4: once the confirmed whole-company resync completes, `restore_reason` and the restore/relink resync offer
+    are cleared (and stay cleared across a restart) — sync-status no longer offers a resync already done; any other
+    open `confirm_resync` is cancelled."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    if cause == "restore":
+        counters = await _restore_detected(app_client, ws, headers, clock)
+    else:
+        r = await app_client.post(f"/api/sync/{ws}/heartbeat", headers=headers, json={
+            "tally_status": "other_company_same_name", "pc_clock": clock.now().isoformat(),
+            "seen_company": {"guid": NEW_GUID, "name": B_BIND["company_name"]}})
+        assert r.status_code == 200, r.text
+        r = await app_client.post(f"/api/sync/{ws}/relink", headers=headers, json={
+            "new_company_guid": NEW_GUID, "company_name": B_BIND["company_name"], "password": "Passw0rd!Passw0rd"})
+        assert r.status_code == 200, r.text
+        counters = {"alt_vch_id": 3, "alt_mst_id": 3}
+    status = (await app_client.get(f"/api/workspaces/{ws}/sync-status", headers=web_headers(uid))).json()
+    assert status["resync_offered"] == {"scope": "company", "reason": cause}
+    cmd_id = await _confirm(app_client, ws, uid)
+    await _hb(app_client, ws, headers, clock)
+    await _hb(app_client, ws, headers, clock, acked=[cmd_id])
+    await _run_company_resync(app_client, ws, headers, cmd_id, counters)
+    c2, after = await roundtrip(app_client, restart, engine, ws, headers, uid)
+    st = after["status"]
+    assert (st["sync_state"], st["restore_reason"], st["resync_offered"], st["relink_prompt"]) == \
+        ("ready", None, None, None)
+    assert "resync_offered" not in (after["sw"]["ladder"] or {})
+    assert after["state"]["cursors"] == counters and after["state"]["commands"] == []
+    assert [(c["type"], c["status"]) for c in after["commands"]] == [("confirm_resync", "done")]
+    assert all(r["status"] == "completed" for r in after["runs"])
+
+
+async def test_confirm_issued_during_the_running_resync_is_cancelled_on_completion(app_client, session, engine, clock):
+    """I4: a confirm the user clicks WHILE the whole-company resync runs is pending (the running one's command is in
+    use, so it isn't superseded); once the resync completes there is nothing left to resync, so it is cancelled —
+    never delivered afterwards to trigger a second full re-read."""
+    uid, ws, headers = await bind(app_client, session)
+    await _complete_empty_first_sync(app_client, ws, headers)
+    below = await _restore_detected(app_client, ws, headers, clock)
+    first = await _confirm(app_client, ws, uid)
+    r = await app_client.post(f"/api/sync/{ws}/runs", headers=headers, json={
+        "kind": "full_resync", "scope": {"company": True}, "command_id": first, "counters_at_start": below})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    second = await _confirm(app_client, ws, uid)
+    assert (await _cmd_status(engine, first), await _cmd_status(engine, second)) == ("pending", "pending")
+    r = await app_client.patch(f"/api/sync/{ws}/runs/{run_id}", headers=headers, json={
+        "status": "completed", "progress_done": 1, "progress_total": 1, "batches_declared": 0})
+    assert r.status_code == 200, r.text
+    assert (await _cmd_status(engine, first), await _cmd_status(engine, second)) == ("done", "cancelled")
+    assert (await _hb(app_client, ws, headers, clock))["commands"] == []

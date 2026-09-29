@@ -995,6 +995,11 @@ async def test_company_resync_sets_counters_at_start_and_ready(app_client, sessi
     cmd = await _command_row(session, cmd_id)
     assert cmd["status"] == "done" and cmd["done_at"] is not None
 
+    # S1 review I4: the whole web-visible status after the resolution — nothing left offered.
+    st = (await app_client.get(f"/api/workspaces/{ws}/sync-status", headers=web_headers(uid))).json()
+    assert (st["sync_state"], st["restore_reason"], st["resync_offered"], st["relink_prompt"]) == \
+        ("ready", None, None, None)
+
 
 # --- §8.2 first_sync completion / A8 fatal codes ------------------------------------------------------------
 
