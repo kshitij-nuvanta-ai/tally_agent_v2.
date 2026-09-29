@@ -19,35 +19,37 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-29 — **S1: Tasks P, 0–11 ✅; Task 12 next**)
+## ▶ Resume here (updated 2026-09-29 end — **S1 BUILT: Tasks P, 0–15 ✅; next: PR to `dev`, then the S2 spec/plan**)
 
-**Branch** `feat/bi-s1-cloud`, HEAD = Task 11 fix `6999998` + tracker commits. Pushed 2026-09-28 up to `a5f24e3`; today's
-commits are **local only** — push only when the user says so. **v2 suite: 1723 passed** at `6999998` (DB tests included;
-`logs/v2-s1-task11-fix1.log`). Task 15 regression baseline = 1002. **Tally:** open on company B only, tally.ini `Load=100000`.
+**Branch** `feat/bi-s1-cloud`, all S1 work committed; **local commits since `a5f24e3` are NOT pushed** — push / PR only
+when the user says so (PR into `dev`, never `master`). **Final counts:** v2 no-DB 1511 passed / 437 skipped (DB-unset
+only); v2 with DB **1948 passed**; current app DB suite **268 passed** after v2 on the shared test DB (logs
+`logs/v2-s1-final-*.log`, `logs/db-suite-run-after-s1.log`). **Tally:** open on company B (not needed any more).
 
-**Before continuing:** `pg_isready -h localhost -p 5432` (restart: `/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D
-/opt/homebrew/var/postgresql@16 -l logs/postgres-5432-<date>.log -o "-p 5432" start -w`). DB tests use
-`TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test` only. Read the SDD ledger first:
-`.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/progress.md` — trust it and `git log` over memory.
+**Open items carried out of S1:**
+- **Manual real-app pass not run** (Task 15 Step 5): `.env` `DATABASE_URL` points at port 5434 where nothing runs; the
+  only Postgres is :5432 (has a `tallyagent` DB with dev users). Someone must confirm which DB is the dev DB; then run
+  `python -m v2.cloud migrate` there + the curl walk-through (routes in `v2/README.md`). Nothing was written.
+- **G-gaps:** none blocking — G1, G2, G6 captured; B's books-start anchor is now a Tally figure (G6), dataset variant kept.
+- **Deferred minors:** the SDD ledger `.superpowers/sdd/2026-09-25-bi-s1-cloud-plan/progress.md` (`minor (deferred)`
+  lines) and the review doc's triage table — incl. logout×expired-token untested, pydantic 422 bypasses the §11
+  envelope, hourly O(rows) storage estimate, probe 13 unreadable post-restore AltVchId, I7 staleness not checked on
+  the group-anchor route.
+- **S2 contract notes** (spec §17/S2 section): send Tally's current-period end as `as_on`; keep a confirm_resync id
+  (or re-read `/state`); re-offer quarantined GUIDs after a server version change.
+- **Suites NOT run:** live Tally tier B beyond Task 0 + G6, tier C, `e2e_live`, eval, frontend (untouched).
+- **For the user to review when convenient:** S1 spec §2.2 D1–D32, §17.2, plan ambiguities A1–A18, and the rulings
+  in the change log below (notably: §10.7 `anchor_wrong` widened; ack = received; confirmed resync overrides the
+  alter_id rule within its scope; `unexpected_parse_error` stays quarantinable).
 
-**Task 11 ✅ 2026-09-29:** fix round 1 `6999998` fixed all 6 Important + the Task 8c JSON-`'null'` defect; scoped
-re-review clean. Deferred minors in the ledger (window-from-coverage edge when coverage lacks the previous FY; storage
-estimate still an hourly O(rows) walk; `storage_estimated_at` lives in the `ladder` jsonb).
-
-**Next concrete steps, in order:**
-1. ✅ **Task 12 done** (`41ab9a4`, re-review clean). ✅ **Task 13 done** (see row 13). ✅ **Task 14 done.** Now 🟡 **Task 15** (final suites, spec/LESSONS edits, dev-DB manual pass). Task 13 history: review done (`docs/code-review-bi-s1-2026-09-29.md`: 0 Critical, 8 Important, 20 Minor) — **fix wave done** (I1 `0327c88`, I2 `0f77049`, I3 `86ba0c8`, I4 `bf40ec2`, I5 `ba24fe2`, I6 `ba67237`, I7 `415d03f`, I8 `7d1b90d`, M20 `53b246e`; review doc + fix record `d4e0c8a`; v2 **1918 passed**, `logs/v2-s1-task13-fixwave.log`) — 🟡 scoped re-review in progress. Carried into **Task 14**: `GET /state` also lists delivered-but-open `confirm_resync` (I3 follow-up). Former step text: (`f5e44bb`, `4d412a7` reviewed; findings in `task-12-review.md`: `anchor_wrong` row 5, restart-test counts, day-one sum pin, inferred-key provenance) → scoped re-review → ✅ — real-data parity (A, B) through the whole API + FakeBooks end-to-end + restart round-trips. Biggest
-   unknown. Preflight rulings F4, F7, F9, F13, T12 apply; recommend a cheap read-only **G6** capture (B ledgerwise TB
-   as-on 2022-04-01) first so B's books-start anchor is a real Tally figure, not the dataset (A5).
-2. **Task 13** whole-branch review (most capable model) with the ledger's deferred-minor list → one fix wave.
-3. **Task 14** S0 hardening minors (M2, M3, M7, M8 before any tier-C A re-run). **Task 15** final verification + docs:
-   the spec edits queued from the rulings (§11 new codes; §7.5 D7 on any displacement; D30 = the ledger's own
-   balances; §10.1/§10.6 custom top-level groups; §4.2 `ladder.pending_remediation_ids` + `storage_estimated_at`;
-   §4.9 `AVG_RAW_BYTES`; §17.1 login-lockout risk; stored `last_heartbeat` shape; passlib warning; S2 contract: agent
-   sends Tally's current-period end as `as_on`).
-4. The user reviews S1 spec §2.2 (D1–D32), §17.2 (D5, D21, Q6, Q5), plan ambiguities A1–A18 and the rulings
-   (change log below) when convenient.
+**Next concrete steps:** (1) user decides on push + PR `feat/bi-s1-cloud` → `dev`; (2) optional manual dev-DB pass
+once the dev DB is identified; (3) S2 spec (Windows agent) → plan.
 
 ---
+
+### Previous resume notes (2026-09-29 morning — superseded by the block above)
+
+Task 11 fix round → Tasks 12–15 were the plan for the day; all done.
 
 ### Previous resume notes (2026-09-28 end of day — superseded by the block above)
 
@@ -569,7 +571,7 @@ because its Bank/Cash rows carry the known-corrupt seed sign. Replaced by `Sundr
 |---|---|---|---|---|---|
 | Design | Part 1 brainstorm design | — | `specs/2026-09-21-bi-part1-sync-design.md` | — | ✅ 2026-09-21 |
 | **S0** | `v2/` scaffold + live-Tally probes 0–25 + real fixtures in `v2/tests/fixtures/sync/` | — | `specs/2026-09-22-bi-s0-probes-design.md` | `plans/2026-09-22-bi-s0-probes-plan.md` (part 1 ✅), `plans/2026-09-22-bi-s0-probes-plan-part2.md` (part 2, 13 tasks), `plans/2026-09-23-bi-s0-company-b-loader.md` (part 3, 9 tasks, ✅ built), `.superpowers/sdd/2026-09-24-bi-s0-probes-plan-part4/` (part 4, probes 5+21, ✅ built + run live), `docs/plans/2026-09-24-bi-s0-probes-plan-part5.md` (part 5, probes 11/14/15/16B/18B + 16A/17A/18A re-run, ✅ built + run live), `docs/plans/2026-09-25-bi-s0-probes-plan-part6.md` (part 6, probes 3B/23B/25B + R9, 11 under C46, company C + probe 24, ✅ built + run live + docs) | ✅ **Closed 2026-09-25: the S0 exit gate PASSED with recorded exceptions.** See `docs/bi-s0-exit-gate-2026-09-25.md` § "Final verdict". Items 1–7 all PASS: item 3 by `e8420f1`, item 5 by `9830e97`, item 7 by `bb71f83` + the review fixes `86df230`/`b92a659`. Exceptions: (a) `CLAUDE.md` `dc9bf02`; (b) Educational/Wine only, R8 open; (c) 9/20 ⏭ tier C; (d) 11 B/16 B need an expression-form balance parser; (e) M4 pre-forex B verdicts; (f) part-2 retro M1–M10 and (g) C47 review M1–M6 deferred to S1 hardening; (h) logs local only. **Next: the S1 spec.** **Previous status (superseded 2026-09-25, S0 exit gate):** 🟡 **Plan part 7 done 2026-09-25** (`docs/plans/2026-09-25-bi-s0-probes-plan-part7.md`). Probe 22 **CONFIRMED** (forex INR base stated in the export; decision 15 holds); C36 lifted (USD sales 101/102 loaded as forex); new Ruling C47 (forex ledger at the latest voucher rate); 21 B + 18 B re-run CONFIRMED. **Every tier-B probe now has an outcome.** Remaining for S0: the §10 exit-gate check, then the S1 spec. Open: probes 16 B / 11 need expression-form balance parsing before any re-run. Timing probes ⏭ (Q29). **Previous status (superseded 2026-09-25, plan part 7):** 🟡 **Plan part 6 done 2026-09-25.** 3 B CONFIRMED, 23 B CONFIRMED, 25 B DIFFERENT (R9 CONFIRMED — duplicate ledger name refused), 11 re-run DIFFERENT (ledger AND stock master openings are current-period), company C (100001) created + `setup-c`, 24 CONFIRMED (security/TallyVault export unchanged; pending prompt = empty company list). Review `docs/code-review-bi-s0-part6-2026-09-25.md` (minors M1–M8 deferred). **Every built probe has now run live.** Remaining for S0: probe 22 BLOCKED (C36, USD-sales write shape), the §10 exit-gate check, then the S1 spec. Timing probes 9/20/21-timing ⏭ (Q29). **Previous status (superseded 2026-09-25):** 🟡 **Plan part 5 done 2026-09-24.** Probes 16, 17, 18 A re-run typed (17 CONFIRMED unchanged, 18 A CONFIRMED — supersedes 2026-09-23's DIFFERENT, C43 artefact — 16 A DIFFERENT); probes 11, 14, 15 and 18 B built and run live on company B (14/15/18 B CONFIRMED, 11 FAILED stock-only per C46, 16 B FAILED per C45); C44 (company-switch-on-restart) live-verified both directions. **Every probe through 21 has now run live on at least its built companies**, except 3/23/25's B parts (still pending — no B-part code for those three) and probe 22 (BLOCKED, C36) and probe 24 (needs company C). Timing probes 9/20/21-timing ⏭ (Q29). Results: `docs/bi-s0-probe-results-2026-09-24.md`, `v2/probes/results/results.json`. Review: `docs/code-review-bi-s0-part5-2026-09-24.md` (ready with fixes; I1–I3 applied before the B live run). **Next: plan part 6** — B parts of probes 3, 23, 25; company C + probe 24. Open: part-2 code-review doc not written; auto-mode UI-parity gaps (1/7/8, 16, 19) and file-level-only 13 → **R8 stays open**; harness bug — `tally.ini` `Load=100003` preload making `--auto` restarts open A+B together is now **fixed by C44** (`restart("A")`/`restart("B")` open exactly one company; live-verified both directions, `logs/c44-live-restart-2026-09-24.log`, `logs/c44-verify-A-2026-09-24.log`) |
-| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | 🟡 **Building** — Tasks P, 0, 1, 2 ✅ (2026-09-25); Tasks 3–10 ✅ (2026-09-28); Tasks 11, 12 ✅ (2026-09-29); Task 13 🟡. See §4 "S1 plan tasks" |
+| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | ✅ **Built 2026-09-29** on `feat/bi-s1-cloud` — all Tasks P, 0–15 done; review `docs/code-review-bi-s1-2026-09-29.md` fixed; v2 1948 passed with DB. **Not merged** — PR to `dev` pending the user. See §4 "S1 plan tasks" |
 | **S2** | Windows agent | S0 (probe 21 for backfill); parallel with S1 | — | — | ⬜ |
 
 ---
@@ -689,7 +691,7 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 12 | Real-data parity (A, B) + FakeBooks E2E through the API + restart round-trips | ✅ | `f5e44bb`, `4d412a7`, fix `41ab9a4` (v2 1883 passed, `logs/v2-s1-task12-fix1.log`; DB `logs/v2-s1-db-task12.log`); A ok (G1), B-2023 ok on dataset AND G6 anchors; review `task-12-review.md`, re-review clean `task-12-fix1-rereview.md` |
 | 13 | Whole-branch code review → `docs/code-review-bi-s1-2026-09-29.md`, fix round | ✅ | review 0 C / 8 I / 20 M; fix wave I1–I8 + M20 (`0327c88`…`53b246e`, doc `d4e0c8a`), v2 1918 passed (`logs/v2-s1-task13-fixwave.log`); re-review `task-13-fixwave-rereview.md`: 8/9 addressed, I7 restore-loop residual + 4 more carried by ruling into Task 14b |
 | 14 | S1 hardening backlog from S0 (probe harness) + Task 13 carries | ✅ | **14a** S0 retro M2 `3bce70f`, M3 `b92ca92`, M7 `1f101d7` + isolation fix `5b3197a`, M8 `0302348` (913 passed, `logs/v2-s1-task14a-fix1.log`; reviews Approve); **14b** C1 `d7a2d8d`+`fec6ede`, C2 `8335a69`+`5ab6832`, C3 `f378cb1`, C4 `be640c0`, C5 `1308165`, C6 `9d5dcc2`+`7274b08` (v2 1948 passed, `logs/v2-s1-task14b-fix1.log`; re-review Approved) |
-| 15 | Final verification + docs | 🟡 | 15a suites + README, 15b spec/LESSONS edits, Step 5 manual pass on the dev DB (user-approved 2026-09-29) — all running |
+| 15 | Final verification + docs | ✅ | suites as S1.25; isolation 8 passed; scope: only `v2/`, `docs/`, `LESSONS.md` (ruled OK); README `942d020`; spec as-built + Part-1 header `611a403`; LESSONS §15 rule 31 `5451faf`. **Step 5 manual dev-DB pass NOT run** — `.env` points at :5434 (nothing listening), only :5432 up and it's unclear which is the dev DB; nothing was written (user: "do what you think is best" → skipped) |
 
 ### S1 items (spec-level; flipped as the tasks above land)
 
@@ -720,8 +722,8 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | S1.22 | Cause classifier + escalation ladder + tolerance setting | ✅ | Task 10b classifier/ladder/bisect; Task 10c ladder persistence; seeded faults on real B incl. `anchor_wrong` shifted/dropped (Task 12 `41ab9a4`) |
 | S1.23 | `POST /parity` (sync, quiescence abort), `last_parity`, retention | ✅ | `/parity`, quiescence aborts, `last_parity` (suspect invisible) ✅ Task 10c; retention Q21 (90/7/90, protects `last_parity` + ladder runs) ✅ Task 11 `db3632a`, `6999998`; FakeBooks B first sync through the API `test_end_to_end_fakeb.py` + restart round-trips (Task 12) |
 | S1.24 | Internal ops signal — counts and causes only (decision 14) | ✅ | Task 10b builders; Task 10c emission (computed non-ok runs only, hard_alert engineering flag, quarantine on accepted batches) |
-| S1.25 | DB integration tests (spec §8, §14 "DB integration") | 🟡 | Task 12: §15.1 matrix `test_state_matrix_api.py`, `test_end_to_end_fakeb.py`, `test_restart_roundtrip.py` (122 DB passed); ✅ after Task 15's full run |
-| S1.26 | Code review → `docs/code-review-bi-s1-*.md` | ⬜ | |
+| S1.25 | DB integration tests (spec §8, §14 "DB integration") | ✅ | Task 12 §15.1 matrix `test_state_matrix_api.py`, `test_end_to_end_fakeb.py`, `test_restart_roundtrip.py`; Task 15 full runs: v2 no-DB 1511 passed / 437 skipped (DB-unset only) `logs/v2-s1-final-nodb.log`; v2 with DB **1948 passed, 0 skipped** `logs/v2-s1-final-db.log`; current app DB suite after v2 **268 passed** `logs/db-suite-run-after-s1.log` (shared test DB left clean) |
+| S1.26 | Code review → `docs/code-review-bi-s1-*.md` | ✅ | `docs/code-review-bi-s1-2026-09-29.md` (0 C / 8 I / 20 M) + fix wave `0327c88`…`53b246e` (record `d4e0c8a`); residuals ruled into Task 14b (`d7a2d8d`…`fec6ede`), re-reviews Approved |
 
 ---
 
@@ -842,3 +844,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-29 | **Task 14a ✅ (re-closed).** `5b3197a`: `POPUP_STOCK_GROUP` moved to `v2/probes/companies.py` (no imports of its own), so probe 10 no longer imports write code; isolation test unchanged; 913 passed; scoped re-review Approve. Task 14b fix round 1 still running. |
 | 2026-09-29 | **Task 14b fix round 1** — `7274b08` G6 `usd_row` exact name only (reports absent); `5ab6832` resync authority per object within the run's scope (FY resync: masters and other-FY vouchers keep `skipped_older`); `fec6ede` snapshot stale when its counter ≠ the cursor (rename-after-backup → restore now re-captures once, then `ok`). v2 **1948 passed, 0 failed** — the isolation test is green again after 14a's fix. Scoped re-review dispatched. |
 | 2026-09-29 | **S1 Task 14 ✅** — 14b re-review Approved (all 3 addressed; minors → ledger). **S0 exceptions (f)/(g): M2/M3/M7/M8 ✅.** **Task 15 started:** 15a (no-DB + DB v2 suites, then the current app's DB suite on the shared test DB, isolation/scope, README), 15b (20 queued S1 spec edits + Part-1 header + LESSONS §15 G6 rule), and Step 5's manual pass — **user approved** migrating the v2 tables into the dev `tallyagent` DB and a curl walk-through. |
+| 2026-09-29 | **S1 Task 15 ✅ — S1 BUILT.** Controller verified every count against its log: v2 no-DB 1511 passed / 437 skipped (all "TEST_DATABASE_URL not set"); v2 with DB 1948 passed / 0 skipped; current app DB suite 268 passed after v2 (CLAUDE.md's 249 reference is out of date — the suite grew; no `drop_all`/v2 errors). Isolation 8 passed. Scope: only `LESSONS.md` outside `v2/`+`docs/` — ruled OK (Task 15 mandates it). Docs: S1 spec as-built (20 items; full §11 code list; Part-1 header: no decision reversed, 4 refinements) `611a403`; LESSONS §15 rule 31 (ledgerwise TB as-on D is closing-only; G2 forex row plain INR) `5451faf`; `v2/README.md` Cloud section `942d020`. **Manual dev-DB pass skipped:** `.env` points at :5434 (down); the :5432 `tallyagent` might or might not be the dev DB — user said "do what you think is best", so nothing was migrated. Branch not pushed; PR to `dev` awaits the user. |
