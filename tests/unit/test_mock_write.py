@@ -1,5 +1,5 @@
 """Tests for mock handler write operations (IMPORTDATA requests)."""
-from backend.tally_bridge.mock_handler import mock_tally_request, reset_mock_state
+from tally_bridge.mock_handler import mock_tally_request, reset_mock_state
 
 
 class TestMockImport:
@@ -59,7 +59,7 @@ class TestMockImport:
 
     def test_read_requests_still_work(self):
         """Regression: write support must not break read handling."""
-        from backend.tally_bridge.request_builder import build_list_companies
+        from tally_bridge.request_builder import build_list_companies
         xml = build_list_companies()
         resp = mock_tally_request(xml)
         # Should return company fixture, not an error

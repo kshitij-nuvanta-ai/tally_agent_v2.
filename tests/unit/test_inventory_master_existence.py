@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.tally_bridge.models import StockItem
+from tally_bridge.models import StockItem
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class _patch_existing:
 
     def __init__(self, stock_groups=None):
         self._items_patch = patch(
-            "backend.tally_bridge.queries.masters.list_stock_items",
+            "tally_bridge.queries.masters.list_stock_items",
             new=AsyncMock(return_value=list(_EXISTING)),
         )
         if isinstance(stock_groups, Exception):
@@ -71,7 +71,7 @@ class _patch_existing:
                 stock_groups = [s.parent_group for s in _EXISTING if s.parent_group]
             groups_mock = AsyncMock(return_value=list(stock_groups))
         self._groups_patch = patch(
-            "backend.tally_bridge.queries.masters.list_stock_groups",
+            "tally_bridge.queries.masters.list_stock_groups",
             new=groups_mock,
         )
 
@@ -113,16 +113,16 @@ def test_matched_line_creates_no_masters(client):
          "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -146,16 +146,16 @@ def test_create_new_line_with_known_unit_and_group_creates_only_item(client):
          "hsn": "8443", "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -176,16 +176,16 @@ def test_create_new_line_with_brand_new_unit_and_group_creates_all_three(client)
          "hsn": "7214", "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -208,16 +208,16 @@ def test_create_new_line_with_existing_item_name_is_not_recreated(client):
          "stock_group": "Stationery", "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -242,16 +242,16 @@ def test_duplicate_new_lines_within_voucher_create_once(client):
          "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -272,10 +272,10 @@ def test_master_create_timeout_returns_voucher_error_not_hang(client):
          "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(side_effect=TimeoutError("gateway froze")),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -299,16 +299,16 @@ def test_create_new_line_in_empty_existing_group_does_not_recreate_group(client)
          "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(stock_groups=["Electronics", "Stationery", "AI Imported Items"]), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -329,16 +329,16 @@ def test_genuinely_new_group_is_created(client):
          "hsn": "7214", "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(stock_groups=["Electronics", "Stationery", "AI Imported Items"]), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -361,16 +361,16 @@ def test_stock_group_list_failure_falls_back_to_item_derived_groups(client):
          "hsn": "8443", "ledger": "Purchase Accounts"},
     ])
     with _patch_existing(stock_groups=RuntimeError("collection query failed")), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_unit, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_group, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)

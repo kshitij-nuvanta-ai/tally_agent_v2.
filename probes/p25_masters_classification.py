@@ -7,7 +7,7 @@ DIFFERENT (spec §7 probe 25 "Missing → DIFFERENT … base type by the parent 
 """
 from __future__ import annotations
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.company_b_view import B_CUSTOM_VOUCHER_TYPE, B_CUSTOM_VOUCHER_TYPE_BASE, loaded_licence, r9_candidate
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe, ProbeBlocked, judge_halves

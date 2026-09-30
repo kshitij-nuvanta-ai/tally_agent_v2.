@@ -1,9 +1,9 @@
-from agent.tally.envelopes import COMPANY_PLACEHOLDER
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER
 from probes.companies import COMPANIES
 from probes.p01_company_counters import COUNTERS_REQUEST
 from probes.reads import (FROM_PLACEHOLDER, TO_PLACEHOLDER, VOUCHER_MONTH_FIELDS, fill_month_request,
                              parse_vouchers, untyped_period_vars, voucher_request)
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from tests.probes.fake_books import FakeBooks, seed_company_b, sync_client
 
 B = COMPANIES["B"]

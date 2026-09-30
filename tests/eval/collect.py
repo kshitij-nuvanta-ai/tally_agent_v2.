@@ -854,8 +854,8 @@ async def main():
             print(f"Warning: mock golden data not found at {mock_golden_path}")
     elif args.host:
         print(f"Collecting live ground truth from Tally at {args.host}:{args.port}...")
-        from backend.tally_bridge.client import TallyClient
-        from backend.tally_bridge.queries import reports
+        from tally_bridge.client import TallyClient
+        from tally_bridge.queries import reports
 
         client = TallyClient(host=args.host, port=args.port)
         try:

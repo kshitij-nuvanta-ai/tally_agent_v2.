@@ -24,7 +24,7 @@ import logging
 from sqlalchemy import select
 
 from backend.db.models import UploadedFile, VoucherEntry
-from backend.tally_bridge.queries.vouchers import get_party_vouchers
+from tally_bridge.queries.vouchers import get_party_vouchers
 
 logger = logging.getLogger(__name__)
 

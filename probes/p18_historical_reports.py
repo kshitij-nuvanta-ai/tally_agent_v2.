@@ -11,9 +11,9 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_bills, parse_ledger_list
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_bills, parse_ledger_list
+from tally_bridge.xml_utils import read_objects
 from probes.context import ProbeContext
 from probes.company_b_view import B_BOOKS_FROM, ledger_balances_at, loaded_licence
 from probes.core import Outcome, PartResult, Probe, ProbeBlocked

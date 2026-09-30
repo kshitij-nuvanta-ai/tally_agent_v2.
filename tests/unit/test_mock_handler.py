@@ -1,7 +1,7 @@
 """Tests for the in-process mock Tally handler."""
 
 import pytest
-from backend.tally_bridge.mock_handler import (
+from tally_bridge.mock_handler import (
     mock_tally_request,
     STATIC_FIXTURES,
     VOUCHER_FIXTURES,

@@ -27,8 +27,8 @@ Grounded in:
   - backend/agents/orchestrator.py            (process_file_upload — Vision call + routing + review entry)
   - backend/services/document_parser.py       (build_vision_prompt / parse_vision_response / ExtractedDocument)
   - backend/api/chat.py                        (voucher_action Purchase dispatch — call shape mirrored)
-  - backend/tally_bridge/writer.py             (create_purchase_voucher_ledger)
-  - backend/tally_bridge/queries/reports.py    (bills_payable → list[OutstandingBill])
+  - tally_bridge/writer.py             (create_purchase_voucher_ledger)
+  - tally_bridge/queries/reports.py    (bills_payable → list[OutstandingBill])
   - scripts/manual_test_group_b_live.py        (client/arg/cleanup patterns, FY date, results table)
   - scripts/probe_group_b_readback.py          (best-effort voucher read-back for GST legs)
   - LESSONS.md §15                             (write safety: read-back, DD-MMM-YYYY delete date)
@@ -60,13 +60,13 @@ import httpx
 
 from backend.agents.context import SessionContext
 from backend.agents.orchestrator import Orchestrator
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.models import OutstandingBill
-from backend.tally_bridge.queries.reports import bills_payable
-from backend.tally_bridge.request_builder import build_day_book, build_list_ledgers
-from backend.tally_bridge.response_parser import parse_import_response, parse_ledger_list
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.models import OutstandingBill
+from tally_bridge.queries.reports import bills_payable
+from tally_bridge.request_builder import build_day_book, build_list_ledgers
+from tally_bridge.response_parser import parse_import_response, parse_ledger_list
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 NPFX = "_LV"  # narration prefix so leftovers are mechanically identifiable

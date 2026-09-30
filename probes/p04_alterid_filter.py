@@ -4,7 +4,7 @@ Feeds decision 9 and R6. Expected sets come from a full fetch of each type, comp
 """
 from __future__ import annotations
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe, ProbeBlocked
 from probes.reads import master_request, voucher_request

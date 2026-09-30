@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes.actions import Action
 from probes.capture import Capture
 from probes.companies import COMPANIES
@@ -95,7 +95,7 @@ def _auto_log() -> Path:
 async def _run(args, store: ResultsStore, transport: httpx.AsyncBaseTransport | None, io: ProbeIO) -> int:
     previous_handler = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
-        client = TallyClient(args.host, args.port, transport=transport)
+        client = TallyClient(args.host, args.port, transport=transport, trust_env=False)
         capture = Capture(args.fixtures)
         try:
             if args.first or args.all:
@@ -200,7 +200,7 @@ def _setup_c(args, store: ResultsStore, transport) -> int:
 async def _anchors(args, store: ResultsStore, transport: httpx.AsyncBaseTransport | None, io: ProbeIO) -> int:
     """Spec §4.2's anchors check on its own, for single `run` sessions (ordered runs already include it)."""
     step = ANCHORS_BEFORE_PARITY if args.when == "before_parity" else ANCHORS_AFTER_A
-    client = TallyClient(args.host, args.port, transport=transport)
+    client = TallyClient(args.host, args.port, transport=transport, trust_env=False)
     try:
         return 0 if await run_anchor_check(step, "A", client=client, store=store, io=io) else 1
     finally:

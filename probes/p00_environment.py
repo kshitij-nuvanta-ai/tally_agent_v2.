@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import subprocess
 
-from agent.tally.envelopes import build_company_list, wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import build_company_list, wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.anchors import check_anchors
 from probes.companies import COMPANIES, SEED_BACKUP, SEED_COMPANY

@@ -29,10 +29,10 @@ Grounded in:
   - backend/agents/orchestrator.py            (process_file_upload — Vision + routing + review entry)
   - backend/services/document_parser.py       (doc_type / gst extraction)
   - backend/api/chat.py                        (voucher_action dispatch — exact call shapes mirrored)
-  - backend/tally_bridge/writer.py             (create_purchase/sales_voucher_ledger, create_debit/credit_note)
-  - backend/tally_bridge/queries/reports.py    (bills_payable / bills_receivable)
-  - backend/tally_bridge/request_builder.py    (build_list_ledgers — GST ledger closing balances)
-  - backend/tally_bridge/response_parser.py    (parse_ledger_list — closing_balance per ledger)
+  - tally_bridge/writer.py             (create_purchase/sales_voucher_ledger, create_debit/credit_note)
+  - tally_bridge/queries/reports.py    (bills_payable / bills_receivable)
+  - tally_bridge/request_builder.py    (build_list_ledgers — GST ledger closing balances)
+  - tally_bridge/response_parser.py    (parse_ledger_list — closing_balance per ledger)
   - scripts/manual_test_live_vision.py         (Vision/upload + GST-leg patterns)
   - scripts/manual_test_group_b_live.py        (client/arg/cleanup/direction patterns, FY dates, results table)
   - LESSONS.md §15                             (write safety: read-back, DD-MMM-YYYY delete date)
@@ -67,13 +67,13 @@ import httpx
 
 from backend.agents.context import SessionContext
 from backend.agents.orchestrator import Orchestrator
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.models import OutstandingBill
-from backend.tally_bridge.queries.reports import bills_payable, bills_receivable
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import parse_import_response, parse_ledger_list
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.models import OutstandingBill
+from tally_bridge.queries.reports import bills_payable, bills_receivable
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import parse_import_response, parse_ledger_list
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 NPFX = "_PF"  # narration prefix so leftovers are mechanically identifiable

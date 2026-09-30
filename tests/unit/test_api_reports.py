@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.reports import router
 from backend.api.dependencies import get_client
-from backend.tally_bridge.models import ReportResponse as TallyReportResponse, OutstandingBill
+from tally_bridge.models import ReportResponse as TallyReportResponse, OutstandingBill
 from datetime import date
 
 

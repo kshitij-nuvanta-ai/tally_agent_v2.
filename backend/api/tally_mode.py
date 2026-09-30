@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from backend.api.dependencies import get_client
 from backend.api.models import TallyModeRequest, TallyModeResponse
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 logger = logging.getLogger(__name__)
 

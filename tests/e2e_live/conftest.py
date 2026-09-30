@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.agents.orchestrator import Orchestrator
 from backend.agents.context import SessionStore
 

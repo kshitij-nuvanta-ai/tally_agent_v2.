@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from backend.tally_bridge.import_builder import build_create_unit
+from tally_bridge.import_builder import build_create_unit
 
 
 def _root(xml: str) -> ET.Element:
@@ -31,7 +31,7 @@ def test_build_create_unit_uses_all_masters_report():
     assert root.findtext(".//SVCURRENTCOMPANY") == "Bharat Traders Private Limited"
 
 def test_build_create_stock_group_has_name_list():
-    from backend.tally_bridge.import_builder import build_create_stock_group
+    from tally_bridge.import_builder import build_create_stock_group
     xml = build_create_stock_group("Electronics", parent="", company="Bharat Traders Private Limited")
     root = _root(xml)
     sg = root.find(".//STOCKGROUP")
@@ -47,13 +47,13 @@ def test_build_create_stock_group_has_name_list():
 
 
 def test_build_create_stock_group_with_parent():
-    from backend.tally_bridge.import_builder import build_create_stock_group
+    from tally_bridge.import_builder import build_create_stock_group
     xml = build_create_stock_group("Sub Group", parent="Electronics", company="X")
     root = _root(xml)
     assert root.find(".//STOCKGROUP/PARENT").text == "Electronics"
 
 def test_build_create_stock_item_18pct_rate():
-    from backend.tally_bridge.import_builder import build_create_stock_item
+    from tally_bridge.import_builder import build_create_stock_item
     xml = build_create_stock_item(
         name="Samsung 24 inch Monitor",
         group="Electronics",
@@ -89,7 +89,7 @@ def test_build_create_stock_item_18pct_rate():
 
 
 def test_build_create_stock_item_12pct_rate_splits_correctly():
-    from backend.tally_bridge.import_builder import build_create_stock_item
+    from tally_bridge.import_builder import build_create_stock_item
     xml = build_create_stock_item(
         name="A4 Paper Ream",
         group="Office Supplies",
@@ -112,7 +112,7 @@ def test_build_create_stock_item_empty_hsn_is_gst_not_applicable_no_gstdetails()
     blocking "HSN/SAC required" modal, locking the API. So when hsn_code is empty
     the item must be plain name+unit+group: GSTAPPLICABLE=Not Applicable, and NO
     GSTDETAILS.LIST / HSN elements at all (GST is posted via voucher tax lines)."""
-    from backend.tally_bridge.import_builder import build_create_stock_item
+    from tally_bridge.import_builder import build_create_stock_item
     xml = build_create_stock_item(
         name="Generic Widget",
         group="Electronics",
@@ -142,7 +142,7 @@ def test_build_create_stock_item_empty_hsn_is_gst_not_applicable_no_gstdetails()
 
 def test_build_create_stock_item_with_hsn_still_emits_hsn():
     """Regression: a non-empty HSN still emits HSNCODE/HSN and HSNDETAILS."""
-    from backend.tally_bridge.import_builder import build_create_stock_item
+    from tally_bridge.import_builder import build_create_stock_item
     xml = build_create_stock_item(
         name="Bond Paper",
         group="Office Supplies",
@@ -161,7 +161,7 @@ def test_build_create_stock_item_with_hsn_still_emits_hsn():
 
 
 def test_build_create_ledger_with_opening_state_gstin():
-    from backend.tally_bridge.import_builder import build_create_ledger
+    from tally_bridge.import_builder import build_create_ledger
     xml = build_create_ledger(
         name="Apex Technologies Pvt Ltd",
         parent="North Zone Debtors",
@@ -181,7 +181,7 @@ def test_build_create_ledger_with_opening_state_gstin():
 
 
 def test_build_create_ledger_with_opening_balance_only():
-    from backend.tally_bridge.import_builder import build_create_ledger
+    from tally_bridge.import_builder import build_create_ledger
     xml = build_create_ledger(
         name="Capital Account",
         parent="Capital Account",
@@ -194,7 +194,7 @@ def test_build_create_ledger_with_opening_balance_only():
 
 def test_build_create_ledger_back_compat():
     """Existing call signature (positional + gstin only) still works."""
-    from backend.tally_bridge.import_builder import build_create_ledger
+    from tally_bridge.import_builder import build_create_ledger
     xml = build_create_ledger("Travel", "Indirect Expenses", "X")
     root = _root(xml)
     led = root.find(".//LEDGER")
@@ -203,7 +203,7 @@ def test_build_create_ledger_back_compat():
 
 
 def test_build_create_gst_ledger():
-    from backend.tally_bridge.import_builder import build_create_gst_ledger
+    from tally_bridge.import_builder import build_create_gst_ledger
     xml = build_create_gst_ledger(
         name="CGST Output",
         duty_head="Central Tax",
@@ -219,7 +219,7 @@ def test_build_create_gst_ledger():
     assert led.findtext("AFFECTSSTOCK") == "No"
 
 def test_build_create_sales_voucher_intra_state_18pct():
-    from backend.tally_bridge.import_builder import build_create_sales_voucher
+    from tally_bridge.import_builder import build_create_sales_voucher
     xml = build_create_sales_voucher(
         date="20251001",
         voucher_number="S001",
@@ -277,7 +277,7 @@ def test_build_create_sales_voucher_intra_state_18pct():
 
 
 def test_build_create_sales_voucher_mixed_rate_18_and_12():
-    from backend.tally_bridge.import_builder import build_create_sales_voucher
+    from tally_bridge.import_builder import build_create_sales_voucher
     xml = build_create_sales_voucher(
         date="20251001",
         voucher_number="S004",
@@ -305,7 +305,7 @@ def test_build_create_sales_voucher_mixed_rate_18_and_12():
 
 
 def test_build_create_sales_voucher_inter_state_uses_igst():
-    from backend.tally_bridge.import_builder import build_create_sales_voucher
+    from tally_bridge.import_builder import build_create_sales_voucher
     xml = build_create_sales_voucher(
         date="20251001",
         voucher_number="S100",
@@ -323,7 +323,7 @@ def test_build_create_sales_voucher_inter_state_uses_igst():
     assert float(ledger_entries[1].findtext("AMOUNT")) == 8100.00  # 45000 * 18%
 
 def test_build_create_purchase_voucher_intra_state_signs():
-    from backend.tally_bridge.import_builder import build_create_purchase_voucher
+    from tally_bridge.import_builder import build_create_purchase_voucher
     xml = build_create_purchase_voucher(
         date="20250928",
         voucher_number="P001",
@@ -366,7 +366,7 @@ def test_build_create_purchase_voucher_intra_state_signs():
     assert float(alloc.findtext("AMOUNT")) == -275000.00
 
 def test_build_create_receipt_voucher():
-    from backend.tally_bridge.import_builder import build_create_receipt_voucher
+    from tally_bridge.import_builder import build_create_receipt_voucher
     xml = build_create_receipt_voucher(
         date="20251020",
         voucher_number="RCT001",
@@ -394,7 +394,7 @@ def test_build_create_receipt_voucher():
 
 
 def test_build_create_journal_voucher():
-    from backend.tally_bridge.import_builder import build_create_journal_voucher
+    from tally_bridge.import_builder import build_create_journal_voucher
     xml = build_create_journal_voucher(
         date="20251031",
         voucher_number="J001",
@@ -424,7 +424,7 @@ def test_build_create_journal_voucher():
 # ---------------------------------------------------------------------------
 
 def _sales_xml(**kwargs):
-    from backend.tally_bridge.import_builder import build_create_sales_voucher
+    from tally_bridge.import_builder import build_create_sales_voucher
     base = dict(
         date="20251001",
         voucher_number="S001",
@@ -439,7 +439,7 @@ def _sales_xml(**kwargs):
 
 
 def _purchase_xml(**kwargs):
-    from backend.tally_bridge.import_builder import build_create_purchase_voucher
+    from tally_bridge.import_builder import build_create_purchase_voucher
     base = dict(
         date="20250928",
         voucher_number="P001",
@@ -540,7 +540,7 @@ def test_purchase_reference_date_invalid_format_raises():
 
 def test_receipt_does_not_accept_reference_kwargs():
     import inspect
-    from backend.tally_bridge.import_builder import build_create_receipt_voucher
+    from tally_bridge.import_builder import build_create_receipt_voucher
     params = inspect.signature(build_create_receipt_voucher).parameters
     assert "reference" not in params
     assert "reference_date" not in params
@@ -549,7 +549,7 @@ def test_receipt_does_not_accept_reference_kwargs():
 def test_payment_accepts_reference_kwargs():
     # Phase 1 Part A: payment vouchers now carry the supplier invoice no.
     import inspect
-    from backend.tally_bridge.import_builder import build_create_payment_voucher
+    from tally_bridge.import_builder import build_create_payment_voucher
     params = inspect.signature(build_create_payment_voucher).parameters
     assert "reference" in params
     assert "reference_date" in params

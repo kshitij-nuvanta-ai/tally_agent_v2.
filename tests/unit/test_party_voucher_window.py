@@ -13,9 +13,9 @@ from datetime import date
 
 import pytest
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import vouchers as vq
-from backend.tally_bridge.queries.vouchers import party_voucher_window
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import vouchers as vq
+from tally_bridge.queries.vouchers import party_voucher_window
 
 
 class TestPartyVoucherWindow:

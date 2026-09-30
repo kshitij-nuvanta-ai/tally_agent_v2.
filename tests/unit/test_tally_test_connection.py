@@ -23,7 +23,7 @@ def client(monkeypatch):
 
 def test_test_connection_returns_companies(client):
     with patch(
-        "backend.tally_bridge.queries.masters.get_company_list",
+        "tally_bridge.queries.masters.get_company_list",
         new=AsyncMock(return_value=["Bharat Traders Pvt Ltd", "Acme Co"]),
     ):
         resp = client.post(
@@ -39,7 +39,7 @@ def test_test_connection_returns_companies(client):
 
 def test_test_connection_reports_failure(client):
     with patch(
-        "backend.tally_bridge.queries.masters.get_company_list",
+        "tally_bridge.queries.masters.get_company_list",
         new=AsyncMock(side_effect=RuntimeError("connection refused")),
     ):
         resp = client.post(

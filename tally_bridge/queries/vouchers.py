@@ -4,21 +4,21 @@ Query functions for Tally voucher data: day book, registers, ledger transactions
 
 from datetime import date, datetime
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.request_builder import (
     build_day_book,
     build_ledger_vouchers,
     build_party_vouchers,
     build_sales_register,
     build_purchase_register,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     detect_error,
     parse_party_vouchers,
     parse_vouchers,
 )
-from backend.tally_bridge.exceptions import TallyResponseError
-from backend.utils.date_utils import format_for_tally, get_fy_end, get_fy_start
+from tally_bridge.exceptions import TallyResponseError
+from tally_bridge.dates import format_for_tally, get_fy_end, get_fy_start
 
 
 def _parse_anchor(anchor: date | str | None) -> date | None:

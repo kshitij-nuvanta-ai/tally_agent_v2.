@@ -1,5 +1,5 @@
 """Tests for Tally import response parsing."""
-from backend.tally_bridge.response_parser import parse_import_response
+from tally_bridge.response_parser import parse_import_response
 
 
 class TestParseImportResponse:

@@ -48,8 +48,8 @@ async def test_eval_pipeline(
     # Optionally collect live ground truth
     live_golden = {}
     if use_live_ground_truth:
-        from backend.tally_bridge.client import TallyClient
-        from backend.tally_bridge.queries import reports
+        from tally_bridge.client import TallyClient
+        from tally_bridge.queries import reports
 
         client = TallyClient(host=tally_host, port=tally_port)
         try:

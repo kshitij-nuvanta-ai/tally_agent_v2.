@@ -1,5 +1,5 @@
 """Probe 18's B part: a TB as-on a closed year's end (31-03-2023) against company B's dataset."""
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p18_historical_reports as p18
 from probes.capture import Capture
 from probes.companies import COMPANIES
@@ -22,7 +22,7 @@ async def _run(tmp_path, books):
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     store.update_environment(company_b_loaded_at="2026-09-24T13:02:33+05:30")
-    await run_probe(p18.PROBE, labels=["B"], client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p18.PROBE, labels=["B"], client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=ScriptedIO())
     return store.probe_entry(18)["parts"]["B"]
 

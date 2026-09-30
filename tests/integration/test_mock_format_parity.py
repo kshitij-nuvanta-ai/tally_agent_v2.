@@ -8,8 +8,8 @@ expected structure.
 """
 import pytest
 
-from backend.tally_bridge.mock_handler import mock_tally_request
-from backend.tally_bridge.response_parser import (
+from tally_bridge.mock_handler import mock_tally_request
+from tally_bridge.response_parser import (
     parse_trial_balance,
     parse_profit_and_loss,
     parse_balance_sheet,

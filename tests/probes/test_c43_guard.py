@@ -1,6 +1,6 @@
 """Task 2: the C43 guard sits in ProbeContext, so no probe (old constant or new code) can send an off-day date to an
 Educational Tally and read the silent current-period fallback as data."""
-from agent.tally.envelopes import wrap_report
+from tally_bridge.envelopes import wrap_report
 from probes.core import Outcome, PartResult, Probe
 from probes.runner import run_probe
 from tests.probes.fakes import ScriptedIO, a_tally, make_harness, ready_store, tb_xml

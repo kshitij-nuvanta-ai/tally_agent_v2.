@@ -13,9 +13,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 
-from agent.tally.envelopes import formula_string, wrap_report
-from agent.tally.reports import parse_bills, parse_ledger_list
-from agent.tally.xml_utils import read_objects, sanitize_xml
+from tally_bridge.envelopes import formula_string, wrap_report
+from tally_bridge.sync_reports import parse_bills, parse_ledger_list
+from tally_bridge.xml_utils import read_objects, sanitize_xml
 from probes.company_b_view import (B_BOOKS_FROM, B_CURRENT_PERIOD, item_specs, ledger_openings_at, ledger_specs,
                                       loaded_licence, qty_unit, stock_opening_at)
 from probes.context import ProbeContext

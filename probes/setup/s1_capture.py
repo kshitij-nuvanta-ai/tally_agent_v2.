@@ -33,11 +33,11 @@ from typing import Any, Callable
 
 import httpx
 
-from agent.tally.amounts import AmountParseError, parse_decimal
-from agent.tally.client import TallyClient, TallyResponse
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc, formula_string, wrap_report
-from agent.tally.exceptions import TallyConnectionError, TallyResponseError, TallyTimeoutError
-from agent.tally.xml_utils import detect_error, parse_company_list, read_objects, sanitize_xml
+from tally_bridge.amounts import AmountParseError, parse_decimal
+from tally_bridge.client import TallyClient, TallyResponse
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc, formula_string, wrap_report
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError, TallyTimeoutError
+from tally_bridge.xml_utils import detect_error, parse_company_list, read_objects, sanitize_xml
 from probes.capture import Capture
 from probes.companies import COMPANIES
 from probes.context import ENVIRONMENT_SIDECAR_KEYS, POPUP_HINT
@@ -106,7 +106,7 @@ def check_export_only(xml: str) -> None:
 
 async def check_open_company(client: TallyClient, company: str) -> None:
     """The open company list is exactly `company` (non-mutating guard). Not captured."""
-    text = (await client.post_xml(build_company_list())).text
+    text = (await client.post(build_company_list())).text
     check_company(parse_company_list(sanitize_xml(text)), company, mutating=False)
 
 
@@ -338,7 +338,7 @@ async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: Re
             check_educational_dates(spec.xml, licence)
             await check_open_company(client, company)
             try:
-                response = await client.post_xml(spec.xml)
+                response = await client.post(spec.xml)
             except (TallyConnectionError, TallyResponseError) as exc:
                 hint = f" {POPUP_HINT}" if isinstance(exc, TallyTimeoutError) else ""
                 raise CaptureAborted(f"company GUID read: {exc}.{hint} Nothing more was sent.") from exc
@@ -349,7 +349,7 @@ async def run(client: TallyClient, company_key: str, out_dir: Path, *, store: Re
                       company_guid=company_guid, request_xml=spec.xml, sent_at=datetime.now().astimezone(),
                       environment=environment, name=name)
         try:
-            response: TallyResponse = await client.post_xml(spec.xml)
+            response: TallyResponse = await client.post(spec.xml)
         except (TallyConnectionError, TallyResponseError) as exc:
             kind = ("timeout" if isinstance(exc, TallyTimeoutError)
                     else "refused" if isinstance(exc, TallyConnectionError) else "http")
@@ -389,7 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, transport: httpx.AsyncBaseTransport | None = None) -> int:
     args = build_parser().parse_args(argv)
     store = ResultsStore(args.results)
-    client = TallyClient(args.host, args.port, transport=transport)
+    client = TallyClient(args.host, args.port, transport=transport, trust_env=False)
 
     async def go() -> list[str]:
         try:

@@ -6,9 +6,9 @@ mock_handler → response_parser → back to writer. No real Tally touched.
 import pytest
 import pytest_asyncio
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.mock_handler import reset_mock_state
-from backend.tally_bridge.writer import TallyWriter, ValidationError
+from tally_bridge.client import TallyClient
+from tally_bridge.mock_handler import reset_mock_state
+from tally_bridge.writer import TallyWriter, ValidationError
 
 
 @pytest_asyncio.fixture

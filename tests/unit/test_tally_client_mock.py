@@ -1,7 +1,7 @@
 """Tests for TallyClient mock_mode switching."""
 
 import pytest
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 
 class TestTallyClientMockMode:

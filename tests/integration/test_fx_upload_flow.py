@@ -28,7 +28,7 @@ from httpx import ASGITransport
 
 from backend.api.dependencies import get_client, get_current_user
 from backend.services.voucher_builder import build_payment_voucher_data
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from tests.fixtures import fx_documents as fxdoc
 from tests.mocks.mock_tally_server import create_mock_tally_app
 

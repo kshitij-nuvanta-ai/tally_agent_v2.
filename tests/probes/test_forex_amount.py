@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from agent.tally.amounts import AmountParseError, parse_decimal
+from tally_bridge.amounts import AmountParseError, parse_decimal
 from probes.reads import ForexAmount, forex_base, parse_forex_amount
 
 

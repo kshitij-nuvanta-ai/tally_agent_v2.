@@ -5,9 +5,9 @@ Query functions for Tally financial reports.
 import logging
 from datetime import date, datetime
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.models import ReportResponse, OutstandingBill
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.models import ReportResponse, OutstandingBill
+from tally_bridge.request_builder import (
     build_trial_balance,
     build_profit_and_loss,
     build_balance_sheet,
@@ -16,7 +16,7 @@ from backend.tally_bridge.request_builder import (
     build_stock_summary,
     build_cash_flow,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     detect_error,
     parse_trial_balance as _parse_tb,
     parse_profit_and_loss as _parse_pnl,
@@ -25,8 +25,8 @@ from backend.tally_bridge.response_parser import (
     parse_stock_summary as _parse_stock,
     parse_cash_flow as _parse_cash_flow,
 )
-from backend.tally_bridge.exceptions import TallyResponseError
-from backend.utils.date_utils import get_fy_start, format_for_tally
+from tally_bridge.exceptions import TallyResponseError
+from tally_bridge.dates import get_fy_start, format_for_tally
 
 logger = logging.getLogger(__name__)
 

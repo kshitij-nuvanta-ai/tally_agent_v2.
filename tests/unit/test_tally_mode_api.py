@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from backend.main import app
 from backend.api.dependencies import get_current_user
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 
 @pytest.fixture

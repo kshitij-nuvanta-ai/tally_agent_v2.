@@ -1,7 +1,8 @@
 """Decimal amounts for Tally values: never float, and a missing value is never silently zero.
 
-New in v2 (Part 1 §13): the current parse_amount returns 0.0 for anything it can't parse, which turns a parse
-failure into a legitimate-looking zero (a false parity match).
+The sync path's amounts (Part 1 §13, merge decision M11). The chat path keeps the float ``parse_amount`` in
+``response_parser.py``, which returns 0.0 for anything it can't parse; that turns a parse failure into a
+legitimate-looking zero (a false parity match), so nothing on the sync path uses it.
 
 Forex (Part 1 decision 15 / C47, S1 decision taken 2026-09-25): TallyPrime exports a foreign-currency amount — a forex
 voucher line AND a forex ledger's Opening/ClosingBalance — as one expression, live (TallyPrime 7.0, Educational,
@@ -64,8 +65,22 @@ def _number(text: str) -> Decimal:
     return Decimal(text.replace(",", ""))
 
 
-def parse_forex(text: str) -> ForexAmount:
-    """A Tally forex expression → ForexAmount; anything else (plain numbers included) raises AmountParseError."""
+@dataclass(frozen=True)
+class ForexParts:
+    """A forex expression split by the grammar, before any rule about a missing base is applied."""
+    face: Decimal                # signed foreign face value
+    currency: str                # the foreign symbol as written ("$")
+    rate: Decimal                # base-currency units per foreign unit
+    base_symbol: str             # the base symbol written beside the rate ("?", "₹", "Rs.", "")
+    stated_base: Decimal | None  # the signed "= base" amount, or None when the expression states none
+
+
+def forex_parts(text: str) -> ForexParts:
+    """The one reading of the forex grammar. Anything that is not a forex expression (plain numbers included), or
+    whose stated base disagrees with the face in sign or in base symbol, raises AmountParseError.
+
+    What to do when no base is stated is the caller's rule: ``parse_forex`` derives face × rate; the wire contract
+    (``contract.parse.amount``) leaves the INR amount empty."""
     match = _FOREX.match(text or "")
     if match is None or match["per"] != match["cur"]:
         raise AmountParseError(text)
@@ -74,14 +89,21 @@ def parse_forex(text: str) -> ForexAmount:
     rate = _number(match["rate"])
     rate_symbol = match["rsym"] or ""
     if match["base"] is None:
-        base = (face * rate).quantize(_PAISA, rounding=ROUND_HALF_UP)       # half-up = away from zero on a tie
-        return ForexAmount(base, face, match["cur"], rate, rate_symbol, True, text)
+        return ForexParts(face, match["cur"], rate, rate_symbol, None)
     stated = _number(match["base"])
     signs_disagree = (match["bsign"] == "-") != negative and face != 0 and stated != 0
     if signs_disagree or (match["bsym"] or "") != rate_symbol:
         raise AmountParseError(text)
-    base = stated * (-1 if match["bsign"] == "-" else 1)
-    return ForexAmount(base, face, match["cur"], rate, rate_symbol, False, text)
+    return ForexParts(face, match["cur"], rate, rate_symbol, stated * (-1 if match["bsign"] == "-" else 1))
+
+
+def parse_forex(text: str) -> ForexAmount:
+    """A Tally forex expression → ForexAmount; anything else (plain numbers included) raises AmountParseError."""
+    parts = forex_parts(text)
+    if parts.stated_base is None:
+        base = (parts.face * parts.rate).quantize(_PAISA, rounding=ROUND_HALF_UP)  # half-up = away from zero on a tie
+        return ForexAmount(base, parts.face, parts.currency, parts.rate, parts.base_symbol, True, text)
+    return ForexAmount(parts.stated_base, parts.face, parts.currency, parts.rate, parts.base_symbol, False, text)
 
 
 def parse_amount(text: str | None) -> tuple[Decimal | None, ForexAmount | None]:

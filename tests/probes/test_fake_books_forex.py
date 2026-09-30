@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.companies import COMPANIES
 from probes.reads import parse_vouchers, primary_lines
 from probes.setup.company_b_data import USD_CURRENCY
@@ -161,7 +161,7 @@ def test_the_fakes_trial_balance_is_out_by_the_forex_difference_like_live():
 def _usd_party_row(books) -> dict:
     """Probe 22 B's own USD-ledger request, asked of the fake."""
     import httpx
-    from agent.tally.envelopes import formula_string
+    from tally_bridge.envelopes import formula_string
     from probes import p22_forex as p22
     from probes.reads import master_request
     from probes.setup.company_b_data import USD_EXPORT_PARTY
@@ -186,7 +186,7 @@ def test_the_usd_party_opening_and_closing_match_the_live_capture():
 
 
 def test_the_plain_forex_opening_is_a_candidate_knob():
-    from agent.tally.amounts import parse_decimal
+    from tally_bridge.amounts import parse_decimal
     from tests.probes.fake_books import seed_company_b
     books = FakeBooks(name=B, educational=True, ledger_opening_scope="fy", forex_ledger_opening="plain")
     seed_company_b(books, "educational", masters=True)

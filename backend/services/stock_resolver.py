@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from backend.tally_bridge.queries.masters import list_stock_items
+from tally_bridge.queries.masters import list_stock_items
 
 DEFAULT_UNIT = "Nos"
 # Minimum Jaccard token-overlap (or contains) to accept a fuzzy match.

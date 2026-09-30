@@ -30,8 +30,8 @@ async def test_connection(
     probe (probe E7). Any connection/parse error is returned as
     ``connected=False`` with the error message rather than raising.
     """
-    from backend.tally_bridge.client import TallyClient
-    from backend.tally_bridge.queries.masters import get_company_list
+    from tally_bridge.client import TallyClient
+    from tally_bridge.queries.masters import get_company_list
 
     client = TallyClient(host=req.host, port=req.port)
     try:

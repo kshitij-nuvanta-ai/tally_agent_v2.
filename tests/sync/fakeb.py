@@ -71,7 +71,7 @@ class FakeB:
         return self._post(fill_month_request(svdates_template(), B_NAME, pf.dmy(first), pf.dmy(last)))
 
     def tb_xml(self, as_on: date, ledgerwise: bool) -> str:
-        from agent.tally.envelopes import wrap_report
+        from tally_bridge.envelopes import wrap_report
         extra = pf.LW_FLAGS if ledgerwise else pf.GROUP_FLAGS
         return self._post(wrap_report("Trial Balance", pf.dmy(pf.fy_start(as_on)), pf.dmy(as_on), B_NAME,
                                       extra_vars=extra))

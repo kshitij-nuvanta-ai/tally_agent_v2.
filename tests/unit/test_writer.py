@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from backend.tally_bridge.writer import TallyWriter, TallyWriteError, ValidationError
+from tally_bridge.writer import TallyWriter, TallyWriteError, ValidationError
 
 
 class TestDryRunValidation:
@@ -426,7 +426,7 @@ class TestCreateLedgerExistenceSafe:
     """
 
     def _make_ledger(self, name, parent="Sundry Creditors"):
-        from backend.tally_bridge.models import Ledger
+        from tally_bridge.models import Ledger
         return Ledger(name=name, parent_group=parent)
 
     @pytest.mark.asyncio
@@ -435,7 +435,7 @@ class TestCreateLedgerExistenceSafe:
         writer = TallyWriter(client=mock_client, company="Test Co")
         existing = [self._make_ledger("Purchase - Electronics", "Sundry Creditors")]
         monkeypatch.setattr(
-            "backend.tally_bridge.writer.list_ledgers",
+            "tally_bridge.writer.list_ledgers",
             AsyncMock(return_value=existing),
         )
         result = await writer.create_ledger(name="Purchase - Electronics", parent="Sundry Creditors")
@@ -452,7 +452,7 @@ class TestCreateLedgerExistenceSafe:
         writer = TallyWriter(client=mock_client, company="Test Co")
         existing = [self._make_ledger("Purchase - Electronics", "Sundry Creditors")]
         monkeypatch.setattr(
-            "backend.tally_bridge.writer.list_ledgers",
+            "tally_bridge.writer.list_ledgers",
             AsyncMock(return_value=existing),
         )
         result = await writer.create_ledger(name="purchase - electronics", parent="sundry creditors")
@@ -466,7 +466,7 @@ class TestCreateLedgerExistenceSafe:
         writer = TallyWriter(client=mock_client, company="Test Co")
         existing = [self._make_ledger("Acme Corp", "Sundry Debtors")]
         monkeypatch.setattr(
-            "backend.tally_bridge.writer.list_ledgers",
+            "tally_bridge.writer.list_ledgers",
             AsyncMock(return_value=existing),
         )
         result = await writer.create_ledger(name="Acme Corp", parent="Sundry Creditors")
@@ -490,7 +490,7 @@ class TestCreateLedgerExistenceSafe:
         )
         writer = TallyWriter(client=mock_client, company="Test Co")
         monkeypatch.setattr(
-            "backend.tally_bridge.writer.list_ledgers",
+            "tally_bridge.writer.list_ledgers",
             AsyncMock(side_effect=RuntimeError("tally read blew up")),
         )
         result = await writer.create_ledger(name="Brand New Co", parent="Sundry Creditors")
@@ -510,7 +510,7 @@ class TestCreateLedgerExistenceSafe:
         )
         writer = TallyWriter(client=mock_client, company="Bharat Traders")
         mock_list = AsyncMock(return_value=[])
-        monkeypatch.setattr("backend.tally_bridge.writer.list_ledgers", mock_list)
+        monkeypatch.setattr("tally_bridge.writer.list_ledgers", mock_list)
         await writer.create_ledger(name="New Co", parent="Sundry Creditors")
         assert mock_list.await_args.kwargs.get("company") == "Bharat Traders"
 
@@ -527,7 +527,7 @@ class TestCreateLedgerExistenceSafe:
         writer = TallyWriter(client=mock_client, company="Test Co")
         existing = [self._make_ledger("Some Other Ledger")]
         monkeypatch.setattr(
-            "backend.tally_bridge.writer.list_ledgers",
+            "tally_bridge.writer.list_ledgers",
             AsyncMock(return_value=existing),
         )
         result = await writer.create_ledger(name="Brand New Supplier Co", parent="Sundry Creditors")
@@ -596,7 +596,7 @@ async def test_every_create_method_raises_on_silent_drop(method, args, kwargs, m
     # create_ledger now does an existence pre-check via list_ledgers; stub it to
     # "absent" so the silent-drop POST path is exercised (not the existence path).
     monkeypatch.setattr(
-        "backend.tally_bridge.writer.list_ledgers", AsyncMock(return_value=[]),
+        "tally_bridge.writer.list_ledgers", AsyncMock(return_value=[]),
     )
     writer = TallyWriter(client=_silent_drop_client(), company="X")
     fn = getattr(writer, method)

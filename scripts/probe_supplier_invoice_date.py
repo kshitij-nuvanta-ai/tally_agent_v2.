@@ -22,7 +22,7 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Iterable
 
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 COMPANY = "Bharat Traders Private Limited"
 TARGET_MID = "19"

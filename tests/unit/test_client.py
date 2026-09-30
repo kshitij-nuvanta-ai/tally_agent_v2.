@@ -1,6 +1,6 @@
 import pytest
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.exceptions import TallyConnectionError
+from tally_bridge.client import TallyClient
+from tally_bridge.exceptions import TallyConnectionError
 
 
 @pytest.fixture

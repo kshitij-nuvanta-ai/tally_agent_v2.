@@ -68,7 +68,7 @@ def _temp_file():
             os.remove(path)
 
 
-from backend.tally_bridge.models import StockItem
+from tally_bridge.models import StockItem
 
 # Stock items the company already has (used by inventory goods detection).
 _STOCK_ITEMS = [
@@ -92,16 +92,16 @@ async def _run_upload(fixture_name, party_vouchers=None, ledgers=None, groups=No
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message(fixture_name)),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS if ledgers is None else ledgers,
     ), patch(
-        "backend.tally_bridge.response_parser.parse_groups",
+        "tally_bridge.response_parser.parse_groups",
         return_value=_GROUPS if groups is None else groups,
     ), patch(
         "backend.services.stock_resolver.list_stock_items",
         new=AsyncMock(return_value=_STOCK_ITEMS),
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=party_vouchers or []),
     ):
         result = await orch.process_file_upload(
@@ -260,13 +260,13 @@ async def test_dedup_keys_on_invoice_number():
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message("purchase_office_inr")),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
         "backend.services.stock_resolver.list_stock_items",
         new=AsyncMock(return_value=_STOCK_ITEMS),
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=[]),
     ), patch(
         "backend.services.dedup.find_duplicate", new=fake_find,
@@ -344,7 +344,7 @@ async def test_missing_gst_ledger_warns_no_leg():
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message("purchase_office_inr")),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=no_gst_ledgers,
     ):
         result = await orch.process_file_upload(
@@ -474,13 +474,13 @@ async def test_company_forwarded_to_vision_prompt():
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message("purchase_office_inr")),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
         "backend.services.stock_resolver.list_stock_items",
         new=AsyncMock(return_value=_STOCK_ITEMS),
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=[]),
     ), patch(
         "backend.services.document_parser.build_vision_prompt",
@@ -639,13 +639,13 @@ async def _upload_capturing(fixture_name, *, db=None, workspace_id=None):
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message(fixture_name)),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
         "backend.services.stock_resolver.list_stock_items",
         new=AsyncMock(return_value=_STOCK_ITEMS),
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers", new=fake_pv,
+        "tally_bridge.queries.vouchers.get_party_vouchers", new=fake_pv,
     ), patch(
         "backend.services.dedup.find_duplicate", new=fake_find,
     ):

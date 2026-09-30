@@ -54,7 +54,7 @@ def test_check_mutation_allowed_standalone():
 
 def test_educational_guard_refuses_an_off_day_date_variable_typed_or_not():
     import pytest
-    from agent.tally.envelopes import wrap_report
+    from tally_bridge.envelopes import wrap_report
     from probes.reads import untyped_period_vars
     from probes.safety import GuardError, check_educational_dates
     xml = wrap_report("Bills Receivable", "30-09-2025", "30-09-2025", "Co")
@@ -65,7 +65,7 @@ def test_educational_guard_refuses_an_off_day_date_variable_typed_or_not():
 
 
 def test_educational_guard_passes_days_1_2_31_placeholders_licensed_and_unknown():
-    from agent.tally.envelopes import wrap_report
+    from tally_bridge.envelopes import wrap_report
     from probes.safety import check_educational_dates
     for day in ("01-04-2025", "02-06-2023", "31-10-2025"):
         check_educational_dates(wrap_report("Trial Balance", day, day, "Co"), "educational")

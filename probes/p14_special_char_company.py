@@ -6,8 +6,8 @@ UNESCAPED copy (raw `&` — not well-formed XML), with a short timeout, after wh
 """
 from __future__ import annotations
 
-from agent.tally.envelopes import esc
-from agent.tally.xml_utils import detect_error, read_objects
+from tally_bridge.envelopes import esc
+from tally_bridge.xml_utils import detect_error, read_objects
 from probes.company_b_view import HINDI_DEBTOR, ledger_specs, loaded_licence
 from probes.context import POPUP_HINT, ProbeContext
 from probes.core import Outcome, PartResult, Probe, ProbeBlocked

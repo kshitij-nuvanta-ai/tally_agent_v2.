@@ -4,9 +4,9 @@ from decimal import Decimal
 
 import httpx
 
-from agent.tally.envelopes import formula_string, wrap_report
-from agent.tally.reports import parse_ledger_list
-from agent.tally.xml_utils import detect_error, read_objects
+from tally_bridge.envelopes import formula_string, wrap_report
+from tally_bridge.sync_reports import parse_ledger_list
+from tally_bridge.xml_utils import detect_error, read_objects
 from probes.companies import COMPANIES
 from probes.company_b_view import ledger_balances_at
 from probes.reads import exploded_tb_rows, master_request, primary_group_rows, stock_rows_any_depth

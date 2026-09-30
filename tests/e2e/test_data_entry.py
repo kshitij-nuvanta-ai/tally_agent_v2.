@@ -239,7 +239,7 @@ class TestFxDataEntryE2E:
         """Finding 1: approving a foreign entry with no rate (amount 0, fx_rate 0)
         must NOT write — return a voucher_error telling the user to set a rate."""
         with patch(
-            "backend.tally_bridge.writer.TallyWriter.create_payment_voucher",
+            "tally_bridge.writer.TallyWriter.create_payment_voucher",
             new=AsyncMock(),
         ) as mock_write:
             resp = client.post(

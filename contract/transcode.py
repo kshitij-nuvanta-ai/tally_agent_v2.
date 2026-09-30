@@ -1,37 +1,20 @@
-# Copied from: v2/agent/tally/xml_utils.py @ a0d33e4
-# Changes: sanitize_xml and detect_error as-is. New: `&#4;` is swapped for a placeholder before sanitize_xml (which
-# would delete it) and mapped back to U+0004 in every text and attribute (pre-flight F16, spec §5.4 / D31: the wire
-# keeps "\u0004 Primary", parse.name strips it server-side); an <ERRORMSG> body is an error envelope too (probe 10
-# body_kind); the transcoders below are new.
 """Tally XML -> wire objects (S1 spec §5.1, D1): tag names lower-cased, text unchanged except entity decoding.
 
 A missing tag gives no key; an empty tag gives "". Nothing here parses a value: that is the server's job
 (contract.parse). Posting rule (LESSONS rule 18): `ledger_entries` come from ALLLEDGERENTRIES.LIST only; the
 LEDGERENTRIES.LIST copy is never emitted.
+
+`sanitize_xml` and `detect_error` are the bridge's own (tally_bridge.xml_utils). On top of them: `&#4;` is swapped
+for a placeholder before sanitize_xml (which would delete it) and mapped back to U+0004 in every text and attribute
+(pre-flight F16, spec §5.4 / D31: the wire keeps "\u0004 Primary", parse.name strips it server-side); an <ERRORMSG>
+body is an error envelope too (probe 10 body_kind).
 """
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
 
-
-def sanitize_xml(raw_xml: str) -> str:
-    """Remove invalid XML character references that TallyPrime sometimes emits (e.g. &#4;)."""
-    return re.sub(r"&#([0-8]|1[0-1]|1[4-9]|2[0-9]|3[0-1]);", "", raw_xml)
-
-
-def detect_error(raw_xml: str) -> str | None:
-    try:
-        root = ET.fromstring(sanitize_xml(raw_xml))
-    except ET.ParseError:
-        return "Invalid XML response from Tally"
-    error_el = root.find(".//LINEERROR")
-    if error_el is not None and error_el.text:
-        return error_el.text.strip()
-    errors_el = root.find(".//ERRORS")
-    if errors_el is not None and errors_el.text and errors_el.text.strip() != "0":
-        return f"Tally reported {errors_el.text.strip()} error(s)"
-    return None
+from tally_bridge.xml_utils import detect_error, sanitize_xml
 
 
 class TallyErrorEnvelope(ValueError):

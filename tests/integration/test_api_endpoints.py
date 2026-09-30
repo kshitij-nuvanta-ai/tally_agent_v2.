@@ -14,7 +14,7 @@ import pytest
 from httpx import ASGITransport
 
 from backend.api.dependencies import get_client, get_current_user
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from tests.mocks.mock_tally_server import create_mock_tally_app
 
 

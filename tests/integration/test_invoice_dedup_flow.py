@@ -23,7 +23,7 @@ from backend.agents.orchestrator import Orchestrator
 from backend.api.chat import voucher_action
 from backend.api.models import VoucherActionRequest
 from backend.db.models import Conversation, UploadedFile, User, VoucherEntry, Workspace
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from tests.fixtures import vision_docs
 
 pytestmark = pytest.mark.skipif(
@@ -82,10 +82,10 @@ async def _upload(db_session, ctx, fixture, content=b"\xff\xd8\xff\xe0PDFBYTESA"
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message(fixture)),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=[]),
     ), patch(
         "backend.services.dedup.get_party_vouchers",
@@ -124,7 +124,7 @@ async def test_b1_same_file_twice_blocks_second(db_session, ctx):
     entry1["conversation_id"] = str(conv.id)
     entry1["file_id"] = first["data"]["file_id"]
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -149,7 +149,7 @@ async def test_b1_same_file_twice_blocks_second(db_session, ctx):
         session_id=str(conv.id),
     )
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -176,7 +176,7 @@ async def test_b2_same_invoice_no_different_file_blocks(db_session, ctx):
         session_id=str(conv.id),
     )
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         await voucher_action(
@@ -213,7 +213,7 @@ async def test_distinct_invoice_writes_with_reference(db_session, ctx):
         return _SUCCESS
 
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=_capture,
     ):
         resp = await voucher_action(
@@ -237,7 +237,7 @@ async def test_write_time_recheck_blocks_even_with_client_status_draft(db_sessio
     entry1["conversation_id"] = str(conv.id)
     entry1["file_id"] = first["data"]["file_id"]
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -255,7 +255,7 @@ async def test_write_time_recheck_blocks_even_with_client_status_draft(db_sessio
     dup_entry.pop("duplicate_of", None)
     dup_entry["file_id"] = None
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -279,7 +279,7 @@ async def test_edit_reference_to_non_duplicate_allows_write(db_session, ctx):
     entry1["conversation_id"] = str(conv.id)
     entry1["file_id"] = first["data"]["file_id"]
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -305,7 +305,7 @@ async def test_edit_reference_to_non_duplicate_allows_write(db_session, ctx):
         return _SUCCESS
 
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=_capture,
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -328,7 +328,7 @@ async def test_write_time_recheck_normalizes_reference(db_session, ctx):
     entry1["conversation_id"] = str(conv.id)
     entry1["file_id"] = first["data"]["file_id"]
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -346,7 +346,7 @@ async def test_write_time_recheck_normalizes_reference(db_session, ctx):
     # written ref is "CRO-2026-5678"; resubmit with trailing space + lower case.
     dup_entry["reference"] = "  cro-2026-5678 "
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),

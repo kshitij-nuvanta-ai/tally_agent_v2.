@@ -1,9 +1,9 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_bills
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_bills
+from tally_bridge.xml_utils import read_objects
 from probes import p05_voucher_month_bounds as p05
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_TO, B_CUSTOM_VOUCHER_TYPE, bill_terms, credit_days,
                                       flagged_tags, item_specs, r9_candidate, stock_opening_at, written_vouchers)

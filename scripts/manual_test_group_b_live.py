@@ -1,6 +1,6 @@
 """Group B WRITE-DIRECTION manual test against a LIVE Tally — proves voucher polarity.
 
-Uses the REAL production write code (``backend.tally_bridge.writer.TallyWriter`` — the
+Uses the REAL production write code (``tally_bridge.writer.TallyWriter`` — the
 exact methods ``backend/api/chat.py`` voucher_action dispatches to) to land a Purchase,
 Debit Note, Sales and Credit Note against the live "Bharat Traders Private Limited"
 company, reading bills_payable / bills_receivable back after every write to PROVE the
@@ -16,11 +16,11 @@ Everything it writes is cleaned up in a ``finally`` block (delete-by-Master-ID, 
 to assert the books are restored to baseline (±1).
 
 Grounded in:
-  - backend/tally_bridge/writer.py            (create_purchase_voucher_ledger / _sales_ / debit_note / credit_note)
+  - tally_bridge/writer.py            (create_purchase_voucher_ledger / _sales_ / debit_note / credit_note)
   - backend/api/chat.py                       (voucher_action dispatch — exact call shapes mirrored here)
-  - backend/tally_bridge/queries/reports.py   (bills_payable / bills_receivable → list[OutstandingBill])
-  - backend/tally_bridge/request_builder.py   (build_list_ledgers)
-  - backend/tally_bridge/response_parser.py   (parse_ledger_list — parent_group field)
+  - tally_bridge/queries/reports.py   (bills_payable / bills_receivable → list[OutstandingBill])
+  - tally_bridge/request_builder.py   (build_list_ledgers)
+  - tally_bridge/response_parser.py   (parse_ledger_list — parent_group field)
   - scripts/probe_group_b.py                  (delete-by-Master-ID cleanup + arg parsing + post_write timeout)
   - LESSONS.md §15                            (write safety: read-back, DD-MMM-YYYY delete date)
 
@@ -42,13 +42,13 @@ from datetime import datetime
 
 import httpx
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.models import OutstandingBill
-from backend.tally_bridge.queries.reports import bills_payable, bills_receivable
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import parse_import_response, parse_ledger_list
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.models import OutstandingBill
+from tally_bridge.queries.reports import bills_payable, bills_receivable
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import parse_import_response, parse_ledger_list
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 NPFX = "_ManualTestGB"  # narration prefix so leftovers are mechanically identifiable

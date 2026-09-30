@@ -83,7 +83,7 @@ async def db_app(monkeypatch, tmp_path):
         app.include_router(module.router, prefix="/api")
 
     from backend.agents.context import SessionStore
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
     from backend.db.engine import init_engine
 
     tally_client = TallyClient(host="localhost", port=9000)
@@ -587,7 +587,7 @@ async def test_db_save_draft_persists_edits_without_tally_write(db_app):
     'draft', NO VoucherEntry audit row is created, and NO Tally write occurs."""
     from unittest.mock import patch as _patch
 
-    from backend.tally_bridge import writer as writer_mod
+    from tally_bridge import writer as writer_mod
 
     async with AsyncClient(transport=ASGITransport(app=db_app), base_url="http://test") as ac:
         token, _ = await _register_and_get_token(ac)
@@ -762,7 +762,7 @@ async def test_db_refresh_roundtrip_save_draft_whole_state_no_message(db_app):
     line-item qty AND narration), status stays 'draft', and NO assistant chat
     message was added (save_draft is silent) — and the card count stays at one."""
     from unittest.mock import patch as _patch
-    from backend.tally_bridge import writer as writer_mod
+    from tally_bridge import writer as writer_mod
 
     async with AsyncClient(transport=ASGITransport(app=db_app), base_url="http://test") as ac:
         token, _ = await _register_and_get_token(ac)
@@ -840,7 +840,7 @@ async def test_db_refresh_roundtrip_duplicate_block_card_and_message(db_app):
         }
 
         with patch(
-            "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+            "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
             new=AsyncMock(return_value={"success": True, "last_vch_id": "301", "created": 1}),
         ):
             first = await ac.post(

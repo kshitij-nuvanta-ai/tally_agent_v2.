@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.api.dependencies import get_client
 from backend.api.models import ReportResponse
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import reports, vouchers
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import reports, vouchers
 
 router = APIRouter()
 

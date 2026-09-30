@@ -8,7 +8,7 @@ books stay pristine.
 Grounded entirely in:
   - docs/plans/2026-04-12-group-b-voucher-types-plan.md  (Task 0 / E1–E8 XML)
   - scripts/explore_tally_write_v4.py                    (CREATE → read-back → DELETE style)
-  - backend/tally_bridge/import_builder.py               (_wrap_import, _esc, voucher shapes)
+  - tally_bridge/import_builder.py               (_wrap_import, _esc, voucher shapes)
   - scripts/probe_bill_allocations_live.py               (Master-ID lookup + delete-by-Master-ID)
   - LESSONS.md §15                                       (write safety: read-back, DD-MMM-YYYY delete)
 
@@ -45,10 +45,10 @@ from datetime import datetime
 
 import httpx
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import (
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import (
     parse_import_response,
     parse_ledger_list,
     sanitize_xml,

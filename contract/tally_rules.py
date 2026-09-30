@@ -1,7 +1,7 @@
-# Copied from: v2/probes/reads.py @ 4aed355
-# Changes: PRIMARY_NATURE as-is; RESERVED_VOUCHER_TYPES, the synthetic TB row names, PL_ACCOUNT_LEDGER and
-# PRIMARY_PARENT are new (S1 spec §4.4, §10.1, D11, D31).
-"""Tally facts the cloud and the agent share (S1 spec §4.4, §10)."""
+"""Tally facts the cloud and the agent share (S1 spec §4.4, §10).
+
+PRIMARY_NATURE is defined here once; probes/reads.py imports it.
+"""
 from __future__ import annotations
 
 PRIMARY_NATURE: dict[str, str] = {

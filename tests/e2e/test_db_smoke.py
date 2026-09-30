@@ -79,7 +79,7 @@ async def db_app(monkeypatch):
 
     # 4. Manually initialise what lifespan would do (ASGITransport skips lifespan)
     from backend.agents.context import SessionStore
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
     from backend.db.engine import init_engine
 
     tally_client = TallyClient(host="localhost", port=9000)

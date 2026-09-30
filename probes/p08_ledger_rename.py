@@ -1,8 +1,8 @@
 """Probe 8 — what a ledger rename does to GUIDs, AlterIDs and the names old vouchers export (S0 spec §7). Feeds R9."""
 from __future__ import annotations
 
-from agent.tally.envelopes import formula_string
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import formula_string
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe

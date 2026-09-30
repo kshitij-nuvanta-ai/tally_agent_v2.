@@ -1,6 +1,6 @@
 import httpx
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p10_error_shapes as p10
 from probes.capture import Capture
 from probes.operator.auto import build_auto_operator
@@ -107,7 +107,7 @@ async def _run_with_auto_operator(tmp_path, books):
                              runner=FakeRunner(books, [TallyProcess(8, OWN_COMMAND)]), echo=lambda line: None)
     store = ResultsStore(tmp_path / "r.json")
     ready_store(store, licence="licensed")
-    await run_probe(p10.PROBE, labels=None, client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p10.PROBE, labels=None, client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=op)
     return store.probe_entry(10)["parts"]["A"]
 

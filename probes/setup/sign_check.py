@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from agent.tally.envelopes import formula_string, wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import formula_string, wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.setup.writes import TallyWriter, WriteFailed
 
 LEDGER = "ZZ Sign Check Debtor"

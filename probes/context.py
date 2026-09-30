@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from agent.tally.client import TallyClient, TallyResponse
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc
-from agent.tally.exceptions import TallyConnectionError, TallyResponseError, TallyTimeoutError
-from agent.tally.xml_utils import parse_company_list, read_objects, sanitize_xml
+from tally_bridge.client import TallyClient, TallyResponse
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError, TallyTimeoutError
+from tally_bridge.xml_utils import parse_company_list, read_objects, sanitize_xml
 from probes.actions import ASK_KINDS, PAUSE_KINDS, Action
 from probes.capture import Capture
 from probes.console import ProbeIO
@@ -84,7 +84,7 @@ class ProbeContext:
                       company_guid=self.company_guid, request_xml=xml, sent_at=datetime.now().astimezone(),
                       environment={k: env[k] for k in ENVIRONMENT_SIDECAR_KEYS if k in env})
         try:
-            response: TallyResponse = await self.client.post_xml(xml, timeout=timeout)
+            response: TallyResponse = await self.client.post(xml, timeout=timeout)
         except (TallyConnectionError, TallyResponseError) as exc:
             if isinstance(exc, TallyTimeoutError):
                 kind = "timeout"
@@ -115,7 +115,7 @@ class ProbeContext:
         check_request(xml)
         check_educational_dates(xml, self.store.environment.get("licence"))
         try:
-            response = await self.client.post_xml(xml)
+            response = await self.client.post(xml)
         except TallyTimeoutError as exc:
             raise ProbeBlocked(f"{what}: {exc}. {POPUP_HINT}") from exc
         except TallyConnectionError as exc:

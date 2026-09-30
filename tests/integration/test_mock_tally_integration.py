@@ -5,8 +5,8 @@ the same pipeline used for live Tally responses.
 """
 
 import pytest
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import masters, reports
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import masters, reports
 
 
 @pytest.fixture

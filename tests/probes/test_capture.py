@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from agent.tally.client import TallyResponse
+from tally_bridge.client import TallyResponse
 from probes.capture import TIMING_NOTE, Capture, fixture_name
 
 SENT = datetime(2026, 9, 23, 10, 12, 3, tzinfo=timezone.utc)

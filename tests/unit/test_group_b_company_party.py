@@ -7,11 +7,11 @@ Builders must match the verified probe envelopes (probe_group_b.py E7/E8):
 """
 import xml.etree.ElementTree as ET
 
-from backend.tally_bridge.request_builder import (
+from tally_bridge.request_builder import (
     build_company_list,
     build_party_vouchers,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     parse_company_list,
     parse_party_vouchers,
 )

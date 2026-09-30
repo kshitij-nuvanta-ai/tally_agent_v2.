@@ -7,9 +7,9 @@ Covers:
 import pytest
 
 from tests.mocks.mock_tally_server import create_mock_tally_app
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries.masters import get_company_list
-from backend.tally_bridge.queries.vouchers import get_party_vouchers
+from tally_bridge.client import TallyClient
+from tally_bridge.queries.masters import get_company_list
+from tally_bridge.queries.vouchers import get_party_vouchers
 
 
 @pytest.fixture

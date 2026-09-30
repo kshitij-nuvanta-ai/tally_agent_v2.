@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import ASGITransport, AsyncClient
 
-from backend.tally_bridge.exceptions import TallyConnectionError, TallyResponseError
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError
 from tests.mocks.mock_claude_api import (
     make_classification_response,
     make_text_response,
@@ -595,7 +595,7 @@ class TestChatPipelineMockTally:
     async def mock_client(self):
         """Create an async test client with mock Tally mode enabled."""
         from backend.main import app
-        from backend.tally_bridge.client import TallyClient
+        from tally_bridge.client import TallyClient
         from backend.agents.context import SessionStore
 
         tally_client = TallyClient()

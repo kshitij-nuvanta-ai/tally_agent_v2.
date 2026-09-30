@@ -4,7 +4,7 @@ Educational-sensitive (spec §4.6); the standard-edition cross-check is deferred
 """
 from __future__ import annotations
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.companies import THROWAWAY_DATE_TEXT, THROWAWAY_EXPENSE_LEDGER
 from probes.context import ProbeContext

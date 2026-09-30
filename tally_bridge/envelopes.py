@@ -1,13 +1,21 @@
-# Copied from: backend/tally_bridge/request_builder.py @ c04d7d2
-# Changes: the company name is always XML-escaped (the source leaves it raw in _wrap_voucher_collection,
-# _wrap_report_envelope and build_ledger_vouchers — Part 1 R13); the collection wrapper also takes static
-# variables, filters and extra TDL; only the wrappers and build_company_list are copied; SV*DATE static variables
-# carry TYPE="Date" (C33 — the source sends them untyped and Tally then ignores them).
-"""Pure XML envelope builders for Tally export requests. No I/O."""
+"""Generic XML envelope builders for Tally export requests (the sync path and the probes). No I/O.
+
+``request_builder.py`` holds the app's fixed ``build_*`` requests; this module holds the general wrappers. For the
+same report the two produce the same elements, but not the same bytes, so neither is built on the other:
+- blank lines fall in different places (each side leaves an empty line where an optional part is absent);
+- here the company name is escaped with ``esc`` (``&``, ``<``, ``>``, ``"`` and ``'``); ``request_builder`` escapes
+  ``&``, ``<`` and ``>`` only. Both are valid XML and Tally reads the same name;
+- ``wrap_report`` puts extra variables before ``SVCurrentCompany``; ``request_builder`` puts them after it;
+- ``build_company_list`` here and in ``request_builder`` differ in blank lines only.
+The collection wrapper also takes static variables, filters and extra TDL. Every ``SV*DATE`` static variable carries
+``TYPE="Date"`` (C33), as ``request_builder`` does for its period variables.
+"""
 from __future__ import annotations
 
 import re
 from xml.sax.saxutils import escape as _xml_escape
+
+from tally_bridge.import_builder import esc
 
 COMPANY_PLACEHOLDER = "__COMPANY__"
 _VAR_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
@@ -15,11 +23,6 @@ _VAR_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
 # (and 20220401, 1-Apr-2022) is silently replaced by the company's current period — a healthy answer for the
 # wrong window. Typed, all three formats are honoured. Every SV*DATE variable is typed here, and nothing else.
 _DATE_VAR = re.compile(r"^SV[A-Z0-9]*DATE$", re.IGNORECASE)
-
-
-def esc(value: str) -> str:
-    """Escape text for XML element content or attribute values."""
-    return _xml_escape(value, {'"': "&quot;", "'": "&apos;"})
 
 
 def formula_string(value: str) -> str:

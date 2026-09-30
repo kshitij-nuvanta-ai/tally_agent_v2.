@@ -7,7 +7,7 @@ only means Tally accepted the envelope — it says nothing about whether the GST
 landed where they should. This script closes that gap.
 
 It uses the REAL production write code
-(``backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger`` — the
+(``tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger`` — the
 exact method ``backend/api/chat.py`` voucher_action dispatches to) to land ONE
 GST Purchase against the live "Bharat Traders Private Limited" company, then PROVES
 the GST legs persisted three ways:
@@ -32,11 +32,11 @@ balances and supplier payable are re-read to assert the books are restored to
 baseline (±1).
 
 Grounded in:
-  - backend/tally_bridge/writer.py            (create_purchase_voucher_ledger / create_ledger)
+  - tally_bridge/writer.py            (create_purchase_voucher_ledger / create_ledger)
   - backend/api/chat.py                       (voucher_action dispatch — call shape mirrored)
-  - backend/tally_bridge/queries/reports.py   (bills_payable → list[OutstandingBill])
-  - backend/tally_bridge/request_builder.py   (build_list_ledgers)
-  - backend/tally_bridge/response_parser.py   (parse_ledger_list — closing_balance field; sanitize_xml)
+  - tally_bridge/queries/reports.py   (bills_payable → list[OutstandingBill])
+  - tally_bridge/request_builder.py   (build_list_ledgers)
+  - tally_bridge/response_parser.py   (parse_ledger_list — closing_balance field; sanitize_xml)
   - scripts/manual_test_group_b_live.py       (TallyClient setup + arg parsing + delete-by-Master-ID cleanup)
   - scripts/probe_group_b_readback.py         (full-voucher day_book-style read-back collection)
   - LESSONS.md §15                            (write safety: read-back, DD-MMM-YYYY delete date)
@@ -61,17 +61,17 @@ from datetime import datetime
 
 import httpx
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.models import OutstandingBill
-from backend.tally_bridge.queries.reports import bills_payable
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import (
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.models import OutstandingBill
+from tally_bridge.queries.reports import bills_payable
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import (
     parse_import_response,
     parse_ledger_list,
     sanitize_xml,
 )
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 NPFX = "_ManualTestGST"  # narration prefix so leftovers are mechanically identifiable

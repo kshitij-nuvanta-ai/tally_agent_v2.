@@ -148,7 +148,7 @@ async def test_main_app_with_sync_builds_and_answers_health_without_an_engine(mo
     app's own ``GET /api/health``."""
     from backend.agents.context import SessionStore
     from backend.api.dependencies import get_current_user
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
 
     app = _main_app(monkeypatch, database_url=UNUSED_DB)
     tally = TallyClient(host="localhost", port=9000)

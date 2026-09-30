@@ -12,14 +12,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.utils.date_utils import resolve_date_range as _resolve_date_range
 from backend.utils.date_utils import validate_tally_date
 
 logger = logging.getLogger(__name__)
-from backend.tally_bridge.exceptions import TallyConnectionError, TallyResponseError
-from backend.tally_bridge.models import ReportResponse, OutstandingBill, Ledger, Company
-from backend.tally_bridge.queries import masters, reports, vouchers
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError
+from tally_bridge.models import ReportResponse, OutstandingBill, Ledger, Company
+from tally_bridge.queries import masters, reports, vouchers
 
 
 # ---------------------------------------------------------------------------

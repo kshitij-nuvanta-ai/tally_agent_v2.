@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from backend.api.dependencies import get_client, get_current_user
-from backend.tally_bridge.exceptions import TallyConnectionError, TallyResponseError
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError
 
 
 @pytest.fixture

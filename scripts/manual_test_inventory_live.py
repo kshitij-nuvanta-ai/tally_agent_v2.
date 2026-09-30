@@ -31,9 +31,9 @@ supplier payable is re-read and asserted back to baseline.
 
 Grounded in:
   - backend/api/chat.py                 (_write_inventory_voucher — exact call shapes mirrored)
-  - backend/tally_bridge/writer.py      (create_unit / create_stock_item / create_purchase_voucher)
-  - backend/tally_bridge/import_builder.py (_esc / _wrap_import / item tuple order)
-  - backend/tally_bridge/queries/reports.py (bills_payable → list[OutstandingBill])
+  - tally_bridge/writer.py      (create_unit / create_stock_item / create_purchase_voucher)
+  - tally_bridge/import_builder.py (_esc / _wrap_import / item tuple order)
+  - tally_bridge/queries/reports.py (bills_payable → list[OutstandingBill])
   - scripts/manual_test_group_b_live.py (client/arg/cleanup/results patterns, FY date 20250620)
   - scripts/manual_test_pdf_flows_live.py (delete-by-Master-ID, post_write timeout)
   - scripts/explore_tally_write_v4.py   (STOCKITEM ACTION="Delete" via All Masters envelope)
@@ -62,14 +62,14 @@ from datetime import datetime
 
 import httpx
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.models import OutstandingBill
-from backend.tally_bridge.queries.masters import list_stock_items
-from backend.tally_bridge.queries.reports import bills_payable
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import parse_import_response
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.models import OutstandingBill
+from tally_bridge.queries.masters import list_stock_items
+from tally_bridge.queries.reports import bills_payable
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import parse_import_response
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 NPFX = "_MTINV"  # narration / item prefix so leftovers are mechanically identifiable
@@ -250,7 +250,7 @@ def _parse_inventory_entries(raw: str, narration_match: str) -> tuple[list[InvLi
 
     Looks for inventory line items in the stock-grid blocks — NOT the narration.
     """
-    from backend.tally_bridge.response_parser import sanitize_xml
+    from tally_bridge.response_parser import sanitize_xml
     root = ET.fromstring(sanitize_xml(raw))
     for vch in root.iter("VOUCHER"):
         narr = (vch.findtext("NARRATION") or "")

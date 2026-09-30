@@ -12,9 +12,9 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.request_builder import build_list_ledgers, build_list_groups, build_day_book
-from backend.tally_bridge.response_parser import parse_ledger_list, parse_groups, parse_vouchers, sanitize_xml
+from tally_bridge.client import TallyClient
+from tally_bridge.request_builder import build_list_ledgers, build_list_groups, build_day_book
+from tally_bridge.response_parser import parse_ledger_list, parse_groups, parse_vouchers, sanitize_xml
 
 COMPANY = "NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"
 WRITES_LOG: list[dict] = []

@@ -19,7 +19,7 @@ from datetime import date
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import Any
 
-from agent.tally.xml_utils import sanitize_xml
+from tally_bridge.xml_utils import sanitize_xml
 from probes.capture import TIMING_NOTE
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_FROM_DATE, drift_message, expect_window, fetch_window,
                                       kind_label, loaded_licence, month_window, tag_of)

@@ -6,9 +6,9 @@ date) offset in days is recorded, and due dates that follow another rule get the
 """
 from __future__ import annotations
 
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_bills
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_bills
+from tally_bridge.xml_utils import read_objects
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_TO, BillTerm, bill_terms, credit_days, drift_message,
                                       fetch_window, loaded_licence, month_window, tag_of)
 from probes.context import ProbeContext

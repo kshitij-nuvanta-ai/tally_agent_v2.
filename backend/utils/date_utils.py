@@ -4,6 +4,10 @@ from datetime import date, datetime, timedelta
 
 from dateutil.relativedelta import relativedelta
 
+# Defined in the bridge (its queries need them and the bridge imports nothing from backend); the names stay
+# importable from here.
+from tally_bridge.dates import format_for_tally, get_fy_end, get_fy_start  # noqa: F401
+
 
 _TALLY_DATE_RE = re.compile(r'^\d{2}-\d{2}-\d{4}$')
 _ISO_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -42,20 +46,6 @@ def validate_tally_date(date_str: str, autofix: bool = False) -> str:
         raise ValueError(f"Invalid date '{date_str}': expected DD-MM-YYYY format")
 
     return s
-
-
-def get_fy_start(ref: date) -> date:
-    """Return April 1 of the current Indian financial year."""
-    if ref.month >= 4:
-        return date(ref.year, 4, 1)
-    return date(ref.year - 1, 4, 1)
-
-
-def get_fy_end(ref: date) -> date:
-    """Return March 31 of the current Indian financial year."""
-    if ref.month >= 4:
-        return date(ref.year + 1, 3, 31)
-    return date(ref.year, 3, 31)
 
 
 def get_last_fy_range(ref: date) -> tuple[date, date]:
@@ -121,11 +111,6 @@ def get_month_range(ref: date) -> tuple[date, date]:
     """Return (first day, last day) of the month containing ref."""
     last_day = calendar.monthrange(ref.year, ref.month)[1]
     return date(ref.year, ref.month, 1), date(ref.year, ref.month, last_day)
-
-
-def format_for_tally(d: date) -> str:
-    """Format date as DD-MM-YYYY for Tally requests."""
-    return d.strftime("%d-%m-%Y")
 
 
 def resolve_date_range(description: str, ref: date | None = None) -> dict:

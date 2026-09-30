@@ -17,7 +17,7 @@ from backend.agents.orchestrator import Orchestrator
 from backend.api.dependencies import get_client, get_current_user, get_session_store
 from backend.api.models import ChatRequest, ChatResponse, ChartSpec, VoucherActionRequest
 from backend.config import settings
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.utils.currency_format import format_inr
 
 logger = logging.getLogger(__name__)
@@ -380,8 +380,8 @@ async def _write_inventory_voucher(
     the stock-based writer with the GST mode + Phase-1 reference + a New Ref bill
     allocation for the gross.
     """
-    from backend.tally_bridge.import_builder import compute_invoice_gross
-    from backend.tally_bridge.queries.masters import list_stock_items, list_stock_groups
+    from tally_bridge.import_builder import compute_invoice_gross
+    from tally_bridge.queries.masters import list_stock_items, list_stock_groups
 
     voucher_type = entry["voucher_type"]
     party = entry["party_ledger"]
@@ -533,7 +533,7 @@ async def voucher_action(
     approve/edit both write to Tally (edit means user already modified the
     entry in the EditForm before confirming). discard just acknowledges.
     """
-    from backend.tally_bridge.writer import TallyWriter, ValidationError
+    from tally_bridge.writer import TallyWriter, ValidationError
 
     entry = request.entry
     session_id = request.session_id

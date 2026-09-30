@@ -10,7 +10,7 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 ## Resume here
 
 **Step 1 in progress on `feat/merge-v2-into-backend`.** Done: T0 baselines, T1 + T2 (commit `13d6bbd`), T3 + T4 (commit
-`7d5d64e`). In progress: T5 (one engine, one app) + T6 (one auth). Next: T7 (one tally bridge), T8 (layer test), T9 (docs), T10 (verification), T11 (code review). Commits are local;
+`7d5d64e`), T5 + T6 (commit `12c36ba`). In progress: T7 (one tally bridge) + T8 (layer test). Next: T9 (docs), T10 (verification), T11 (code review). Commits are local;
 pushing needs GitHub login (0.3).
 
 ## Status
@@ -24,11 +24,11 @@ pushing needs GitHub login (0.3).
 | **1** | **Merge v2 into backend** (`feat/merge-v2-into-backend`) | **In progress** | started 2026-09-30 |
 | 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | In progress | spec + plan committed in `13d6bbd`; old spec "Changed" line and roadmap still to do (plan T9) |
 | 1.1 | Move files to target layout (`v2/` removed) | Done | commit `13d6bbd`; 3106 passed no-DB, 1719 + 1948 with DB (= baselines). `v2/` holds only `README.md` until the docs task |
-| 1.2 | One app: routers in `backend/main.py`, port 8100 gone | In progress | plan T5 under way |
+| 1.2 | One app: routers in `backend/main.py`, port 8100 gone | Done | commit `12c36ba`; `tests/sync/unit/test_wiring.py`, `tests/sync/db/test_main_app.py` (19 sync routes + all existing routes on one app, no collisions) |
 | 1.3 | One settings class | Done | commit `7d5d64e`; `tests/unit/test_config_sync.py` (52 tests: both env spellings, new name wins) |
-| 1.4 | One auth (copies deleted, shared login limiter) | In progress | plan T6 under way |
-| 1.5 | One DB engine + migration `006_sync_tables` | In progress | one Base + migration `006` + one DB harness done in `7d5d64e` (`tests/sync/db/test_migration.py`, 21 tests; adopt path also run on a throwaway copy of the dev DB: 32 → 31 tables, only `alembic_version_v2` removed, all row counts equal). One engine is T5, under way |
-| 1.6 | One tally bridge (top-level `tally_bridge/`) | Not started | — |
+| 1.4 | One auth (copies deleted, shared login limiter) | Done | commit `12c36ba`; `tests/sync/db/test_shared_login_limiter.py` (7 tests, both directions) |
+| 1.5 | One DB engine + migration `006_sync_tables` | Done | one Base + migration `006` + one DB harness done in `7d5d64e` (`tests/sync/db/test_migration.py`, 21 tests; adopt path also run on a throwaway copy of the dev DB: 32 → 31 tables, only `alembic_version_v2` removed, all row counts equal). One engine: `12c36ba` |
+| 1.6 | One tally bridge (top-level `tally_bridge/`) | In progress | plan T7 + T8 under way |
 | 1.7 | One project, one test tree, new isolation test | In progress | one project + one test tree (`13d6bbd`); whole suite runs in one session with the DB (`7d5d64e`); new layer test is T8 |
 | 1.8 | Parked items recorded in `docs/open-items-parked.md` | Not started | — |
 | 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Not started | — |
@@ -142,4 +142,5 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-09-30 | Baselines measured (T0 done): app 1595 / 1719 with DB, v2 1511 / 1948 with DB. T1 + T2 (move packages, one project) started. |
 | 2026-09-30 | **T1 + T2 done, commit `13d6bbd`:** `v2/` moved into the main project, one uv project and lockfile; all suites equal the baselines. Temporary modules left under `backend/sync/` (`config.py`, `db.py`, `app.py`, `alembic/`, `passwords.py`, `web_jwt.py`) and `backend/db/sync_models/{base,current}.py`. T3 + T4 started. |
 | 2026-09-30 | **T3 + T4 done, commit `7d5d64e`:** one settings class (`V2_*` names accepted as aliases), sync models on the one `Base`, migration `006_sync_tables` (create / adopt / refuse), old Alembic chain removed, one DB test harness. Suites: 3167 passed no-DB, 3740 passed with DB in one session (+73 new tests). Finding: the 9 app tables' models differ from their own migrations in 27 catalog details (pre-existing, pinned in the migration test, not changed). Decision taken: if `DEVICE_TOKEN_SECRET` is unset the app starts and agent sync routes are simply not mounted; set-but-invalid fails startup. T5 + T6 started. |
+| 2026-09-30 | **T5 + T6 done, commit `12c36ba`:** one app (port 8100 and `/api/v2/health` removed), one engine, one token decode, one shared login limiter. Suites: 3183 passed no-DB, 3767 passed with DB. Notes: web login now follows `LOGIN_RATE_MAX` / `LOGIN_RATE_WINDOW_S` if an operator sets them (defaults = the old 5 / 900 s); an unexpected non-DB error on a sync route now returns the app's JSON 500 instead of plain text. T7 + T8 started. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |

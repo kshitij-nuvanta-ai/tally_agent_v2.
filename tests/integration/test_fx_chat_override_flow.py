@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.chat import _chat_db_mode
 from backend.api.models import ChatRequest
 from backend.db.models import Conversation, Message, User, Workspace
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),

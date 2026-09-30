@@ -13,7 +13,7 @@ import sys
 
 import anthropic
 
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.agents.orchestrator import Orchestrator
 from backend.agents.context import SessionStore
 from backend.config import settings

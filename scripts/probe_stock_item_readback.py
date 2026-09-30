@@ -2,7 +2,7 @@
 import asyncio
 from xml.sax.saxutils import escape as xml_escape
 
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 COMPANY = "Bharat Traders Private Limited"
 ITEM = "Samsung 24 inch Monitor"

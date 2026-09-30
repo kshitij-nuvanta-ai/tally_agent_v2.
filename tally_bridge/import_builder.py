@@ -1010,3 +1010,9 @@ def build_create_journal_voucher(
 </ALLLEDGERENTRIES.LIST>
 </VOUCHER>"""
     return _wrap_import("Vouchers", company, voucher_xml)
+
+
+# Public names for the two helpers other packages build on (probes/setup). The private names stay: every builder
+# above and the scripts use them.
+esc = _esc
+wrap_import = _wrap_import

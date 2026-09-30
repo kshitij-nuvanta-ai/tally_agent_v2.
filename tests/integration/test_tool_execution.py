@@ -3,7 +3,7 @@
 import pytest
 
 from tests.mocks.mock_tally_server import create_mock_tally_app
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.agents.tools import execute_tool
 
 
@@ -168,7 +168,7 @@ class TestTransportErrors:
     async def test_server_drops_connection_mid_response(self, aiohttp_server):
         """Server that closes connection mid-response triggers TransportError."""
         from aiohttp import web
-        from backend.tally_bridge.exceptions import TallyConnectionError
+        from tally_bridge.exceptions import TallyConnectionError
 
         async def drop_connection(request: web.Request) -> web.Response:
             # Start writing a response then raise to simulate connection drop

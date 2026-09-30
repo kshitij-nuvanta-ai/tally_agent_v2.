@@ -18,16 +18,16 @@ import re
 
 import pytest
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.mock_handler import mock_tally_request
-from backend.tally_bridge.queries import vouchers as vq
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.mock_handler import mock_tally_request
+from tally_bridge.queries import vouchers as vq
+from tally_bridge.request_builder import (
     build_day_book,
     build_party_vouchers,
     build_profit_and_loss,
     build_sales_register,
 )
-from backend.tally_bridge.response_parser import parse_party_vouchers, parse_vouchers
+from tally_bridge.response_parser import parse_party_vouchers, parse_vouchers
 
 PRIOR_FY = ("01-04-2024", "31-03-2025")
 CURRENT_FY = ("01-04-2025", "31-03-2026")

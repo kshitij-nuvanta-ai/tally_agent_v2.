@@ -1,1 +1,1 @@
-"""The sync agent (S2). Only read code lives here — never write code, never probes."""
+"""The desktop sync agent will be built in this package. It reaches Tally only through ``tally_bridge``."""

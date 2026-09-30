@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.companies import router
 from backend.api.dependencies import get_client, get_current_user
-from backend.tally_bridge.models import Company
+from tally_bridge.models import Company
 
 
 @pytest.fixture

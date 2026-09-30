@@ -10,8 +10,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc
-from agent.tally.xml_utils import detect_error, parse_company_list, read_objects
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, build_company_list, esc
+from tally_bridge.xml_utils import detect_error, parse_company_list, read_objects
 from probes.companies import (COMPANIES, COMPANY_C_BOOKS_FROM, COMPANY_C_BOOKS_TO, COMPANY_C_LEDGER,
                                  COMPANY_C_VOUCHER_NARRATION)
 from probes.context import ProbeContext

@@ -31,7 +31,7 @@ from backend.agents.chart_agent import ChartAgent
 from backend.agents.context import SessionContext
 from backend.agents.chart_advisor import get_chart_advice
 from backend.agents.utils import parse_all_markdown_tables
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.utils.date_utils import format_for_tally
 
 # Patterns indicating user wants table-only output (no chart)
@@ -115,7 +115,7 @@ class Orchestrator(BaseAgent):
         # Extract Tally client from kwargs or create one from config
         client = kwargs.get("client")
         if client is None:
-            from backend.tally_bridge.client import TallyClient
+            from tally_bridge.client import TallyClient
             host = workspace_config.get("TALLY_HOST", "localhost")
             port = workspace_config.get("TALLY_PORT", 9000)
             client = TallyClient(host=host, port=port)
@@ -176,12 +176,12 @@ class Orchestrator(BaseAgent):
             build_purchase_voucher_data,
             build_sales_voucher_data,
         )
-        from backend.tally_bridge.queries.vouchers import get_party_vouchers
-        from backend.tally_bridge.request_builder import (
+        from tally_bridge.queries.vouchers import get_party_vouchers
+        from tally_bridge.request_builder import (
             build_list_groups,
             build_list_ledgers,
         )
-        from backend.tally_bridge.response_parser import (
+        from tally_bridge.response_parser import (
             parse_groups,
             parse_ledger_list,
         )

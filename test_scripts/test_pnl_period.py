@@ -25,15 +25,15 @@ from datetime import date, timedelta
 from pathlib import Path
 
 # Project imports
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.request_builder import build_profit_and_loss
-from backend.tally_bridge.response_parser import (
+from tally_bridge.client import TallyClient
+from tally_bridge.request_builder import build_profit_and_loss
+from tally_bridge.response_parser import (
     parse_profit_and_loss,
     parse_amount,
     sanitize_xml,
     _get_text,
 )
-from backend.tally_bridge.queries.reports import (
+from tally_bridge.queries.reports import (
     profit_and_loss,
     profit_and_loss_period,
 )
@@ -756,8 +756,8 @@ async def run_diagnostics(host: str, port: int):
     logger.info("TEST 14: Voucher-based P&L — sum Sales invoices per month")
     logger.info("=" * 80)
 
-    from backend.tally_bridge.request_builder import build_sales_register
-    from backend.tally_bridge.response_parser import parse_vouchers
+    from tally_bridge.request_builder import build_sales_register
+    from tally_bridge.response_parser import parse_vouchers
 
     # Fetch full-year sales register
     try:

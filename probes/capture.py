@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent.tally.client import TallyResponse
+from tally_bridge.client import TallyResponse
 
 TIMING_NOTE = "Wine — not representative"
 _STEP = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")

@@ -8,8 +8,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import masters, reports
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import masters, reports
 
 # Same queries as generate_golden.py but using mock mode
 GROUND_TRUTH_QUERIES = {

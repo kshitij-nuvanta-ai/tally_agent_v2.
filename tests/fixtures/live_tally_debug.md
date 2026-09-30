@@ -288,7 +288,7 @@ Bills receivable data (12 outstanding bills):
 ## Summary of Required Fixes
 
 ### Fix 1: Sales/Purchase Register -- Switch to TDL Collection
-**File**: `backend/tally_bridge/request_builder.py`
+**File**: `tally_bridge/request_builder.py`
 
 Replace `build_sales_register()` and `build_purchase_register()` to use `TYPE=Collection` with TDL
 and `$VoucherTypeName = "Sales"` / `$VoucherTypeName = "Purchase"` filter.
@@ -297,13 +297,13 @@ Alternatively, add NEW functions that use Collection approach while keeping the 
 for monthly summary data (which is also useful).
 
 ### Fix 2: Day Book -- Switch to TDL Collection
-**File**: `backend/tally_bridge/request_builder.py`
+**File**: `tally_bridge/request_builder.py`
 
 Replace `build_day_book()` to use `TYPE=Collection` with `TYPE=Voucher` and optional filter.
 Current approach returns only 1 voucher. Collection returns all 221.
 
 ### Fix 3: Bills Parser -- Fix tag names
-**File**: `backend/tally_bridge/response_parser.py`
+**File**: `tally_bridge/response_parser.py`
 
 In `parse_bills()`:
 - `BILLSFIXED` -> `BILLFIXED`

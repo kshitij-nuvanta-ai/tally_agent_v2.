@@ -1,8 +1,8 @@
 import pytest
 
 from tests.mocks.mock_tally_server import create_mock_tally_app
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries.reports import (
+from tally_bridge.client import TallyClient
+from tally_bridge.queries.reports import (
     trial_balance,
     profit_and_loss,
     balance_sheet,

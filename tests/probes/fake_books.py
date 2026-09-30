@@ -16,7 +16,7 @@ from typing import Callable
 
 import httpx
 
-from agent.tally.envelopes import esc
+from tally_bridge.envelopes import esc
 from probes.companies import SEED_COMPANY
 from probes.operator.config import OperatorConfig
 from probes.operator.tally_control import TallyProcess

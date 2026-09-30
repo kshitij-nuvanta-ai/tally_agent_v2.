@@ -6,7 +6,7 @@ from unittest.mock import patch
 from httpx import ASGITransport, AsyncClient
 
 from backend.main import app
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from tests.mocks.mock_claude_api import MockAnthropicClient
 
 

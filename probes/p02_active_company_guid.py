@@ -4,8 +4,8 @@ The chosen read is for the S2 agent's per-cycle gate; the harness guard keeps us
 """
 from __future__ import annotations
 
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe

@@ -18,7 +18,7 @@ from backend.agents.orchestrator import Orchestrator
 from backend.api.chat import voucher_action
 from backend.api.models import VoucherActionRequest
 from backend.db.models import Conversation, UploadedFile, User, VoucherEntry, Workspace
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from tests.fixtures import vision_docs
 
 pytestmark = pytest.mark.skipif(
@@ -79,10 +79,10 @@ async def _upload(db_session, ctx, fixture):
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message(fixture)),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=[]),
     ):
         result = await orch.process_file_upload(
@@ -138,7 +138,7 @@ async def test_successful_write_creates_voucher_entry(db_session, ctx):
         session_id=str(conv.id),
     )
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = await voucher_action(

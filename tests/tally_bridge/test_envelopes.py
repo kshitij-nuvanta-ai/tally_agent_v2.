@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from agent.tally.envelopes import build_company_list, esc, formula_string, wrap_collection, wrap_report
+from tally_bridge.envelopes import build_company_list, esc, formula_string, wrap_collection, wrap_report
 
 NAMES = ["A & B", "Sharma & Sons' Probe Traders", 'He said "x"', "a<b>c", "शर्मा ट्रेडर्स"]
 
@@ -85,3 +85,39 @@ def test_the_typed_wire_text_is_exact():
     xml = wrap_report("Trial Balance", "01-04-2022", "31-03-2026")
     assert '<SVFROMDATE TYPE="Date">01-04-2022</SVFROMDATE>' in xml
     assert '<SVTODATE TYPE="Date">31-03-2026</SVTODATE>' in xml
+
+
+# --- one escaping helper; the generic wrappers and the app's builders are separate on purpose --------------------------
+
+def test_esc_and_wrap_import_are_the_import_builders():
+    from probes.setup import import_xml
+    from tally_bridge import envelopes, import_builder
+
+    assert envelopes.esc is import_builder.esc is import_builder._esc is import_xml.esc
+    assert import_builder.wrap_import is import_builder._wrap_import
+    for report in import_xml.REPORTS:
+        assert (import_xml.wrap_import(report, "A & B's", "<X/>")
+                == import_builder._wrap_import(report, "A & B's", "<X/>"))
+    with pytest.raises(ValueError):
+        import_xml.wrap_import("Nope", "Co", "<X/>")
+
+
+def _lines(xml: str) -> list[str]:
+    return [line for line in xml.split("\n") if line]
+
+
+def test_the_two_company_list_requests_differ_in_blank_lines_only():
+    from tally_bridge import request_builder
+
+    assert build_company_list() != request_builder.build_company_list()
+    assert _lines(build_company_list()) == _lines(request_builder.build_company_list())
+
+
+def test_wrap_report_and_the_apps_report_builder_differ_only_as_documented():
+    from tally_bridge import request_builder
+
+    plain = request_builder.build_trial_balance("01-04-2025", "31-03-2026", "A & B")
+    assert _lines(wrap_report("Trial Balance", "01-04-2025", "31-03-2026", "A & B")) == _lines(plain)
+    quoted = request_builder.build_trial_balance("01-04-2025", "31-03-2026", "A's")
+    assert "<SVCurrentCompany>A's</SVCurrentCompany>" in quoted
+    assert "<SVCurrentCompany>A&apos;s</SVCurrentCompany>" in wrap_report("Trial Balance", "01-04-2025", "31-03-2026", "A's")

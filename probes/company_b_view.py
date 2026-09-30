@@ -1,8 +1,8 @@
 """Read-side view of company B's dataset for the company-B probes (S0 spec §4.3, §7).
 
-Probe modules may not import `probes.setup` (the write code, S0-D8; test_isolation). The dataset generator
+Probe modules may not import `probes.setup` (the write code, S0-D8; tests/test_layers.py). The dataset generator
 `setup/company_b_data.py` is pure (no I/O, no v2 imports), so this module is the one bridge. It imports nothing else
-from `setup/`, and test_isolation pins both facts.
+from `setup/`, and tests/test_layers.py pins both facts.
 
 The count rule (S0 plan part 4, Global Constraints): a window's expected tags are every dataset voucher dated in it
 without `skip_reason` (C36: never written). Cancelled and optional vouchers are included, because they are vouchers

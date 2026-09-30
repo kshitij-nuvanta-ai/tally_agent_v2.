@@ -27,10 +27,10 @@ import sys
 from datetime import datetime
 from xml.etree import ElementTree as ET
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries.reports import bills_payable, bills_receivable
-from backend.tally_bridge.response_parser import detect_error, sanitize_xml
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.queries.reports import bills_payable, bills_receivable
+from tally_bridge.response_parser import detect_error, sanitize_xml
+from tally_bridge.writer import TallyWriter
 from scripts.seed_data import bharat_traders as bt
 
 FROM_DATE = "01-04-2025"

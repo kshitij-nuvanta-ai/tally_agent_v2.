@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import re
 
-from agent.tally.envelopes import formula_string, wrap_report
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import formula_string, wrap_report
+from tally_bridge.xml_utils import read_objects
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_TO, COMPOUND_UNIT, HINDI_DEBTOR, drift_message,
                                       fetch_window, first_voucher, item_specs, loaded_licence, stock_qty_at, tag_of)
 from probes.context import ProbeContext

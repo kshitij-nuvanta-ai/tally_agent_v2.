@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path
 
-FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 # Mock write state (for demo/testing — resets on reset_mock_state call)
 _mock_vch_counter = 0

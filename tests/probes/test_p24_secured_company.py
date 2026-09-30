@@ -1,4 +1,4 @@
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p02_active_company_guid as p02
 from probes import p05_voucher_month_bounds as p05
 from probes import p24_secured_company as p24
@@ -58,7 +58,7 @@ async def _run(tmp_path, books, io, *, confirm_active=True):
         store.confirm_request("active_company", 2, p02.CANDIDATES["a"], candidate="a")
     mark_done(store, 5, part="B")
     store.confirm_request("voucher_month", 5, p05.svdates_template(), form="svdates_typed")
-    await run_probe(p24.PROBE, labels=None, client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p24.PROBE, labels=None, client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=io)
     return store.probe_entry(24)["parts"]["C"]
 

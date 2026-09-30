@@ -7,8 +7,8 @@ from typing import Callable
 
 import httpx
 
-from agent.tally.client import TallyClient
-from agent.tally.envelopes import esc
+from tally_bridge.client import TallyClient
+from tally_bridge.envelopes import esc
 from probes.actions import Action
 from probes.capture import Capture
 from probes.core import Outcome, PartResult
@@ -127,7 +127,7 @@ class ScriptedIO:
 
 
 def make_harness(tmp_path: Path, fake: FakeTally) -> tuple[TallyClient, ResultsStore, Capture]:
-    return (TallyClient(transport=fake.transport()),
+    return (TallyClient(transport=fake.transport(), trust_env=False),
             ResultsStore(tmp_path / "results.json"),
             Capture(tmp_path / "fixtures"))
 

@@ -37,13 +37,13 @@ from typing import Callable, Awaitable
 
 import httpx
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _esc, _wrap_import
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _esc, _wrap_import
+from tally_bridge.request_builder import (
     build_list_ledgers, build_list_groups, build_list_stock_items,
     build_day_book, build_trial_balance,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     parse_import_response, parse_ledger_list, parse_groups, parse_stock_items,
     parse_vouchers, sanitize_xml,
 )

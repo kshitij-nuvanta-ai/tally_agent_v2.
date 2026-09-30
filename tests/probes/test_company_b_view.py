@@ -3,8 +3,8 @@ from datetime import date
 
 import pytest
 
-from agent.tally.client import TallyClient
-from agent.tally.envelopes import COMPANY_PLACEHOLDER
+from tally_bridge.client import TallyClient
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER
 from probes.capture import Capture
 from probes.companies import COMPANIES
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_FROM_DATE, B_BOOKS_TO, B_CURRENT_PERIOD,
@@ -167,7 +167,7 @@ async def test_fetch_window_gives_both_consumption_paths_the_same_tag_set(tmp_pa
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     probe = Probe(id=999, name="test", question="", feeds=(), parts={})
-    ctx = ProbeContext(probe=probe, part="B", company_name=B, client=TallyClient(transport=fake.transport()),
+    ctx = ProbeContext(probe=probe, part="B", company_name=B, client=TallyClient(transport=fake.transport(), trust_env=False),
                        store=store, capture=Capture(tmp_path / "fixtures"), io=ScriptedIO())
 
     result, raw_text = await fetch_window(ctx, "window", template, "educational", "01-06-2023", "02-06-2023")
@@ -232,7 +232,7 @@ async def test_fetch_window_refuses_an_educational_date_tally_would_silently_ign
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     ctx = ProbeContext(probe=Probe(id=999, name="test", question="", feeds=(), parts={}), part="B", company_name=B,
-                       client=TallyClient(transport=fake.transport()), store=store,
+                       client=TallyClient(transport=fake.transport(), trust_env=False), store=store,
                        capture=Capture(tmp_path / "fixtures"), io=ScriptedIO())
     with pytest.raises(GuardError, match="C43"):            # Ruling Q4: the one C43 check raises GuardError
         await fetch_window(ctx, "window", template, "educational", start, end)

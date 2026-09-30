@@ -28,9 +28,9 @@ from typing import Iterable
 import re
 from datetime import date, datetime, timedelta
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.exceptions import TallyResponseError
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.exceptions import TallyResponseError
+from tally_bridge.writer import TallyWriter
 from scripts.seed_data import bharat_traders as bt
 
 async def _tally_current_date(client: TallyClient, company: str) -> str:

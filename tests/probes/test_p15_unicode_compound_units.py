@@ -1,4 +1,4 @@
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p05_voucher_month_bounds as p05
 from probes import p15_unicode_compound_units as p15
 from probes.capture import Capture
@@ -22,7 +22,7 @@ async def _run(tmp_path, books, *, with_probe_5=True):
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     store.update_environment(company_b_loaded_at="2026-09-24T13:02:33+05:30")
-    client, capture = TallyClient(transport=books.transport()), Capture(tmp_path / "fixtures")
+    client, capture = TallyClient(transport=books.transport(), trust_env=False), Capture(tmp_path / "fixtures")
     if with_probe_5:
         await run_probe(p05.PROBE, labels=None, client=client, store=store, capture=capture, io=ScriptedIO())
     await run_probe(p15.PROBE, labels=None, client=client, store=store, capture=capture, io=ScriptedIO())

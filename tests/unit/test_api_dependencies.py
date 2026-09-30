@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from backend.api.dependencies import get_client, get_current_user, get_session_store
 from backend.agents.context import SessionStore
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.utils.auth import create_access_token
 
 

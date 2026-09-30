@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection, wrap_report
-from agent.tally.xml_utils import detect_error
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection, wrap_report
+from tally_bridge.xml_utils import detect_error
 from probes.actions import Action
 from probes.companies import POPUP_STOCK_GROUP
 from probes.context import ProbeContext

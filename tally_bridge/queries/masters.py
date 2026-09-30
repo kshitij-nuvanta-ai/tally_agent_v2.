@@ -2,9 +2,9 @@
 Query functions for Tally master data: companies, ledgers, groups, stock items.
 """
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.models import Company, Ledger, StockItem, AccountGroup
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.models import Company, Ledger, StockItem, AccountGroup
+from tally_bridge.request_builder import (
     build_company_list,
     build_list_companies,
     build_list_ledgers,
@@ -12,7 +12,7 @@ from backend.tally_bridge.request_builder import (
     build_list_stock_groups,
     build_list_groups,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     detect_error,
     parse_company_list,
     parse_ledger_list,
@@ -21,7 +21,7 @@ from backend.tally_bridge.response_parser import (
     parse_groups,
     sanitize_xml,
 )
-from backend.tally_bridge.exceptions import TallyResponseError
+from tally_bridge.exceptions import TallyResponseError
 
 import xml.etree.ElementTree as ET
 

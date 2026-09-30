@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes.companies import COMPANIES
 from probes.results import ResultsStore
 from probes.safety import GuardError
@@ -41,7 +41,7 @@ def _books_b(**knobs) -> FakeBooks:
 
 async def _run(tmp_path, books, company="B", **kwargs):
     out = tmp_path / "out"
-    names = await s1.run(TallyClient(transport=books.transport()), company, out,
+    names = await s1.run(TallyClient(transport=books.transport(), trust_env=False), company, out,
                          store=kwargs.pop("store", None) or _store(tmp_path), say=lambda _m: None, **kwargs)
     return out, names
 
@@ -197,7 +197,7 @@ async def test_wrong_company_open_is_refused_after_only_the_company_list(tmp_pat
 async def test_two_companies_loaded_is_refused(tmp_path):
     fake = FakeTally(companies=[B, A])
     with pytest.raises(GuardError, match="2 companies"):
-        await s1.run(TallyClient(transport=fake.transport()), "B", tmp_path / "out", store=_store(tmp_path),
+        await s1.run(TallyClient(transport=fake.transport(), trust_env=False), "B", tmp_path / "out", store=_store(tmp_path),
                      say=lambda _m: None)
     assert fake.probe_requests() == []
 
@@ -205,7 +205,7 @@ async def test_two_companies_loaded_is_refused(tmp_path):
 async def test_no_company_open_is_refused(tmp_path):
     fake = FakeTally(companies=[])
     with pytest.raises(GuardError, match="No company"):
-        await s1.run(TallyClient(transport=fake.transport()), "A", tmp_path / "out", store=_store(tmp_path),
+        await s1.run(TallyClient(transport=fake.transport(), trust_env=False), "A", tmp_path / "out", store=_store(tmp_path),
                      say=lambda _m: None)
     assert fake.probe_requests() == []
 
@@ -280,9 +280,9 @@ async def test_existing_captures_are_not_overwritten_unless_asked(tmp_path):
     out, _ = await _run(tmp_path, _books_b())
     books = _books_b()
     with pytest.raises(FileExistsError):
-        await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path), say=lambda _m: None)
+        await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path), say=lambda _m: None)
     assert books.requests == []
-    await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path), say=lambda _m: None,
+    await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path), say=lambda _m: None,
                  overwrite=True)
     assert _non_list(books)
 
@@ -364,7 +364,7 @@ async def test_only_captures_a_single_step_and_leaves_existing_files_alone(tmp_p
     (out / "s1_B_tb_ledger_asof_2022-04-01.xml").unlink()
     (out / "s1_B_tb_ledger_asof_2022-04-01.xml.json").unlink()
     books = _books_b()
-    names = await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+    names = await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path),
                          say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
     assert names == ["s1_B_tb_ledger_asof_2022-04-01.xml"]
     assert (out / "s1_B_units.xml").read_bytes() == keep
@@ -376,10 +376,10 @@ async def test_only_captures_a_single_step_and_leaves_existing_files_alone(tmp_p
     assert _sidecar(out, "B", "tb_ledger_asof_2022-04-01")["company_guid"] == GUID
     assert (out / "s1_B_counters.xml").read_bytes() == counters            # the GUID read wrote nothing
     with pytest.raises(FileExistsError):                  # --only still never overwrites without --overwrite
-        await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+        await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path),
                      say=lambda _m: None, only="tb_ledger_asof_2022-04-01")
     with pytest.raises(GuardError):
-        await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+        await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path),
                      say=lambda _m: None, only="nope")
 
 
@@ -391,7 +391,7 @@ async def test_only_counters_sends_the_counters_read_once(tmp_path):
     """C6(a): `--only counters` is itself the GUID read — it is not sent twice."""
     books = _books_b()
     out = tmp_path / "out"
-    names = await s1.run(TallyClient(transport=books.transport()), "B", out, store=_store(tmp_path),
+    names = await s1.run(TallyClient(transport=books.transport(), trust_env=False), "B", out, store=_store(tmp_path),
                          say=lambda _m: None, only="counters")
     assert names == ["s1_B_counters.xml"] and len(_non_list(books)) == 1
     assert _sidecar(out, "B", "counters")["company_guid"] == GUID

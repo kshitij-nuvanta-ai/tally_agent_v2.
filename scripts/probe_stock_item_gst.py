@@ -8,8 +8,8 @@ persist. Hypothesis: missing <SETALTERGSTDETAILS>Yes</SETALTERGSTDETAILS> flag.
 import asyncio
 from xml.sax.saxutils import escape as xml_escape
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.response_parser import parse_import_response
+from tally_bridge.client import TallyClient
+from tally_bridge.response_parser import parse_import_response
 
 COMPANY = "Bharat Traders Private Limited"
 ITEM = "Samsung 24 inch Monitor"

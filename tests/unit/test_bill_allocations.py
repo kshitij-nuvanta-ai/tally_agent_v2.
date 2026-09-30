@@ -11,7 +11,7 @@ XML envelope contract from docs/tally-write-exploration-v4.md. See task brief fo
 """
 import xml.etree.ElementTree as ET
 
-from backend.tally_bridge.import_builder import (
+from tally_bridge.import_builder import (
     build_create_payment_voucher,
     build_create_purchase_voucher,
     build_create_receipt_voucher,

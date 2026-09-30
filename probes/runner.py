@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes.actions import Action
 from probes.anchors import check_anchors_direct
 from probes.capture import Capture

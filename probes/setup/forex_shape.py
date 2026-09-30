@@ -20,9 +20,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from agent.tally.amounts import AmountParseError, parse_decimal
-from agent.tally.envelopes import wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.amounts import AmountParseError, parse_decimal
+from tally_bridge.envelopes import wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.reads import ForexAmount, forex_base, parse_forex_amount, parse_vouchers
 from probes.safety import check_company
 from probes.setup.company_b_data import USD_CURRENCY, CurrencySpec

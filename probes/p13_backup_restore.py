@@ -4,7 +4,7 @@ Last in batch 4: it restores company A. In auto mode the backup / restore are fi
 """
 from __future__ import annotations
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.companies import THROWAWAY_DATE_TEXT, THROWAWAY_EXPENSE_LEDGER
 from probes.context import ProbeContext

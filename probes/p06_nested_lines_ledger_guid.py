@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from agent.tally.xml_utils import get_text, read_objects, sanitize_xml
+from tally_bridge.xml_utils import get_text, read_objects, sanitize_xml
 from probes.context import POPUP_HINT, ProbeContext
 from probes.core import Outcome, PartResult, Probe
 from probes.reads import POSTING_RULES, ZERO, master_request, parse_vouchers, postings, voucher_request

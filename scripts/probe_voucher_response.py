@@ -2,9 +2,9 @@
 capture the raw response to understand silent drops."""
 import asyncio
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import build_create_purchase_voucher
-from backend.tally_bridge.response_parser import parse_import_response
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import build_create_purchase_voucher
+from tally_bridge.response_parser import parse_import_response
 
 COMPANY = "Bharat Traders Private Limited"
 

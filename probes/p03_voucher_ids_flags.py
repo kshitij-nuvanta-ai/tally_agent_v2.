@@ -12,7 +12,7 @@ import re
 from collections import Counter
 from typing import Any, Iterable
 
-from agent.tally.xml_utils import read_objects
+from tally_bridge.xml_utils import read_objects
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_TO, fetch_window, flagged_tags, loaded_licence,
                                       month_window, tag_of, written_vouchers)
 from probes.context import ProbeContext

@@ -28,7 +28,7 @@ from backend.agents.utils import (
     find_all_tool_use_blocks,
 )
 from backend.agents.context import SessionContext
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 # Names of date tools (sync dispatch)
 _DATE_TOOL_NAMES = {t["name"] for t in DATE_TOOLS}

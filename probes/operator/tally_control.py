@@ -16,8 +16,8 @@ from typing import Callable, Protocol
 
 import httpx
 
-from agent.tally.envelopes import build_company_list
-from agent.tally.xml_utils import parse_company_list, sanitize_xml
+from tally_bridge.envelopes import build_company_list
+from tally_bridge.xml_utils import parse_company_list, sanitize_xml
 from probes.core import ProbeBlocked
 from probes.operator.config import DATA_MARKER, OperatorConfig
 

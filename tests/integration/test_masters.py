@@ -1,8 +1,8 @@
 import pytest
 
 from tests.mocks.mock_tally_server import create_mock_tally_app
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries.masters import list_companies, list_ledgers, search_ledger
+from tally_bridge.client import TallyClient
+from tally_bridge.queries.masters import list_companies, list_ledgers, search_ledger
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
 from datetime import date
-from backend.tally_bridge.models import (Company, Ledger, TrialBalanceRow, VoucherEntry, ReportResponse, OutstandingBill, StockItem, AccountGroup)
+from tally_bridge.models import (Company, Ledger, TrialBalanceRow, VoucherEntry, ReportResponse, OutstandingBill, StockItem, AccountGroup)
 
 def test_company_minimal():
     c = Company(name="Bharat Traders Pvt Ltd")

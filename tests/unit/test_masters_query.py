@@ -1,8 +1,8 @@
-"""Unit tests for backend/tally_bridge/queries/masters.py — list_stock_items and list_groups."""
+"""Unit tests for tally_bridge/queries/masters.py — list_stock_items and list_groups."""
 
 import pytest
 from unittest.mock import AsyncMock
-from backend.tally_bridge.queries.masters import list_stock_items
+from tally_bridge.queries.masters import list_stock_items
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,7 @@ async def test_list_groups_returns_group_list():
     mock_client.post_xml.return_value = """<ENVELOPE><BODY><DATA><COLLECTION>
     <GROUP><NAME>Sales Accounts</NAME><PARENT>Revenue</PARENT></GROUP>
     </COLLECTION></DATA></BODY></ENVELOPE>"""
-    from backend.tally_bridge.queries.masters import list_groups
+    from tally_bridge.queries.masters import list_groups
     groups = await list_groups(mock_client)
     assert len(groups) == 1
     assert groups[0].name == "Sales Accounts"
@@ -39,6 +39,6 @@ async def test_list_stock_groups_returns_names():
     <STOCKGROUP NAME="Electronics"><NAME>Electronics</NAME></STOCKGROUP>
     <STOCKGROUP NAME="AI Imported Items"><NAME>AI Imported Items</NAME></STOCKGROUP>
     </COLLECTION></DATA></BODY></ENVELOPE>"""
-    from backend.tally_bridge.queries.masters import list_stock_groups
+    from tally_bridge.queries.masters import list_stock_groups
     groups = await list_stock_groups(mock_client)
     assert groups == ["Electronics", "AI Imported Items"]

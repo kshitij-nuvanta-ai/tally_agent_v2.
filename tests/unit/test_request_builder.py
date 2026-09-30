@@ -1,4 +1,4 @@
-from backend.tally_bridge.request_builder import (
+from tally_bridge.request_builder import (
     build_list_companies, build_list_ledgers, build_list_groups, build_list_stock_items,
     build_list_stock_groups,
     build_trial_balance, build_profit_and_loss, build_balance_sheet,
@@ -287,7 +287,7 @@ class TestFullFYDateRange:
 
 
 def test_build_cash_flow_has_report_id():
-    from backend.tally_bridge.request_builder import build_cash_flow
+    from tally_bridge.request_builder import build_cash_flow
     xml = build_cash_flow("01-04-2025", "31-03-2026")
     assert "Cash Flow" in xml
     assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
@@ -307,7 +307,7 @@ import xml.etree.ElementTree as _ET
 
 import pytest as _pytest
 
-from backend.tally_bridge.request_builder import build_party_vouchers
+from tally_bridge.request_builder import build_party_vouchers
 
 _PAST_FROM, _PAST_TO = "01-04-2022", "31-03-2023"
 

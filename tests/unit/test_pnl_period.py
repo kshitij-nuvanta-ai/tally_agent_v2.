@@ -3,12 +3,12 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from datetime import date
 
-from backend.tally_bridge.queries.reports import (
+from tally_bridge.queries.reports import (
     _parse_tally_date_str,
     profit_and_loss_period,
 )
-from backend.tally_bridge.exceptions import TallyResponseError
-from backend.tally_bridge.models import ReportResponse
+from tally_bridge.exceptions import TallyResponseError
+from tally_bridge.models import ReportResponse
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ async def test_pnl_period_fy_start_no_subtraction():
     expected = _make_report([_make_row("Sales Accounts", 1000.0)])
 
     with patch(
-        "backend.tally_bridge.queries.reports.profit_and_loss",
+        "tally_bridge.queries.reports.profit_and_loss",
         new_callable=AsyncMock,
         return_value=expected,
     ) as mock_pnl:

@@ -6,8 +6,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from agent.tally.envelopes import wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.setup.import_xml import ImportResult, esc, wrap_import
 from decimal import Decimal
 
@@ -274,7 +274,7 @@ def test_the_fake_rejects_an_unbalanced_accounting_voucher():
 
 
 # --- C33: the fake honours a period variable only when it is TYPE="Date", like live Tally ----------------------------
-from agent.tally.envelopes import wrap_report
+from tally_bridge.envelopes import wrap_report
 from tests.probes.fake_books import CURRENT_PERIOD, requested_period
 
 _OLD_RECEIPT = ('<VOUCHER VCHTYPE="Receipt" ACTION="Create"><DATE>20220401</DATE>'
@@ -324,7 +324,7 @@ def test_a_trial_balance_closes_as_on_the_typed_svtodate_only():
 
 
 # --- C34: the fake files a bill by the SIGN of its amount, as live Tally did -----------------------------------------
-from agent.tally.reports import parse_bills  # noqa: E402
+from tally_bridge.sync_reports import parse_bills  # noqa: E402
 
 
 def _sale_with_bill(bill_amount: str, tag: int = 1) -> str:

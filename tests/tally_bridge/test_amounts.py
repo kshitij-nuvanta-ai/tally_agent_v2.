@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from agent.tally.amounts import AmountParseError, ForexAmount, parse_amount, parse_decimal, parse_forex
+from tally_bridge.amounts import AmountParseError, ForexAmount, parse_amount, parse_decimal, parse_forex
 
 
 @pytest.mark.parametrize("text,expected", [

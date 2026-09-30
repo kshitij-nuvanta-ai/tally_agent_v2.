@@ -22,7 +22,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from agent.tally.envelopes import wrap_report
+from tally_bridge.envelopes import wrap_report
 from contract import transcode
 from probes.companies import COMPANIES
 from probes.reads import TB_EXPLODE_VARS, VOUCHER_MONTH_FIELDS, master_request, voucher_request

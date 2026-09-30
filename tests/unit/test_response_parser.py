@@ -1,6 +1,6 @@
 import os
 import pytest
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     parse_amount, parse_trial_balance, parse_ledger_list, detect_error,
     parse_profit_and_loss, parse_balance_sheet, parse_stock_summary,
     parse_bills, sanitize_xml, parse_stock_items, parse_groups, parse_cash_flow,
@@ -471,7 +471,7 @@ class TestParseVouchersMonthField:
     """Phase 6: parse_vouchers extracts month field."""
 
     def test_month_field_extracted(self):
-        from backend.tally_bridge.response_parser import parse_vouchers
+        from tally_bridge.response_parser import parse_vouchers
         xml = """<ENVELOPE><BODY><DATA><COLLECTION>
         <VOUCHER>
             <DATE>20250715</DATE>
@@ -486,7 +486,7 @@ class TestParseVouchersMonthField:
         assert result[0]["month"] == "Jul 2025"
 
     def test_month_field_empty_for_missing_date(self):
-        from backend.tally_bridge.response_parser import parse_vouchers
+        from tally_bridge.response_parser import parse_vouchers
         xml = """<ENVELOPE><BODY><DATA><COLLECTION>
         <VOUCHER>
             <DATE></DATE>
@@ -505,7 +505,7 @@ class TestVoucherDateFiltering:
     """Phase 6: Python-side date filtering safety net."""
 
     def test_filters_vouchers_within_range(self):
-        from backend.tally_bridge.response_parser import _filter_vouchers_by_date
+        from tally_bridge.response_parser import _filter_vouchers_by_date
         vouchers = [
             {"date": "20250715", "party_name": "A", "voucher_type": "Sales"},
             {"date": "20250801", "party_name": "B", "voucher_type": "Sales"},
@@ -516,18 +516,18 @@ class TestVoucherDateFiltering:
         assert result[0]["party_name"] == "A"
 
     def test_keeps_all_when_dates_unparseable(self):
-        from backend.tally_bridge.response_parser import _filter_vouchers_by_date
+        from tally_bridge.response_parser import _filter_vouchers_by_date
         vouchers = [{"date": "bad", "party_name": "A"}]
         result = _filter_vouchers_by_date(vouchers, "01-07-2025", "31-07-2025")
         assert len(result) == 1
 
     def test_empty_vouchers(self):
-        from backend.tally_bridge.response_parser import _filter_vouchers_by_date
+        from tally_bridge.response_parser import _filter_vouchers_by_date
         result = _filter_vouchers_by_date([], "01-07-2025", "31-07-2025")
         assert result == []
 
     def test_parse_vouchers_with_date_filter(self):
-        from backend.tally_bridge.response_parser import parse_vouchers
+        from tally_bridge.response_parser import parse_vouchers
         xml = """<ENVELOPE><BODY><DATA><COLLECTION>
         <VOUCHER>
             <DATE>20250715</DATE>
@@ -658,7 +658,7 @@ class TestParseGroups:
 # ---------------------------------------------------------------------------
 # H2: parse_vouchers — inventory_entries field
 # ---------------------------------------------------------------------------
-from backend.tally_bridge.response_parser import parse_vouchers
+from tally_bridge.response_parser import parse_vouchers
 
 
 class TestParseVouchersInventoryEntries:

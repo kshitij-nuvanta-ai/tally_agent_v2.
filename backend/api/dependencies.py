@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.agents.context import SessionStore
 from backend.config import settings
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 from backend.utils.auth import AccessTokenError, decode_access_token
 
 _bearer_scheme = HTTPBearer(auto_error=False)

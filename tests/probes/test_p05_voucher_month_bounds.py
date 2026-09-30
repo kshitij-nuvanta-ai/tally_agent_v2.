@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p05_voucher_month_bounds as p05
 from probes.capture import Capture
 from probes.companies import COMPANIES
@@ -29,7 +29,7 @@ def _store(tmp_path, licence="educational", loaded=True) -> ResultsStore:
 
 async def _run_books(tmp_path, books, **store_kwargs):
     store = _store(tmp_path, **store_kwargs)
-    await run_probe(p05.PROBE, labels=None, client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p05.PROBE, labels=None, client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=ScriptedIO())
     return store, store.probe_entry(5)["parts"]["B"]
 

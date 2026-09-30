@@ -7,10 +7,10 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 
-from agent.tally.amounts import AmountParseError
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_bills, parse_stock_summary, parse_trial_balance
-from agent.tally.xml_utils import detect_error
+from tally_bridge.amounts import AmountParseError
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_bills, parse_stock_summary, parse_trial_balance
+from tally_bridge.xml_utils import detect_error
 from probes.anchors import ANCHOR_DATE, SEED_PAYABLE, SEED_RECEIVABLE
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe

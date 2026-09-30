@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.api.dependencies import get_client, get_current_user
 from backend.api.models import CompaniesResponse, CompanyItem
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.exceptions import TallyConnectionError, TallyResponseError
-from backend.tally_bridge.queries.masters import list_companies
+from tally_bridge.client import TallyClient
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError
+from tally_bridge.queries.masters import list_companies
 
 router = APIRouter()
 

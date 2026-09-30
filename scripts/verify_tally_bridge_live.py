@@ -17,8 +17,8 @@ import argparse
 import asyncio
 import sys
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import masters, reports, vouchers
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import masters, reports, vouchers
 
 
 async def run(host: str, port: int, company: str) -> int:

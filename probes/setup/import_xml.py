@@ -1,38 +1,24 @@
-# Copied from: backend/tally_bridge/import_builder.py @ c04d7d2
-# Changes: only _esc (now esc) and _wrap_import (now wrap_import) are copied, no voucher/master builders; the report
-# name is checked at run time instead of by Literal; ImportResult (the parsed CREATED/ALTERED/… counts) is new.
-"""The Tally XML import envelope. Used only by probes/setup/ (the agent ships with no write code, S0-D8)."""
+"""The Tally XML import envelope for probes/setup/ (the only probe code that writes to Tally).
+
+`esc` and the envelope itself are the bridge's (tally_bridge.import_builder). Added here: the report name is checked
+at run time, and ImportResult holds the parsed CREATED/ALTERED/… counts of an import answer.
+"""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from xml.sax.saxutils import escape as xml_escape
+
+from tally_bridge.import_builder import esc  # noqa: F401  (re-exported: probes/setup/writes.py imports it from here)
+from tally_bridge.import_builder import wrap_import as _bridge_wrap_import
 
 REPORTS = ("Vouchers", "All Masters")
-
-
-def esc(s: str) -> str:
-    """Escape XML special characters in element text and attribute values."""
-    return xml_escape(s, {'"': "&quot;", "'": "&apos;"})
 
 
 def wrap_import(report_name: str, company: str, inner_xml: str) -> str:
     """Wrap entity XML in the standard IMPORTDATA envelope."""
     if report_name not in REPORTS:
         raise ValueError(f"Unknown import report {report_name!r} (expected one of {REPORTS})")
-    return f"""<ENVELOPE>
-<HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
-<BODY><IMPORTDATA>
-<REQUESTDESC>
-<REPORTNAME>{report_name}</REPORTNAME>
-<STATICVARIABLES><SVCURRENTCOMPANY>{esc(company)}</SVCURRENTCOMPANY></STATICVARIABLES>
-</REQUESTDESC>
-<REQUESTDATA>
-<TALLYMESSAGE xmlns:UDF="TallyUDF">
-{inner_xml}
-</TALLYMESSAGE>
-</REQUESTDATA>
-</IMPORTDATA></BODY></ENVELOPE>"""
+    return _bridge_wrap_import(report_name, company, inner_xml)
 
 
 def _count(text: str, tag: str) -> int:

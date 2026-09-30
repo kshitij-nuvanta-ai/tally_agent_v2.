@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from agent.tally.client import TallyClient
-from agent.tally.envelopes import build_company_list, wrap_report
-from agent.tally.reports import parse_bills, parse_trial_balance
-from agent.tally.xml_utils import parse_company_list, sanitize_xml
+from tally_bridge.client import TallyClient
+from tally_bridge.envelopes import build_company_list, wrap_report
+from tally_bridge.sync_reports import parse_bills, parse_trial_balance
+from tally_bridge.xml_utils import parse_company_list, sanitize_xml
 from probes.context import ProbeContext
 from probes.safety import check_company, check_educational_dates, check_request
 
@@ -73,7 +73,7 @@ async def check_anchors(ctx: ProbeContext, step_prefix: str, tb_baseline: dict[s
 async def _post(client: TallyClient, xml: str, licence: str | None) -> str:
     check_request(xml)
     check_educational_dates(xml, licence)              # C43: the same guard as every ProbeContext send (Ruling Q5)
-    return sanitize_xml((await client.post_xml(xml)).text)
+    return sanitize_xml((await client.post(xml)).text)
 
 
 async def check_anchors_direct(client: TallyClient, company: str, tb_baseline: dict[str, str],

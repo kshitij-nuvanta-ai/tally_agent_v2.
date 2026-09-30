@@ -18,11 +18,11 @@ import sys
 from datetime import datetime
 from xml.etree import ElementTree as ET
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries.reports import bills_receivable
-from backend.tally_bridge.queries.vouchers import day_book
-from backend.tally_bridge.response_parser import detect_error, sanitize_xml
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.client import TallyClient
+from tally_bridge.queries.reports import bills_receivable
+from tally_bridge.queries.vouchers import day_book
+from tally_bridge.response_parser import detect_error, sanitize_xml
+from tally_bridge.writer import TallyWriter
 
 COMPANY = "Bharat Traders Private Limited"
 HOST = "localhost"

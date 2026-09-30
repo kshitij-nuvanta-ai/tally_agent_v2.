@@ -1,8 +1,4 @@
-# Copied from: backend/tally_bridge/response_parser.py @ c04d7d2
-# Changes: sanitize_xml, detect_error and _get_text (now get_text) as-is; parse_company_list only counts COMPANY
-# elements with a NAME child or attribute (the source also counts CMPINFO's <COMPANY>0</COMPANY> as a company);
-# added read_objects.
-"""XML helpers for Tally responses."""
+"""XML helpers for Tally responses: the one definition of each, shared by every parser in the bridge."""
 from __future__ import annotations
 
 import re
@@ -10,7 +6,11 @@ import xml.etree.ElementTree as ET
 
 
 def sanitize_xml(raw_xml: str) -> str:
-    """Remove invalid XML character references that TallyPrime sometimes emits (e.g. &#4;)."""
+    """Remove invalid XML character references that TallyPrime sometimes emits.
+
+    Tally uses control characters like &#4; (EOT) as field separators in
+    some responses. These are not valid XML and cause ET.ParseError.
+    """
     return re.sub(r"&#([0-8]|1[0-1]|1[4-9]|2[0-9]|3[0-1]);", "", raw_xml)
 
 
@@ -36,7 +36,12 @@ def get_text(element: ET.Element, tag: str) -> str:
 
 
 def parse_company_list(raw_xml: str) -> list[str]:
-    """Names of the companies in a company-list response. CMPINFO's bare count elements are ignored."""
+    """Names of the companies in a company-list response. CMPINFO's bare count elements are ignored.
+
+    Differs on purpose from ``response_parser.parse_company_list`` (the app's connect-company dropdown): that one
+    also takes a COMPANY element's inline text as a name, so CMPINFO's ``<COMPANY>0</COMPANY>`` counter comes back
+    as a company called "0". This one reads only a NAME child or a NAME attribute.
+    """
     root = ET.fromstring(sanitize_xml(raw_xml))
     names: list[str] = []
     for comp in root.iter("COMPANY"):

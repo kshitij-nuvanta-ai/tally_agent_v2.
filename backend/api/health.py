@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from backend.api.dependencies import get_client, get_current_user
 from backend.api.models import HealthResponse
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 router = APIRouter()
 

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from agent.tally.amounts import AmountParseError
-from agent.tally.reports import parse_bills, parse_ledger_list, parse_stock_summary, parse_trial_balance
+from tally_bridge.amounts import AmountParseError
+from tally_bridge.sync_reports import parse_bills, parse_ledger_list, parse_stock_summary, parse_trial_balance
 
 SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "tally_samples"
 SYNC = Path(__file__).resolve().parents[1] / "fixtures" / "sync"

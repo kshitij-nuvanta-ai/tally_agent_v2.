@@ -4,7 +4,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.agents.context import SessionStore
 from backend.main import app
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from backend.tally_bridge.import_builder import (
+from tally_bridge.import_builder import (
     build_create_group,
     build_create_ledger,
     build_create_payment_voucher,

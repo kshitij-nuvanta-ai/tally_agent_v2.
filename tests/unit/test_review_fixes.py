@@ -76,7 +76,7 @@ class TestOrchestratorUsage:
         from unittest.mock import AsyncMock, patch, MagicMock
         from backend.agents.orchestrator import Orchestrator
         from backend.agents.context import SessionContext
-        from backend.tally_bridge.client import TallyClient
+        from tally_bridge.client import TallyClient
 
         orchestrator = Orchestrator()
         session = SessionContext(company="Test")

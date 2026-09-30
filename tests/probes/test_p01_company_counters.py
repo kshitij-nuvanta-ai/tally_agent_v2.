@@ -1,6 +1,6 @@
 import httpx
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p01_company_counters as p01
 from probes.capture import Capture
 from probes.companies import COMPANIES
@@ -185,7 +185,7 @@ async def test_auto_operator_runs_probe_1_and_leaves_company_a_as_it_was(tmp_pat
                              runner=FakeRunner(books, [TallyProcess(8, OWN_COMMAND)]), echo=lambda line: None)
     store = ResultsStore(tmp_path / "r.json")
     mark_done(store, 0)
-    outcome = await run_probe(p01.PROBE, labels=None, client=TallyClient(transport=books.transport()), store=store,
+    outcome = await run_probe(p01.PROBE, labels=None, client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                               capture=Capture(tmp_path / "fixtures"), io=op)
     part = store.probe_entry(1)["parts"]["A"]
     assert outcome is Outcome.CONFIRMED, part["summary"]

@@ -5,8 +5,8 @@ build_company_list (E7) and build_party_vouchers (E8).
 """
 import xml.etree.ElementTree as ET
 
-from backend.tally_bridge.mock_handler import mock_tally_request
-from backend.tally_bridge.request_builder import (
+from tally_bridge.mock_handler import mock_tally_request
+from tally_bridge.request_builder import (
     build_company_list,
     build_party_vouchers,
 )

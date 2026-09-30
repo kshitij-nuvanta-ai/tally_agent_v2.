@@ -1,5 +1,5 @@
-from agent.tally.client import TallyClient
-from agent.tally.envelopes import esc
+from tally_bridge.client import TallyClient
+from tally_bridge.envelopes import esc
 from probes import p14_special_char_company as p14
 from probes.capture import Capture
 from probes.companies import COMPANIES
@@ -21,7 +21,7 @@ async def _run(tmp_path, books):
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     store.update_environment(company_b_loaded_at="2026-09-24T13:02:33+05:30")
-    await run_probe(p14.PROBE, labels=None, client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p14.PROBE, labels=None, client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=ScriptedIO())
     return store.probe_entry(14)["parts"]["B"]
 

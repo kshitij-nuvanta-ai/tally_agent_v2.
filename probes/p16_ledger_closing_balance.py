@@ -7,8 +7,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_ledger_list
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_ledger_list
 from probes.actions import Action
 from probes.anchors import SEED_PAYABLE, SEED_RECEIVABLE
 from probes.companies import THROWAWAY_DATE, THROWAWAY_DATE_TEXT, THROWAWAY_EXPENSE_LEDGER

@@ -1,4 +1,4 @@
-"""Read requests and parsers shared by the company-A probes (probe side only; S2 grows its own in agent/tally/)."""
+"""Read requests and parsers shared by the company-A probes (probe side only; S2 grows its own in tally_bridge/)."""
 from __future__ import annotations
 
 import re
@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from agent.tally.amounts import AmountParseError, parse_decimal
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection
-from agent.tally.xml_utils import read_objects, sanitize_xml
+from contract.tally_rules import PRIMARY_NATURE
+from tally_bridge.amounts import AmountParseError, parse_decimal
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, esc, wrap_collection
+from tally_bridge.xml_utils import read_objects, sanitize_xml
 
 A_FY_FROM = "01-04-2025"
 A_FY_TO = "31-03-2026"
@@ -37,14 +38,8 @@ OPENING_STOCK_ROW = "Opening Stock"
 # the group rows plus that Opening Stock row, never to enumerate ledgers.
 TB_EXPLODE_VARS = {"EXPLODEFLAG": "Yes"}
 
-# Tally's reserved primary groups and the nature S1 gives each (Part 1 §6 rung 1 needs balance-sheet vs P&L).
-PRIMARY_NATURE: dict[str, str] = {
-    "Capital Account": "liabilities", "Loans (Liability)": "liabilities", "Current Liabilities": "liabilities",
-    "Suspense A/c": "liabilities", "Branch / Divisions": "liabilities",
-    "Fixed Assets": "assets", "Investments": "assets", "Current Assets": "assets", "Misc. Expenses (ASSET)": "assets",
-    "Sales Accounts": "income", "Direct Incomes": "income", "Indirect Incomes": "income",
-    "Purchase Accounts": "expenses", "Direct Expenses": "expenses", "Indirect Expenses": "expenses",
-}
+# Tally's reserved primary groups and the nature S1 gives each (Part 1 §6 rung 1 needs balance-sheet vs P&L):
+# PRIMARY_NATURE, defined once in contract/tally_rules.py and imported above.
 PL_PRIMARY_GROUPS = frozenset(group for group, nature in PRIMARY_NATURE.items() if nature in ("income", "expenses"))
 
 
@@ -55,7 +50,7 @@ PL_PRIMARY_GROUPS = frozenset(group for group, nature in PRIMARY_NATURE.items() 
 # with 0 of 35 closing balances changed — a healthy 200 carrying TODAY's balances, which is the more dangerous of the
 # two. Reports (wrap_report, TYPE=Data) honour both and are the route to as-on figures. The guard is deliberately
 # conservative — it covers every master collection, though only Ledger was tested — and the same rule will be needed
-# in the S2 agent's own builders (agent/tally/). voucher_request and wrap_report are proven fine and untouched.
+# in the S2 agent's own builders (tally_bridge/). voucher_request and wrap_report are proven fine and untouched.
 MASTER_PERIOD_VARS = ("SVFROMDATE", "SVTODATE")
 MASTER_PERIOD_VARS_ERROR = (
     "period variables on a master collection freeze Tally (SVFROMDATE: the XML server stays blocked behind a modal "

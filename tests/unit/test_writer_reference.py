@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.tally_bridge.writer import TallyWriter
+from tally_bridge.writer import TallyWriter
 
 SUCCESS_XML = """<RESPONSE>
 <CREATED>1</CREATED><ALTERED>0</ALTERED><DELETED>0</DELETED>

@@ -44,7 +44,7 @@ def test_payment_dispatch_calls_create_payment_voucher(client):
         "amount": 500.0, "narration": "Uber", "gst_entries": [],
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_payment_voucher",
+        "tally_bridge.writer.TallyWriter.create_payment_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -63,7 +63,7 @@ def test_purchase_dispatch_calls_purchase_writer(client):
         "bill_reference": "CRO-5678", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -85,7 +85,7 @@ def test_sales_dispatch_calls_sales_writer(client):
         "bill_reference": "INV-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -108,7 +108,7 @@ def test_debit_note_dispatch_calls_create_debit_note(client):
         "bill_reference": "CRO-5678", "bill_type": "Agst Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_debit_note",
+        "tally_bridge.writer.TallyWriter.create_debit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -133,7 +133,7 @@ def test_credit_note_dispatch_calls_create_credit_note(client):
         "bill_reference": "INV-FEB-001", "bill_type": "Agst Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_credit_note",
+        "tally_bridge.writer.TallyWriter.create_credit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -181,16 +181,16 @@ def test_inventory_purchase_creates_new_stock_item_then_voucher(client):
     then the STOCK-based create_purchase_voucher is called with item tuples."""
     entry = _inventory_purchase_entry()
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -222,16 +222,16 @@ def test_inventory_purchase_skips_create_for_matched_only(client):
     entry = _inventory_purchase_entry()
     entry["line_items"] = [entry["line_items"][0]]  # only the matched line
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -252,16 +252,16 @@ def test_inventory_sales_calls_stock_sales_voucher(client):
     for li in entry["line_items"]:
         li["ledger"] = "Sales Accounts"
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_sales_voucher",
+        "tally_bridge.writer.TallyWriter.create_sales_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch:
         resp = _post(client, entry)
@@ -282,10 +282,10 @@ def test_non_inventory_purchase_uses_ledger_writer(client):
         "bill_reference": "CRO-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_stock:
         resp = _post(client, entry)
@@ -308,7 +308,7 @@ def test_debit_note_edit_form_mapping_keeps_legs_distinct(client):
         "bill_reference": "CRO-5678", "bill_type": "Agst Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_debit_note",
+        "tally_bridge.writer.TallyWriter.create_debit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -333,7 +333,7 @@ def test_credit_note_edit_form_mapping_keeps_legs_distinct(client):
         "bill_reference": "INV-FEB-001", "bill_type": "Agst Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_credit_note",
+        "tally_bridge.writer.TallyWriter.create_credit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -351,7 +351,7 @@ def test_default_voucher_type_is_payment(client):
         "amount": 500.0, "narration": "n", "gst_entries": [],
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_payment_voucher",
+        "tally_bridge.writer.TallyWriter.create_payment_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -378,7 +378,7 @@ def test_empty_party_ledger_blocks_party_voucher(client, voucher_type, writer_me
         "party_ledger": "", "amount": 1000.0, "narration": "n", "gst_entries": [],
     }
     with patch(
-        f"backend.tally_bridge.writer.TallyWriter.{writer_method}",
+        f"tally_bridge.writer.TallyWriter.{writer_method}",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -408,7 +408,7 @@ def test_reference_passed_to_writer(client, voucher_type, writer_method, extra):
         **extra,
     }
     with patch(
-        f"backend.tally_bridge.writer.TallyWriter.{writer_method}",
+        f"tally_bridge.writer.TallyWriter.{writer_method}",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -435,7 +435,7 @@ def test_client_sent_duplicate_status_is_not_trusted_in_legacy(client, action):
         "duplicate_of": {"voucher_no": "P-1", "date": "20260201", "reason": "same file"},
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry, action=action)
@@ -454,7 +454,7 @@ def test_valid_party_ledger_still_writes(client):
         "party_ledger": "Acme", "amount": 1000.0, "narration": "n", "gst_entries": [],
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)
@@ -477,10 +477,10 @@ def test_new_ledger_purchase_creates_party_not_debit_ledger(client):
         "bill_reference": "NS-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_ledger",
+        "tally_bridge.writer.TallyWriter.create_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = _post(client, entry)
@@ -514,10 +514,10 @@ def test_new_ledger_sales_creates_billwise_party(client):
         "bill_reference": "NS-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_ledger",
+        "tally_bridge.writer.TallyWriter.create_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = _post(client, entry)
@@ -546,10 +546,10 @@ def test_new_ledger_debit_note_creates_billwise_party(client):
         "bill_reference": "DN-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_ledger",
+        "tally_bridge.writer.TallyWriter.create_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_debit_note",
+        "tally_bridge.writer.TallyWriter.create_debit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = _post(client, entry)
@@ -576,10 +576,10 @@ def test_new_ledger_credit_note_creates_billwise_party(client):
         "bill_reference": "CN-1", "bill_type": "New Ref",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_ledger",
+        "tally_bridge.writer.TallyWriter.create_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_credit_note",
+        "tally_bridge.writer.TallyWriter.create_credit_note",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = _post(client, entry)
@@ -604,10 +604,10 @@ def test_new_ledger_payment_still_creates_debit_ledger(client):
         "is_new_ledger": True, "suggested_parent": "Indirect Expenses",
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_ledger",
+        "tally_bridge.writer.TallyWriter.create_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_ledger, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_payment_voucher",
+        "tally_bridge.writer.TallyWriter.create_payment_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = _post(client, entry)
@@ -635,7 +635,7 @@ def test_fx_no_rate_guard_blocks_foreign_write(client):
         "gst_entries": [], "original_currency": "USD", "fx_rate": 0.0,
     }
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m:
         resp = _post(client, entry)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, wrap_report
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, wrap_report
 from probes.context import ProbeContext
 from probes.core import Outcome, PartResult, Probe, ProbeBlocked
 from probes.reads import (A_FY_FROM, A_FY_TO, ZERO, master_request, parse_parents, stock_bearing_groups,

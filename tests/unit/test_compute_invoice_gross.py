@@ -8,7 +8,7 @@ must reconcile exactly.
 """
 import pytest
 
-from backend.tally_bridge.import_builder import (
+from tally_bridge.import_builder import (
     build_create_purchase_voucher,
     compute_invoice_gross,
 )

@@ -6,8 +6,8 @@ In manual runs a person makes the changes at the Tally UI (S0-D3); in auto runs 
 """
 from __future__ import annotations
 
-from agent.tally.envelopes import formula_string, wrap_collection
-from agent.tally.xml_utils import read_objects
+from tally_bridge.envelopes import formula_string, wrap_collection
+from tally_bridge.xml_utils import read_objects
 from probes.actions import Action
 from probes.companies import THROWAWAY_DATE_TEXT
 from probes.context import ProbeContext, select_company

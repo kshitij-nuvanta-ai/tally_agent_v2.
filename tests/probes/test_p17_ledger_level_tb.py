@@ -3,7 +3,7 @@ from pathlib import Path
 
 import httpx
 
-from agent.tally.reports import parse_trial_balance
+from tally_bridge.sync_reports import parse_trial_balance
 from probes import p17_ledger_level_tb as p17
 from probes.core import Outcome
 from probes.runner import run_probe

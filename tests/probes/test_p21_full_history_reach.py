@@ -29,7 +29,7 @@ def test_voucher_blocks_skip_the_cmpinfo_counter_and_count_utf8_bytes():
 
 
 def test_element_json_drops_placeholders_keeps_lists_and_survives_control_chars():
-    from agent.tally.xml_utils import sanitize_xml
+    from tally_bridge.xml_utils import sanitize_xml
     doc = p21.element_json(ET.fromstring(sanitize_xml(HINDI_BLOCK)))
     assert doc["@"] == {"VCHTYPE": "Sales"}
     assert doc["NARRATION"] == "[S0-B:281] Sale to शर्मा ट्रेडर्स"
@@ -40,7 +40,7 @@ def test_element_json_drops_placeholders_keeps_lists_and_survives_control_chars(
 
 
 def test_raw_json_bytes_is_the_compact_utf8_json():
-    from agent.tally.xml_utils import sanitize_xml
+    from tally_bridge.xml_utils import sanitize_xml
     expected = json.dumps(p21.element_json(ET.fromstring(sanitize_xml(HINDI_BLOCK))), ensure_ascii=False,
                           separators=(",", ":")).encode("utf-8")
     assert p21.raw_json_bytes(HINDI_BLOCK) == len(expected)
@@ -125,7 +125,7 @@ def test_mean_block_bytes_ignores_empty_placeholders():
 
 import pytest
 
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p05_voucher_month_bounds as p05
 from probes.capture import TIMING_NOTE, Capture
 from probes.companies import COMPANIES
@@ -149,7 +149,7 @@ async def _run(tmp_path, books, io=None, *, with_probe_5=True, licence="educatio
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence=licence)
     store.update_environment(company_b_loaded_at="2026-09-24T13:02:33+05:30")
-    client, capture = TallyClient(transport=books.transport()), Capture(tmp_path / "fixtures")
+    client, capture = TallyClient(transport=books.transport(), trust_env=False), Capture(tmp_path / "fixtures")
     if with_probe_5:
         await run_probe(p05.PROBE, labels=None, client=client, store=store, capture=capture, io=ScriptedIO())
     io = io or ScriptedIO(answers=[""])

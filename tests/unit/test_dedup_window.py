@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from backend.services.dedup import find_business_key_duplicate, find_duplicate
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 
 class _EmptyResult:

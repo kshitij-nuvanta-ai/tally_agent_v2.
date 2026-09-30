@@ -25,8 +25,8 @@ from backend.agents.orchestrator import Orchestrator
 from backend.api.chat import voucher_action
 from backend.api.models import VoucherActionRequest
 from backend.db.models import Conversation, User, Workspace
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.models import StockItem
+from tally_bridge.client import TallyClient
+from tally_bridge.models import StockItem
 from tests.fixtures import vision_docs
 
 pytestmark = pytest.mark.skipif(
@@ -96,13 +96,13 @@ async def _upload(db_session, ctx, fixture, content=b"\xff\xd8\xff\xe0PDF"):
         "backend.agents.orchestrator.anthropic_client.messages.create",
         new=AsyncMock(return_value=vision_docs.vision_message(fixture)),
     ), patch(
-        "backend.tally_bridge.response_parser.parse_ledger_list",
+        "tally_bridge.response_parser.parse_ledger_list",
         return_value=_LEDGERS,
     ), patch(
         "backend.services.stock_resolver.list_stock_items",
         new=AsyncMock(return_value=_STOCK_ITEMS),
     ), patch(
-        "backend.tally_bridge.queries.vouchers.get_party_vouchers",
+        "tally_bridge.queries.vouchers.get_party_vouchers",
         new=AsyncMock(return_value=[]),
     ), patch(
         "backend.services.dedup.get_party_vouchers",
@@ -142,16 +142,16 @@ async def test_goods_purchase_writes_stock_voucher(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_item, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -159,7 +159,7 @@ async def test_goods_purchase_writes_stock_voucher(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -181,7 +181,7 @@ async def test_bill_alloc_gross_matches_builder_party_total(db_session, ctx):
     """Finding 1: the New Ref bill-allocation amount must equal the gross the
     builder computes from the item tuples (Σ qty×rate + GST), NOT Vision's
     extracted total. Reconciles exactly so the voucher balances."""
-    from backend.tally_bridge.import_builder import compute_invoice_gross
+    from tally_bridge.import_builder import compute_invoice_gross
 
     user, ws, conv = ctx
     result = await _upload(db_session, ctx, "purchase_goods_inr",
@@ -196,16 +196,16 @@ async def test_bill_alloc_gross_matches_builder_party_total(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -213,7 +213,7 @@ async def test_bill_alloc_gross_matches_builder_party_total(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -259,22 +259,22 @@ async def test_preexisting_stock_group_altered_does_not_abort_write(db_session, 
         return _ALTERED
 
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         # create_stock_group is NOT mocked — the real method + _assert_master_persisted run.
-        "backend.tally_bridge.client.TallyClient.post_xml",
+        "tally_bridge.client.TallyClient.post_xml",
         new=_post_xml,
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
     ), patch(
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -298,7 +298,7 @@ async def test_zero_qty_line_blocks_write(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -306,7 +306,7 @@ async def test_zero_qty_line_blocks_write(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -331,7 +331,7 @@ async def test_zero_rate_line_blocks_write(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -339,7 +339,7 @@ async def test_zero_rate_line_blocks_write(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -368,16 +368,16 @@ async def test_mixed_invoice_unquantified_lines_block_write(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -385,7 +385,7 @@ async def test_mixed_invoice_unquantified_lines_block_write(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -411,16 +411,16 @@ async def test_all_quantified_invoice_writes(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -428,7 +428,7 @@ async def test_all_quantified_invoice_writes(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -456,16 +456,16 @@ async def test_master_create_failure_returns_clean_voucher_error(db_session, ctx
                                workspace_id=str(ws.id), session_id=str(conv.id))
     boom = RuntimeError("create_stock_item silently failed: Tally returned EXCEPTIONS=1")
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(side_effect=boom),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -473,7 +473,7 @@ async def test_master_create_failure_returns_clean_voucher_error(db_session, ctx
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -501,16 +501,16 @@ async def test_idempotent_swallows_already_exists(db_session, ctx):
         "create_stock_item silently failed: Stock Item already exists"
     )
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(side_effect=exists),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -518,7 +518,7 @@ async def test_idempotent_swallows_already_exists(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(
@@ -551,16 +551,16 @@ async def test_goods_sales_writes_stock_voucher(db_session, ctx):
     req = VoucherActionRequest(action="approve", entry=entry,
                                workspace_id=str(ws.id), session_id=str(conv.id))
     with patch(
-        "backend.tally_bridge.writer.TallyWriter.create_unit",
+        "tally_bridge.writer.TallyWriter.create_unit",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_group",
+        "tally_bridge.writer.TallyWriter.create_stock_group",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_stock_item",
+        "tally_bridge.writer.TallyWriter.create_stock_item",
         new=AsyncMock(return_value=_SUCCESS),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_sales_voucher",
+        "tally_bridge.writer.TallyWriter.create_sales_voucher",
         new=AsyncMock(return_value=_SUCCESS),
     ) as m_vch, patch(
         "backend.services.dedup.get_party_vouchers", new=AsyncMock(return_value=[]),
@@ -568,7 +568,7 @@ async def test_goods_sales_writes_stock_voucher(db_session, ctx):
         # The inventory write path reads existing stock items (to avoid CREATEing
         # masters that already exist — the blocking-modal fix). The writer client
         # here is not in mock mode, so patch this read to the known fixture.
-        "backend.tally_bridge.queries.masters.list_stock_items",
+        "tally_bridge.queries.masters.list_stock_items",
         new=AsyncMock(return_value=list(_STOCK_ITEMS)),
     ):
         resp = await voucher_action(

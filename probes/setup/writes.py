@@ -14,7 +14,7 @@ and that is ALSO what Tally reads on the wire. Two places are signed on the wire
 - `create_b_voucher`'s `lines` (AMOUNT + ISDEEMEDPOSITIVE) — Op 6/7's sign convention (Ruling C22, live-verified).
 - `create_party_ledger`'s `opening` → OPENINGBALANCE, sent SIGNED: negative = Dr, positive = Cr (Ruling C30,
   2026-09-24). Tally does NOT infer the side from the parent group — Op 5's gotcha / Ruling C21 / F11 were never
-  tested (Op 5 only checked that Capital Account existed). Live evidence: backend/tally_bridge/import_builder.py's
+  tested (Op 5 only checked that Capital Account existed). Live evidence: tally_bridge/import_builder.py's
   `abs(opening)` landed company A's HDFC −5,00,000 and SBI −2,00,000 as CREDITS
   (docs/specs/2026-09-21-bi-part1-sync-design.md "Settled 2026-09-23";
   tests/fixtures/sync/c33_untyped_2026-09-23/p18_A_ledger_list.xml shows them positive, like Capital Account). Never re-introduce `abs(opening)`.
@@ -29,8 +29,8 @@ from typing import Callable
 
 import httpx
 
-from agent.tally.envelopes import build_company_list, formula_string, wrap_collection, wrap_report
-from agent.tally.xml_utils import parse_company_list, read_objects, sanitize_xml
+from tally_bridge.envelopes import build_company_list, formula_string, wrap_collection, wrap_report
+from tally_bridge.xml_utils import parse_company_list, read_objects, sanitize_xml
 from probes.companies import COMPANIES, POPUP_STOCK_GROUP, SEED_COMPANY, THROWAWAY_DATE, THROWAWAY_DATE_TEXT
 from probes.licence import LICENCE_REQUEST, LicenceInfo, parse_licence_info
 from probes.reads import PRIMARY_NATURE, TB_EXPLODE_VARS, VOUCHER_MONTH_FIELDS, voucher_request
@@ -199,7 +199,7 @@ def validate_b_voucher(*, vch_type: str, narration: str, party: str, lines: list
         if wrong:
             raise ValueError(f"Voucher {narration!r}: lines {wrong} are not face × rate = {base}")
 
-    # Op 6/7 (docs/tally-write-exploration-v4.md) — confirmed 2026-09-23 by backend/tally_bridge/import_builder.py,
+    # Op 6/7 (docs/tally-write-exploration-v4.md) — confirmed 2026-09-23 by tally_bridge/import_builder.py,
     # the production writer that has actually landed invoices in live Tally: stock+GST Sales/Purchase are
     # live-verified only under unprefixed LEDGERENTRIES.LIST + Invoice Voucher View + ISINVOICE=Yes +
     # ISPARTYLEDGER=Yes on the party line. ALLLEDGERENTRIES.LIST + Accounting Voucher View (used here for

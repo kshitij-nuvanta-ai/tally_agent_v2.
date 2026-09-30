@@ -91,10 +91,10 @@ from scripts.probe_group_b import (
     post_and_parse,
 )
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import _wrap_import
-from backend.tally_bridge.request_builder import build_list_ledgers
-from backend.tally_bridge.response_parser import sanitize_xml
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import _wrap_import
+from tally_bridge.request_builder import build_list_ledgers
+from tally_bridge.response_parser import sanitize_xml
 
 
 # ─────────────────────────────────────────────────────────────────────────────

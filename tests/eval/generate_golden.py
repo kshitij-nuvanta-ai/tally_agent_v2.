@@ -9,8 +9,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.queries import reports
+from tally_bridge.client import TallyClient
+from tally_bridge.queries import reports
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 

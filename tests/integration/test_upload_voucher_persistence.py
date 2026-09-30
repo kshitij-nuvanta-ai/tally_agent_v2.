@@ -24,7 +24,7 @@ from backend.api.chat import (
 )
 from backend.api.models import VoucherActionRequest
 from backend.db.models import Conversation, Message, User, VoucherEntry, Workspace
-from backend.tally_bridge.client import TallyClient
+from tally_bridge.client import TallyClient
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),
@@ -230,7 +230,7 @@ async def test_successful_write_updates_persisted_message_to_written(db_session,
         "backend.services.dedup.find_business_key_duplicate",
         new=AsyncMock(return_value=None),
     ), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         resp = await voucher_action(
@@ -272,7 +272,7 @@ async def test_write_time_dedup_recheck_anchors_on_entry_date(db_session, ctx):
     )
     fake = AsyncMock(return_value=None)
     with patch("backend.services.dedup.find_business_key_duplicate", new=fake), patch(
-        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
         new=AsyncMock(return_value=_SUCCESS),
     ):
         await voucher_action(

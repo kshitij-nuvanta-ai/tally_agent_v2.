@@ -220,7 +220,7 @@ class TestExecuteTool:
     async def test_connection_error_returns_error(self):
         """TallyConnectionError should be caught and returned as error dict."""
         from unittest.mock import AsyncMock, patch
-        from backend.tally_bridge.exceptions import TallyConnectionError
+        from tally_bridge.exceptions import TallyConnectionError
 
         mock_client = AsyncMock()
         with patch.dict(
@@ -234,7 +234,7 @@ class TestExecuteTool:
     @pytest.mark.asyncio
     async def test_response_error_returns_error(self):
         from unittest.mock import AsyncMock, patch
-        from backend.tally_bridge.exceptions import TallyResponseError
+        from tally_bridge.exceptions import TallyResponseError
 
         mock_client = AsyncMock()
         with patch.dict(
@@ -407,7 +407,7 @@ class TestExecuteToolDateValidation:
     async def test_execute_tool_tally_connection_error(self):
         """TallyConnectionError is caught and returned as error dict."""
         from unittest.mock import AsyncMock, patch
-        from backend.tally_bridge.exceptions import TallyConnectionError
+        from tally_bridge.exceptions import TallyConnectionError
         from backend.agents.tools import TOOL_HANDLERS
         client = AsyncMock()
         mock_handler = AsyncMock(side_effect=TallyConnectionError("Tally unreachable"))
@@ -434,7 +434,7 @@ class TestExecuteToolDateValidation:
     async def test_execute_tool_tally_response_error(self):
         """TallyResponseError is caught and returned as error dict."""
         from unittest.mock import AsyncMock, patch
-        from backend.tally_bridge.exceptions import TallyResponseError
+        from tally_bridge.exceptions import TallyResponseError
         from backend.agents.tools import TOOL_HANDLERS
         client = AsyncMock()
         mock_handler = AsyncMock(side_effect=TallyResponseError("Invalid XML response"))
@@ -477,7 +477,7 @@ class TestCrashScenarioEndToEnd:
         """The exact crash scenario: Claude sends ISO dates for sales register.
         Verify the XML sent to Tally has DD-MM-YYYY, not YYYY-MM-DD."""
         from unittest.mock import AsyncMock
-        from backend.tally_bridge.client import TallyClient
+        from tally_bridge.client import TallyClient
 
         # Mock only the HTTP layer — real handler + real request_builder
         client = AsyncMock(spec=TallyClient)
@@ -504,7 +504,7 @@ class TestCrashScenarioEndToEnd:
     async def test_iso_date_produces_correct_xml_for_trial_balance(self):
         """ISO dates auto-fixed for trial balance report XML."""
         from unittest.mock import AsyncMock
-        from backend.tally_bridge.client import TallyClient
+        from tally_bridge.client import TallyClient
 
         client = AsyncMock(spec=TallyClient)
         # Trial balance returns XML with DSPACCNAME/DSPACCINFO sibling pairs
@@ -525,7 +525,7 @@ class TestCrashScenarioEndToEnd:
     async def test_garbage_date_never_reaches_tally(self):
         """Garbage date must be rejected — no HTTP call to Tally at all."""
         from unittest.mock import AsyncMock
-        from backend.tally_bridge.client import TallyClient
+        from tally_bridge.client import TallyClient
 
         client = AsyncMock(spec=TallyClient)
 

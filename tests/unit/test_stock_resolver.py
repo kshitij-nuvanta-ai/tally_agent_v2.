@@ -20,7 +20,7 @@ from backend.services.stock_resolver import (
     dropped_unquantified_descriptions,
     resolve_line_items,
 )
-from backend.tally_bridge.models import StockItem
+from tally_bridge.models import StockItem
 
 
 def _client_with_items(*names: str):

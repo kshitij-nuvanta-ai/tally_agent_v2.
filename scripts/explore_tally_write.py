@@ -18,13 +18,13 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.request_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.request_builder import (
     build_day_book,
     build_list_groups,
     build_list_ledgers,
 )
-from backend.tally_bridge.response_parser import (
+from tally_bridge.response_parser import (
     parse_groups,
     parse_ledger_list,
     parse_vouchers,

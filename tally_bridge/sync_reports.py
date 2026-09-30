@@ -1,32 +1,27 @@
-# Copied from: backend/tally_bridge/response_parser.py @ c04d7d2
-# Changes: parse_trial_balance, parse_ledger_list, parse_bills and parse_stock_summary return Decimal (via
-# amounts.parse_decimal) and None for a missing value instead of float 0.0; a stock rate like "1250.00/NOS" is
-# read as its number (the source's parse_amount turned it into 0.0); parse_stock_summary rows no longer carry
-# parent_group. parse_ledger_list reads a forex expression balance at its stated INR base (amounts.parse_amount,
-# C47) and adds closing_forex / opening_forex.
-"""Parsers for Tally report and ledger-list responses (Decimal amounts)."""
+"""Decimal parsers for Tally report and ledger-list responses: the sync path (merge decision M11).
+
+``response_parser.py`` holds the chat path's parsers of the same names; they return float and stay as they are.
+What is different here:
+- amounts are ``Decimal`` (``amounts.parse_decimal``) and a missing value is ``None``, not ``0.0``; a value that is
+  present but unreadable raises ``AmountParseError`` instead of becoming ``0.0``;
+- ``parse_stock_summary`` reads a stock rate like "1250.00/NOS" as its number (the float parser gives 0.0), and its
+  rows carry no ``parent_group``;
+- ``parse_ledger_list`` reads a forex expression balance at its stated INR base (``amounts.parse_amount``, C47) and
+  adds ``closing_forex`` / ``opening_forex``.
+"""
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 
-from agent.tally.amounts import parse_amount, parse_decimal
-from agent.tally.xml_utils import get_text, sanitize_xml
+from tally_bridge.amounts import parse_amount, parse_decimal
+from tally_bridge.response_parser import _parse_overdue_days
+from tally_bridge.xml_utils import get_text, sanitize_xml
 
 
 def _sum_optional(*values: Decimal | None) -> Decimal | None:
     present = [v for v in values if v is not None]
     return sum(present, Decimal("0")) if present else None
-
-
-def _parse_overdue_days(text: str) -> int | None:
-    """Overdue days from Tally — handles '45', '-10', '45 Days'."""
-    if not text or not text.strip():
-        return None
-    try:
-        return int(text.strip().split()[0])
-    except ValueError:
-        return None
 
 
 def parse_trial_balance(raw_xml: str) -> list[dict]:

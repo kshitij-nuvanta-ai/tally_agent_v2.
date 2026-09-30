@@ -11,9 +11,9 @@ import argparse
 import asyncio
 import sys
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.exceptions import TallyConnectionError
-from backend.tally_bridge.queries.masters import list_companies, list_ledgers
+from tally_bridge.client import TallyClient
+from tally_bridge.exceptions import TallyConnectionError
+from tally_bridge.queries.masters import list_companies, list_ledgers
 
 
 async def test_connection(host: str, port: int) -> None:

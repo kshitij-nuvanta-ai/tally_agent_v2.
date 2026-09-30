@@ -2,18 +2,11 @@
 Parse TallyPrime XML responses into normalized Python dicts.
 Handles Tally's inconsistent casing, empty tags, comma-formatted amounts.
 """
-import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-
-def sanitize_xml(raw_xml: str) -> str:
-    """Remove invalid XML character references that TallyPrime sometimes emits.
-
-    Tally uses control characters like &#4; (EOT) as field separators in
-    some responses. These are not valid XML and cause ET.ParseError.
-    """
-    return re.sub(r"&#([0-8]|1[0-1]|1[4-9]|2[0-9]|3[0-1]);", "", raw_xml)
+# The one definition of each lives in xml_utils; the names stay importable from here.
+from tally_bridge.xml_utils import detect_error, get_text as _get_text, sanitize_xml  # noqa: F401
 
 
 def parse_amount(text: str | None) -> float:
@@ -35,27 +28,6 @@ def _parse_overdue_days(text: str) -> int | None:
         return int(num_str)
     except ValueError:
         return None
-
-
-def detect_error(raw_xml: str) -> str | None:
-    try:
-        root = ET.fromstring(sanitize_xml(raw_xml))
-    except ET.ParseError:
-        return "Invalid XML response from Tally"
-    error_el = root.find(".//LINEERROR")
-    if error_el is not None and error_el.text:
-        return error_el.text.strip()
-    errors_el = root.find(".//ERRORS")
-    if errors_el is not None and errors_el.text and errors_el.text.strip() != "0":
-        return f"Tally reported {errors_el.text.strip()} error(s)"
-    return None
-
-
-def _get_text(element: ET.Element, tag: str) -> str:
-    child = element.find(tag)
-    if child is not None and child.text:
-        return child.text.strip()
-    return ""
 
 
 def parse_trial_balance(raw_xml: str) -> list[dict]:
@@ -436,6 +408,10 @@ def parse_company_list(raw_xml: str) -> list[str]:
     Handles both the COMPANY element shapes Tally emits (verified probe E7):
     a child `<NAME>` element, a `NAME` attribute, or inline text. CMPINFO and
     other envelope sections are ignored — only COMPANY elements are scanned.
+
+    ``xml_utils.parse_company_list`` (sync path, probes) is deliberately stricter: it
+    does not read inline text, so CMPINFO's ``<COMPANY>0</COMPANY>`` counter is not
+    returned as a company called "0". This one keeps the app's existing behaviour.
     """
     root = ET.fromstring(sanitize_xml(raw_xml))
     names: list[str] = []

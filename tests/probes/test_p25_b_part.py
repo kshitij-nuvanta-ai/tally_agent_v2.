@@ -1,4 +1,4 @@
-from agent.tally.client import TallyClient
+from tally_bridge.client import TallyClient
 from probes import p25_masters_classification as p25
 from probes.capture import Capture
 from probes.company_b_view import B_CUSTOM_VOUCHER_TYPE, r9_candidate
@@ -22,7 +22,7 @@ async def _run(tmp_path, books, io):
     store = ResultsStore(tmp_path / "results.json")
     ready_store(store, licence="educational")
     store.update_environment(company_b_loaded_at="2026-09-24T13:02:33+05:30")
-    await run_probe(p25.PROBE, labels=["B"], client=TallyClient(transport=books.transport()), store=store,
+    await run_probe(p25.PROBE, labels=["B"], client=TallyClient(transport=books.transport(), trust_env=False), store=store,
                     capture=Capture(tmp_path / "fixtures"), io=io)
     return store.probe_entry(25)["parts"]["B"]
 

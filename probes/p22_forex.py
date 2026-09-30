@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from agent.tally.amounts import AmountParseError, parse_decimal
-from agent.tally.envelopes import formula_string
-from agent.tally.xml_utils import read_objects
+from tally_bridge.amounts import AmountParseError, parse_decimal
+from tally_bridge.envelopes import formula_string
+from tally_bridge.xml_utils import read_objects
 from probes.company_b_view import (USD_EXPORT_PARTY, drift_message, fetch_window, forex_vouchers, loaded_licence,
                                       month_window, tag_of)
 from probes.context import ProbeContext

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.tally_bridge.import_builder import (
+from tally_bridge.import_builder import (
     build_create_purchase_voucher_ledger,
     build_create_sales_voucher_ledger,
 )
@@ -102,7 +102,7 @@ def test_purchase_ledger_validates_amount_positive():
 
 @pytest.mark.asyncio
 async def test_writer_create_purchase_voucher_ledger_posts_xml():
-    from backend.tally_bridge.writer import TallyWriter
+    from tally_bridge.writer import TallyWriter
 
     client = AsyncMock()
     client.post_xml = AsyncMock(

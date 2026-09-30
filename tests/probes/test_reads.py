@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agent.tally.envelopes import wrap_report
-from agent.tally.reports import parse_trial_balance
+from tally_bridge.envelopes import wrap_report
+from tally_bridge.sync_reports import parse_trial_balance
 from probes.reads import (PROBE_POSTING_RULE, amount, ancestors, dmy, exploded_tb_rows, is_countable,
                              ledger_movements, master_request, opening_stock_row, parse_parents, parse_vouchers,
                              postings, primary_group_rows, primary_lines, qty_number, signed_ui_amount,
@@ -224,7 +224,7 @@ def test_voucher_request_and_wrap_report_still_send_both_period_variables():
 
 def test_fill_month_request_escapes_the_company_and_fills_typed_dates():
     import xml.etree.ElementTree as ET
-    from agent.tally.envelopes import COMPANY_PLACEHOLDER
+    from tally_bridge.envelopes import COMPANY_PLACEHOLDER
     from probes.reads import (FROM_PLACEHOLDER, TO_PLACEHOLDER, VOUCHER_MONTH_FIELDS, fill_month_request,
                                  voucher_request)
     template = voucher_request("S0VoucherMonth", VOUCHER_MONTH_FIELDS, COMPANY_PLACEHOLDER,
@@ -238,7 +238,7 @@ def test_fill_month_request_escapes_the_company_and_fills_typed_dates():
 
 
 def test_untyped_period_vars_strips_only_the_date_type():
-    from agent.tally.envelopes import wrap_report
+    from tally_bridge.envelopes import wrap_report
     from probes.reads import untyped_period_vars
     typed = wrap_report("Trial Balance", "01-04-2022", "30-06-2023", "B", extra_vars={"EXPLODEFLAG": "Yes"})
     untyped = untyped_period_vars(typed)

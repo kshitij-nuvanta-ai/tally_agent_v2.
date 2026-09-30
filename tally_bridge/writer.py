@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import logging
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.import_builder import (
+from tally_bridge.client import TallyClient
+from tally_bridge.import_builder import (
     build_cancel_voucher,
     build_create_credit_note,
     build_create_debit_note,
@@ -36,8 +36,8 @@ from backend.tally_bridge.import_builder import (
     build_delete_ledger,
     build_delete_voucher,
 )
-from backend.tally_bridge.queries.masters import list_ledgers
-from backend.tally_bridge.response_parser import parse_import_response
+from tally_bridge.queries.masters import list_ledgers
+from tally_bridge.response_parser import parse_import_response
 
 logger = logging.getLogger(__name__)
 

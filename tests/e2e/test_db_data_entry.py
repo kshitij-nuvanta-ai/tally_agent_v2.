@@ -74,7 +74,7 @@ async def db_app(monkeypatch, tmp_path):
 
     # 4. Manually initialise what lifespan would do (ASGITransport skips lifespan)
     from backend.agents.context import SessionStore
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
     from backend.db.engine import init_engine
 
     tally_client = TallyClient(host="localhost", port=9000)
@@ -310,10 +310,10 @@ async def test_db_voucher_approve_creates_billwise_party_ledger(db_app):
         headers = {"Authorization": f"Bearer {token}"}
 
         with patch(
-            "backend.tally_bridge.writer.TallyWriter.create_ledger",
+            "tally_bridge.writer.TallyWriter.create_ledger",
             new=AsyncMock(return_value={"success": True, "created": 1}),
         ) as m_ledger, patch(
-            "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+            "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
             new=AsyncMock(return_value={"success": True, "last_vch_id": "99", "created": 1}),
         ):
             resp = await ac.post(
@@ -370,10 +370,10 @@ async def test_db_voucher_approve_creates_billwise_sundry_debtor(db_app):
         headers = {"Authorization": f"Bearer {token}"}
 
         with patch(
-            "backend.tally_bridge.writer.TallyWriter.create_ledger",
+            "tally_bridge.writer.TallyWriter.create_ledger",
             new=AsyncMock(return_value={"success": True, "created": 1}),
         ) as m_ledger, patch(
-            "backend.tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
+            "tally_bridge.writer.TallyWriter.create_sales_voucher_ledger",
             new=AsyncMock(return_value={"success": True, "last_vch_id": "99", "created": 1}),
         ):
             resp = await ac.post(
@@ -867,7 +867,7 @@ async def test_db_duplicate_block_message_persists_on_reload(db_app):
         }
 
         with patch(
-            "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+            "tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
             new=AsyncMock(return_value={"success": True, "last_vch_id": "201", "created": 1}),
         ):
             first = await ac.post(

@@ -214,7 +214,7 @@ async def db_app(monkeypatch, tmp_path, tally_host, tally_port, tally_mode):
         pytest.skip("test_db_write_live targets LIVE Tally; not run in --tally-mode mock")
 
     # Reachability gate (skips cleanly if Tally is down).
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
     probe = TallyClient(host=tally_host, port=tally_port)
     healthy = await probe.health_check()
     await probe.close()
@@ -287,8 +287,8 @@ async def cleanup(tally_host, tally_port):
     """Yield a list to append (voucher_type, master_id) tuples to; on teardown,
     delete each via the production TallyWriter.delete_voucher and read back to
     confirm it is gone. Always runs (it's the fixture's finalizer)."""
-    from backend.tally_bridge.client import TallyClient
-    from backend.tally_bridge.writer import TallyWriter
+    from tally_bridge.client import TallyClient
+    from tally_bridge.writer import TallyWriter
 
     written: list[tuple[str, str]] = []
     yield written
@@ -331,7 +331,7 @@ async def cleanup(tally_host, tally_port):
 # ---------------------------------------------------------------------------
 
 async def _party_pending(client, *, payable: bool, party: str) -> float:
-    from backend.tally_bridge.queries.reports import bills_payable, bills_receivable
+    from tally_bridge.queries.reports import bills_payable, bills_receivable
     bills = await (bills_payable if payable else bills_receivable)(client, AS_ON, COMPANY)
     p = party.strip().lower()
     return sum(b.pending_amount for b in bills if b.party_name.strip().lower() == p)
@@ -345,7 +345,7 @@ async def _voucher_present(client, master_id: str) -> bool:
     for ledger-only vouchers too (no inventory line required)."""
     from scripts.cleanup_waterpump import build_inventory_trace_query
     import xml.etree.ElementTree as ET
-    from backend.tally_bridge.response_parser import sanitize_xml
+    from tally_bridge.response_parser import sanitize_xml
     raw = await client.post_xml(
         build_inventory_trace_query("01-04-2025", "31-03-2026", COMPANY)
     )
@@ -449,7 +449,7 @@ async def _seed_settleable_bill(client, doc_type: str, bill_ref: str, cleanup) -
     proving the payable/receivable DECREASES. Mirrors manual_test_group_b_live
     (DN settles the Purchase bill; CN settles the Sales bill). Registered for
     cleanup. Returns nothing; raises on write failure."""
-    from backend.tally_bridge.writer import TallyWriter
+    from tally_bridge.writer import TallyWriter
     writer = TallyWriter(client=client, company=COMPANY)
     if doc_type == "debit_note":
         res = await writer.create_purchase_voucher_ledger(
@@ -477,7 +477,7 @@ async def test_live_db_write_voucher_type(doc_type, db_app, cleanup, tally_host,
     """Upload (mock Vision) → review card → approve (REAL Tally write) → assert
     DB card status / audit row / revision trail + Tally read-back; cleanup runs
     in the ``cleanup`` fixture teardown regardless of pass/fail."""
-    from backend.tally_bridge.client import TallyClient
+    from tally_bridge.client import TallyClient
 
     vtype, payable, party, expected_delta = _TYPE_META[doc_type]
     doc, ref = _vision_extraction(doc_type)

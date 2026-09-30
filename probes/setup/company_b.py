@@ -59,8 +59,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from agent.tally.reports import parse_bills
-from agent.tally.xml_utils import read_objects
+from tally_bridge.sync_reports import parse_bills
+from tally_bridge.xml_utils import read_objects
 from probes.companies import COMPANIES
 from probes.console import ProbeIO
 from probes.reads import (exploded_tb_rows, forex_base, parse_forex_amount, parse_vouchers, primary_group_rows,

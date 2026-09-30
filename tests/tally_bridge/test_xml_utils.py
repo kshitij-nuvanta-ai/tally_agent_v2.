@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agent.tally.xml_utils import detect_error, parse_company_list, read_objects, sanitize_xml
+from tally_bridge.xml_utils import detect_error, parse_company_list, read_objects, sanitize_xml
 
 SAMPLES = Path(__file__).resolve().parents[1] / "fixtures" / "tally_samples"
 
@@ -38,3 +38,26 @@ def test_read_objects_reads_fields_any_case_and_skips_bare_counters():
     )
     rows = read_objects(xml, "COMPANY", ["Name", "GUID", "AltVchId", "AltMstId"])
     assert rows == [{"Name": "Beta", "GUID": "g-1", "AltVchId": "12", "AltMstId": ""}]
+
+
+# --- one definition of each helper; the two company-list parsers differ on purpose -------------------------------------
+
+def test_the_helpers_are_defined_once():
+    from contract import transcode
+    from tally_bridge import response_parser, sync_reports, xml_utils
+
+    assert response_parser.sanitize_xml is xml_utils.sanitize_xml is transcode.sanitize_xml
+    assert response_parser.detect_error is xml_utils.detect_error is transcode.detect_error
+    assert response_parser._get_text is xml_utils.get_text is sync_reports.get_text
+    assert sync_reports._parse_overdue_days is response_parser._parse_overdue_days
+
+
+def test_the_apps_company_list_parser_keeps_reading_inline_text():
+    from tally_bridge import response_parser
+
+    xml = (SAMPLES / "company_list_live.xml").read_text(encoding="utf-8")
+    assert response_parser.parse_company_list(xml) == ["0", "NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
+    assert parse_company_list(xml) == ["NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
+    inline = "<ENVELOPE><COMPANY>Inline Co</COMPANY></ENVELOPE>"
+    assert response_parser.parse_company_list(inline) == ["Inline Co"]
+    assert parse_company_list(inline) == []

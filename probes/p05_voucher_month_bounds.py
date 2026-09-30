@@ -17,7 +17,7 @@ from calendar import monthrange
 from datetime import date
 from typing import Any
 
-from agent.tally.envelopes import COMPANY_PLACEHOLDER, wrap_report
+from tally_bridge.envelopes import COMPANY_PLACEHOLDER, wrap_report
 from probes.company_b_view import (B_BOOKS_FROM, B_BOOKS_TO, B_CURRENT_PERIOD, drift_message, fetch_window,
                                       loaded_licence, month_window)
 from probes.context import ProbeContext

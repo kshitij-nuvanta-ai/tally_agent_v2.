@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from agent.tally.envelopes import wrap_report
+from tally_bridge.envelopes import wrap_report
 from probes.actions import Action
 from probes.companies import THROWAWAY_DATE_TEXT, THROWAWAY_EXPENSE_LEDGER
 from probes.context import ProbeContext

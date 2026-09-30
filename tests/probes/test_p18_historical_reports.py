@@ -1,7 +1,7 @@
 from decimal import Decimal
 from pathlib import Path
 
-from agent.tally.reports import parse_ledger_list
+from tally_bridge.sync_reports import parse_ledger_list
 from probes import p18_historical_reports as p18
 from probes.core import Outcome
 from probes.runner import run_probe

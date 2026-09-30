@@ -1,11 +1,11 @@
 """
 Lightweight HTTP server mimicking TallyPrime's behavior.
-Delegates pattern-matching to backend.tally_bridge.mock_handler
+Delegates pattern-matching to tally_bridge.mock_handler
 for a single canonical implementation.
 """
 
 from aiohttp import web
-from backend.tally_bridge.mock_handler import mock_tally_request
+from tally_bridge.mock_handler import mock_tally_request
 
 
 async def handle_tally_request(request: web.Request) -> web.Response:

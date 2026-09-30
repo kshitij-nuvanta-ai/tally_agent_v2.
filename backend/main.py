@@ -18,8 +18,8 @@ from backend.api.models import ErrorResponse
 from backend.config import settings
 from backend.sync.clock import SystemClock
 from backend.sync.wiring import install_state, install_sync
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.exceptions import TallyConnectionError, TallyResponseError
+from tally_bridge.client import TallyClient
+from tally_bridge.exceptions import TallyConnectionError, TallyResponseError
 
 
 @asynccontextmanager

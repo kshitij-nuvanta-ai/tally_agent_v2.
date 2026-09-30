@@ -18,8 +18,8 @@ import asyncio
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
 
-from backend.tally_bridge.client import TallyClient
-from backend.tally_bridge.response_parser import parse_import_response
+from tally_bridge.client import TallyClient
+from tally_bridge.response_parser import parse_import_response
 
 COMPANY = "Bharat Traders Private Limited"
 TARGET_MID = "19"
