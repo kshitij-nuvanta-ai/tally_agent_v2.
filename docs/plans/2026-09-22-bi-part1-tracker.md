@@ -19,18 +19,18 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-30 — **S1 BUILT; `dev` merged in; post-merge suites running; next: push + PR to `dev`, then the S2 spec/plan**)
+## ▶ Resume here (updated 2026-09-30 — **S1 BUILT; `dev` merged in; all suites green; next: push + PR to `dev` (user to confirm), then the S2 spec/plan**)
 
 **Pre-PR checklist (2026-09-30):**
 
 | # | Item | Status | Proof |
 |---|---|---|---|
 | 1 | Merge latest `dev` into `feat/bi-s1-cloud`, fix `LESSONS.md` conflict | ✅ | merge `e515758` (local, **not pushed**). Conflict resolved by keeping both: our §15 rules 17–31, then dev's unnumbered "C33/C43 — date static variables" section (no renumbering needed); its "on the BI branch … rules 21–22" pointer now reads "rules 21–22 above". Merge brought backend-only changes (request_builder, vouchers, mock_handler, dedup, orchestrator) + tests; no frontend. |
-| 2 | Re-run suites after the merge | 🟡 | current app non-DB ✅ **1595 passed / 133 skipped** (DB-gated), `logs/app-nodb-after-dev-merge.log`; v2 no-DB ✅ **1511 passed / 437 skipped** (all "TEST_DATABASE_URL not set"; identical to pre-merge), `logs/v2-after-dev-merge-nodb.log`; v2 with DB → `logs/v2-after-dev-merge-db.log`, then current app DB suite → `logs/db-suite-run-after-dev-merge.log` — running |
+| 2 | Re-run suites after the merge | ✅ | current app non-DB ✅ **1595 passed / 133 skipped** (DB-gated), `logs/app-nodb-after-dev-merge.log`; v2 no-DB ✅ **1511 passed / 437 skipped** (all "TEST_DATABASE_URL not set"; identical to pre-merge), `logs/v2-after-dev-merge-nodb.log`; v2 with DB ✅ **1948 passed / 0 skipped** (identical to pre-merge), `logs/v2-after-dev-merge-db.log`; then current app DB suite ✅ **283 passed** (= 268 + dev's 15 new; matches dev's own review count), `logs/db-suite-run-after-dev-merge.log` — note it ran in 22 s vs ~14 min before, 0 skips/failures |
 | 3 | Push + PR `feat/bi-s1-cloud` → `dev` | ⬜ | after item 2 is green; user to choose PR-then-merge (recommended) vs direct merge |
 | 4a | `.env` `DATABASE_URL` :5434 → :5432 | ✅ | 2026-09-30; :5434 confirmed down (`pg_isready`); `.env` is gitignored, so no commit |
 | 4b | Drop `tallyagent_v2_review` + delete test user `s1-manual-test@example.com` | ⏸ kept | **user chose "keep both for now"** (2026-09-30) — TablePlus/DBeaver still connected. Note: dev-DB FKs are `NO ACTION`, so the user delete must remove child rows first (workspace, `agent_devices`, `sync_workspaces`, …) |
-| 4c | `CLAUDE.md` DB-suite count (still says 249) | ⬜ | waits for item 2's DB-suite count |
+| 4c | `CLAUDE.md` DB-suite count (was 249) | ✅ | now 283, dated 2026-09-30 (this commit) |
 | 5 | User review of the S1 decisions (D1–D32, §17.2, A1–A18, rulings) | ⏳ | waiting on the user |
 
 **Branch** `feat/bi-s1-cloud`, all S1 work committed; **pushed 2026-09-29** to `origin/feat/bi-s1-cloud` (user-approved; push only — **no PR, no merge**); the 2026-09-30 `dev` merge `e515758` is local only. **Counts before the `dev` merge:** v2 no-DB 1511 passed / 437 skipped (DB-unset
@@ -56,7 +56,7 @@ only); v2 with DB **1948 passed**; current app DB suite **268 passed** after v2 
   in the change log below (notably: §10.7 `anchor_wrong` widened; ack = received; confirmed resync overrides the
   alter_id rule within its scope; `unexpected_parse_error` stays quarantinable).
 
-**Next concrete steps:** (1) let the post-merge suites finish (checklist item 2) and fill in the counts; (2) update `CLAUDE.md`'s DB-suite count (4c); (3) push + PR `feat/bi-s1-cloud` → `dev` (item 3); (4) S2 spec (Windows agent) → plan.
+**Next concrete steps:** (1) user confirms how to land in `dev` — PR then merge (recommended) or direct merge; (2) push + PR `feat/bi-s1-cloud` → `dev` (item 3); (3) 4b whenever the user is done browsing; (4) S2 spec (Windows agent) → plan.
 
 ---
 
@@ -862,3 +862,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-29 | **Review aids (no code change):** scratch DB `tallyagent_v2_review` filled with a real first sync of FakeBooks company B through the S1 API (sync_state `ready`, parity `ok`; script kept in the session scratchpad, not the repo); DBeaver Community installed with saved connections; TablePlus reinstalled. **Manual test-case sheet** (35 cases) built for the user — kept outside the repo (the CSV briefly committed as `dc4b04b` was removed in `6408fe7`). Walking the user through the cases area by area. |
 | 2026-09-29 | **Pushed** `feat/bi-s1-cloud` to GitHub (`8e8dc8b..4d4f683`) at the user's request — push only, no PR, no merge. Noted for the PR: `origin/dev` is 4 commits ahead (typed-date fix); a trial merge conflicts only in `LESSONS.md`. |
 | 2026-09-30 | **Pre-PR work.** Merged `origin/dev` (4 commits, typed-date fix `b5b3a5e`) into `feat/bi-s1-cloud` → `e515758`, local only. `LESSONS.md` conflict resolved by keeping both sides (dev's C33/C43 section is unnumbered bullets, so no renumber was needed — the 2026-09-29 note expected one); its cross-reference now points at rules 21–22 above. `.env` :5434 → :5432 (gitignored). Current app non-DB suite 1595 passed / 133 skipped (`logs/app-nodb-after-dev-merge.log`); v2 no-DB, v2 DB and the current DB suite running. **User kept** the review DB + the throwaway test user (4b). Pre-PR checklist added to Resume here. |
+| 2026-09-30 | **Post-merge suites all green:** v2 no-DB 1511/437 skipped, v2 DB 1948, current app non-DB 1595/133 skipped, current app DB suite **283** (268 + dev's 15). **Contradicted expectation:** the DB suite took 22 s, not ~14 min — no skips or failures, count matches dev's review, cause not investigated. `CLAUDE.md` DB-suite count 249 → 283 (4c ✅). Checklist items 1, 2, 4a, 4c ✅; 3 awaits the user's go-ahead; 4b kept by the user. |

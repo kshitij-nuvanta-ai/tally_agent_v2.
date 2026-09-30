@@ -63,7 +63,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/tallyagent_test ANTHR
 # Superuser role is the macOS user `nuvanta-mac-3` (NO password); there is NO `postgres`
 # role, so the placeholder user:pass above does not apply here. Create the test DB once:
 #   createdb -h localhost tallyagent_test
-# Full DB suite (249 tests, ~14 min — integration + DB e2e + dedup), all green 2026-06-23:
+# Full DB suite (283 tests — integration + DB e2e + dedup), all green 2026-09-30 (22 s that run; earlier runs took ~14 min):
 TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/integration/ tests/e2e/test_db_smoke.py tests/e2e/test_db_data_entry.py tests/e2e/test_db_data_entry_group_b.py tests/unit/test_dedup.py -q 2>&1 | tee logs/db-suite-run.log
 
 # All backend tests (unit + integration + E2E mock)
