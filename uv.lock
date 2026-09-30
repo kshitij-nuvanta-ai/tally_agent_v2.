@@ -1631,27 +1631,25 @@ name = "tallyprime-agent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "alembic" },
     { name = "anthropic" },
+    { name = "asyncpg" },
+    { name = "bcrypt" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "passlib", extra = ["bcrypt"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyjwt" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
-db = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "bcrypt" },
-    { name = "passlib", extra = ["bcrypt"] },
-    { name = "pyjwt" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-]
 dev = [
     { name = "aiohttp" },
     { name = "jinja2" },
@@ -1672,10 +1670,10 @@ langfuse = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'dev'", specifier = ">=3.9" },
-    { name = "alembic", marker = "extra == 'db'", specifier = ">=1.13" },
+    { name = "alembic", specifier = ">=1.13" },
     { name = "anthropic", specifier = ">=0.84.0" },
-    { name = "asyncpg", marker = "extra == 'db'", specifier = ">=0.30" },
-    { name = "bcrypt", marker = "extra == 'db'", specifier = ">=4.0,<5.0" },
+    { name = "asyncpg", specifier = ">=0.30" },
+    { name = "bcrypt", specifier = ">=4.0,<5.0" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", marker = "extra == 'dev'" },
@@ -1683,11 +1681,11 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'langfuse'", specifier = ">=1.20" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'langfuse'", specifier = ">=0.61.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'langfuse'", specifier = ">=1.20" },
-    { name = "passlib", extras = ["bcrypt"], marker = "extra == 'db'", specifier = ">=1.7" },
+    { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7" },
     { name = "playwright", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pyjwt", marker = "extra == 'db'", specifier = ">=2.8" },
+    { name = "pyjwt", specifier = ">=2.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-aiohttp", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
@@ -1697,7 +1695,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "pyyaml", marker = "extra == 'dev'" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'db'", specifier = ">=2.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
 provides-extras = ["langfuse", "dev", "db"]
