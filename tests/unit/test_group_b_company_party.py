@@ -67,8 +67,8 @@ class TestBuildPartyVouchers:
 
     def test_carries_date_range(self):
         xml = build_party_vouchers("X", ["Sales"], "01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
     def test_company_optional(self):
         without = build_party_vouchers("X", ["Sales"], "01-04-2025", "31-03-2026")

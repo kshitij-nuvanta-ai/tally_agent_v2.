@@ -16,8 +16,8 @@ def _build_pnl_request(from_date: str, to_date: str) -> str:
 <TYPE>Data</TYPE><ID>Profit and Loss</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+<SVFROMDATE TYPE=\"Date\">{from_date}</SVFROMDATE>
+<SVTODATE TYPE=\"Date\">{to_date}</SVTODATE>
 </STATICVARIABLES></DESC></BODY></ENVELOPE>"""
 
 
@@ -28,8 +28,8 @@ def _build_tb_request(from_date: str, to_date: str) -> str:
 <TYPE>Data</TYPE><ID>Trial Balance</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+<SVFROMDATE TYPE=\"Date\">{from_date}</SVFROMDATE>
+<SVTODATE TYPE=\"Date\">{to_date}</SVTODATE>
 </STATICVARIABLES></DESC></BODY></ENVELOPE>"""
 
 
@@ -179,7 +179,8 @@ class TestDateAwarePnL:
 
 
 class TestVoucherCollectionsReturnFullData:
-    """Voucher collections return ALL data regardless of dates — Python filters."""
+    """No / untyped dates → the current period (FY 2025-26 = the whole current-FY
+    fixture), mirroring live C33. Typed windows: see test_mock_c33_date_vars.py."""
 
     def test_sales_register_returns_all_vouchers(self):
         xml = '<ENVELOPE><HEADER><TYPE>Collection</TYPE></HEADER><BODY>SalesVchs</BODY></ENVELOPE>'

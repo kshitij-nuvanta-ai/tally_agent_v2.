@@ -254,6 +254,35 @@ async def test_successful_write_updates_persisted_message_to_written(db_session,
     assert ves[0].status == "written"
 
 
+@pytest.mark.asyncio
+async def test_write_time_dedup_recheck_anchors_on_entry_date(db_session, ctx):
+    """C33 (typed date vars): the write-time Tally duplicate re-check must pass
+    the entry's own date as the party-voucher window anchor (was a hard-coded
+    FY 2025-26 window)."""
+    user, ws, conv = ctx
+    entry = {
+        "id": "e1", "voucher_type": "Purchase", "date": "20260315",
+        "party_ledger": "Croma Electronics", "debit_ledger": "Purchase Accounts",
+        "credit_ledger": "Croma Electronics", "amount": 1000.0,
+        "narration": "test", "reference": "PINV-CRM-009",
+    }
+    req = VoucherActionRequest(
+        action="approve", entry=entry, workspace_id=str(ws.id),
+        session_id=str(conv.id), conversation_id=str(conv.id),
+    )
+    fake = AsyncMock(return_value=None)
+    with patch("backend.services.dedup.find_business_key_duplicate", new=fake), patch(
+        "backend.tally_bridge.writer.TallyWriter.create_purchase_voucher_ledger",
+        new=AsyncMock(return_value=_SUCCESS),
+    ):
+        await voucher_action(
+            req, client=TallyClient("localhost", 9000),
+            user_id=str(user.id), db=db_session,
+        )
+    fake.assert_awaited_once()
+    assert fake.await_args.kwargs["doc_date"] == "20260315"
+
+
 # ----- Change 2 (Defect 2): upload-first conversation gets a title -----
 
 @pytest.mark.asyncio

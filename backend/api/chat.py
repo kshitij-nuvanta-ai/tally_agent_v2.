@@ -633,6 +633,7 @@ async def voucher_action(
                 party_ledger=entry.get("party_ledger") or entry.get("vendor_name"),
                 invoice_ref=entry.get("reference"),
                 company=company,
+                doc_date=entry.get("date"),
             )
             if dup is not None:
                 reason = dup.get("reason") or "duplicate"

@@ -624,3 +624,55 @@ async def test_subgroup_selection_falls_back_when_groups_read_empty():
     entry = _entry(result)
     assert entry["is_new_ledger"] is False
     assert entry["party_ledger"] == "Croma Electronics"
+
+
+# --- Party-voucher window anchor (C33 typed dates, 2026-09-24) ---------------
+# With typed date vars Tally honours the lookup window literally, so the write
+# flow must anchor it on the DOCUMENT's date (not a hard-coded FY 2025-26).
+
+async def _upload_capturing(fixture_name, *, db=None, workspace_id=None):
+    orch = Orchestrator()
+    session = SessionContext(session_id="s1")
+    fake_pv = AsyncMock(return_value=[])
+    fake_find = AsyncMock(return_value=None)
+    with _temp_file() as path, patch(
+        "backend.agents.orchestrator.anthropic_client.messages.create",
+        new=AsyncMock(return_value=vision_docs.vision_message(fixture_name)),
+    ), patch(
+        "backend.tally_bridge.response_parser.parse_ledger_list",
+        return_value=_LEDGERS,
+    ), patch(
+        "backend.services.stock_resolver.list_stock_items",
+        new=AsyncMock(return_value=_STOCK_ITEMS),
+    ), patch(
+        "backend.tally_bridge.queries.vouchers.get_party_vouchers", new=fake_pv,
+    ), patch(
+        "backend.services.dedup.find_duplicate", new=fake_find,
+    ):
+        await orch.process_file_upload(
+            file_path=path, filename="doc.jpg", mime_type="image/jpeg",
+            user_message="entry", client=_FakeClient(), session=session,
+            file_id="file-1", db=db, workspace_id=workspace_id,
+        )
+    return fake_pv, fake_find
+
+
+@pytest.mark.asyncio
+async def test_debit_note_party_lookup_anchored_on_document_date():
+    fake_pv, _ = await _upload_capturing("debit_note_return_inr")
+    fake_pv.assert_awaited_once()
+    assert fake_pv.await_args.kwargs["anchor_date"] == "2026-03-05"
+
+
+@pytest.mark.asyncio
+async def test_credit_note_party_lookup_anchored_on_document_date():
+    fake_pv, _ = await _upload_capturing("credit_note_return_inr")
+    fake_pv.assert_awaited_once()
+    assert fake_pv.await_args.kwargs["anchor_date"] == "2026-03-15"
+
+
+@pytest.mark.asyncio
+async def test_dedup_receives_document_date():
+    _, fake_find = await _upload_capturing("purchase_office_inr", db=object(), workspace_id="ws-1")
+    fake_find.assert_awaited_once()
+    assert fake_find.await_args.kwargs["doc_date"] == "2026-02-10"

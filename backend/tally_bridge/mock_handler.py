@@ -5,8 +5,12 @@ For TYPE=Data reports (P&L, TB), parses SVTODATE from the request
 and computes cumulative figures from voucher data — matching real
 Tally's behavior of returning cumulative from FY start.
 
-For TYPE=Collection (vouchers), returns the full fixture dataset.
-Python-side date filtering handles range selection.
+For TYPE=Collection (vouchers) the mock models live C33 behaviour
+(2026-09-24): Tally honours SVFROMDATE/SVTODATE on a Voucher collection only
+when the variables are TYPED (``TYPE="Date"``). Typed → vouchers inside the
+window (current-FY fixture + ``vouchers_prior_fy.xml``); untyped or absent →
+the company's CURRENT period (FY 2025-26, the whole current-FY fixture),
+regardless of the dates asked. Python-side date filtering still applies.
 """
 import re
 import xml.etree.ElementTree as ET
@@ -48,6 +52,14 @@ VOUCHER_FIXTURES: dict[str, str] = {
     "LedgerVchs": "day_book.xml",
 }
 
+# Earlier-FY vouchers (a multi-year company's books) — only reachable with
+# TYPED date variables, exactly like live Tally (C33).
+PRIOR_FY_VOUCHER_FIXTURE = "vouchers_prior_fy.xml"
+
+# The mock company's current period (Tally F2 / Alt+F2 period): what live
+# Tally answers a voucher collection with when the date vars are untyped.
+MOCK_CURRENT_PERIOD = ("20250401", "20260331")
+
 # Date-aware reports — computed from voucher data
 DATE_AWARE_REPORTS = {"Profit and Loss"}
 
@@ -69,13 +81,62 @@ def _load_fixture(filename: str) -> str:
     return path.read_text()
 
 
+_DATE_VAR_RE = r"<{tag}(\s+TYPE=\"Date\")?\s*>(\d{{2}})-(\d{{2}})-(\d{{4}})</{tag}>"
+
+
+def _extract_date_var(xml_body: str, tag: str) -> tuple[str | None, bool]:
+    """Extract a DD-MM-YYYY date static variable (typed or untyped).
+
+    Returns ``(YYYYMMDD or None, typed)`` where ``typed`` is True when the
+    variable carries ``TYPE="Date"``.
+    """
+    match = re.search(_DATE_VAR_RE.format(tag=tag), xml_body)
+    if not match:
+        return None, False
+    typed, dd, mm, yyyy = match.groups()
+    return f"{yyyy}{mm}{dd}", typed is not None
+
+
 def _extract_svtodate(xml_body: str) -> str | None:
-    """Extract SVTODATE value from request XML. Returns YYYYMMDD or None."""
-    match = re.search(r"<SVTODATE>(\d{2})-(\d{2})-(\d{4})</SVTODATE>", xml_body)
-    if match:
-        dd, mm, yyyy = match.groups()
-        return f"{yyyy}{mm}{dd}"
-    return None
+    """Extract SVTODATE value (typed or untyped) from request XML. Returns
+    YYYYMMDD or None. Reports honour both forms on live Tally."""
+    return _extract_date_var(xml_body, "SVTODATE")[0]
+
+
+def _collection_window(xml_body: str) -> tuple[str, str]:
+    """The (from, to) YYYYMMDD window live Tally would apply to a Voucher
+    collection: the requested window only when BOTH vars are typed (C33),
+    otherwise the company's current period."""
+    frm, frm_typed = _extract_date_var(xml_body, "SVFROMDATE")
+    to, to_typed = _extract_date_var(xml_body, "SVTODATE")
+    if frm and to and frm_typed and to_typed:
+        return frm, to
+    return MOCK_CURRENT_PERIOD
+
+
+_VOUCHER_RE = re.compile(r"<VOUCHER[ >].*?</VOUCHER>", re.S)
+_VOUCHER_DATE_RE = re.compile(r"<DATE[^>]*>(\d{8})</DATE>")
+
+
+def _voucher_collection_response(fixture_file: str, collection: str, xml_body: str) -> str:
+    """Current-FY fixture ∪ prior-FY vouchers, restricted to the window live
+    Tally would apply (see ``_collection_window``)."""
+    frm, to = _collection_window(xml_body)
+    if (frm, to) == MOCK_CURRENT_PERIOD:
+        # Untyped / current period → the current-FY fixture, byte-for-byte.
+        return _load_fixture(fixture_file)
+    current = _load_fixture(fixture_file)
+    prior_vouchers = _VOUCHER_RE.findall(_load_fixture(PRIOR_FY_VOUCHER_FIXTURE))
+    wanted_type = {"SalesVchs": "Sales", "PurchaseVchs": "Purchase"}.get(collection)
+    if wanted_type:
+        prior_vouchers = [v for v in prior_vouchers if f'VCHTYPE="{wanted_type}"' in v]
+    kept = []
+    for v in _VOUCHER_RE.findall(current) + prior_vouchers:
+        m = _VOUCHER_DATE_RE.search(v)
+        if m is None or frm <= m.group(1) <= to:
+            kept.append(v)
+    body = "".join(kept)
+    return f"<ENVELOPE>\n<BODY>\n<DATA>\n<COLLECTION>\n{body}\n</COLLECTION>\n</DATA>\n</BODY>\n</ENVELOPE>"
 
 
 def _generate_cumulative_pnl(up_to_yyyymmdd: str | None) -> str:
@@ -134,6 +195,10 @@ _MOCK_PARTY_VOUCHERS: dict[str, list[dict]] = {
          "reference": "INV-APX-001", "amount": "118000.00"},
         {"number": "7", "date": "20250812", "type": "Sales",
          "reference": "INV-APX-002", "amount": "88500.00"},
+        # FY 2024-25 invoice (mirrors S2425-004 in vouchers_prior_fy.xml) —
+        # only visible to a TYPED window reaching into the prior FY (C33).
+        {"number": "S2425-004", "date": "20240515", "type": "Sales",
+         "reference": "INV-APX-2425-004", "amount": "88000.00"},
     ],
     "Croma Electronics": [
         {"number": "3", "date": "20250610", "type": "Purchase",
@@ -148,13 +213,15 @@ def _handle_party_vouchers(xml_body: str) -> str:
     Matches the verified probe-E8 envelope (``build_party_vouchers``): a TDL
     Collection NAMEd ``PartyVouchers`` constrained by ``CHILDOF $$VchType<Type>``
     and a ``$PartyLedgerName = "<party>"`` FILTER. Unknown parties yield an
-    empty COLLECTION.
+    empty COLLECTION. Dates follow C33 (see ``_collection_window``).
     """
     party_match = re.search(r'\$PartyLedgerName = "(.*?)"', xml_body)
     party = party_match.group(1) if party_match else ""
     requested_types = {m for m in re.findall(r"<CHILDOF>\$\$VchType(.*?)</CHILDOF>", xml_body)}
 
     rows = _MOCK_PARTY_VOUCHERS.get(party, [])
+    frm, to = _collection_window(xml_body)
+    rows = [r for r in rows if frm <= r["date"] <= to]
     if requested_types:
         rows = [r for r in rows if r["type"] in requested_types]
 
@@ -196,9 +263,9 @@ def mock_tally_request(xml_body: str) -> str:
         if report_name in xml_body:
             return _load_fixture(fixture_file)
 
-    # Voucher collections
+    # Voucher collections (C33-aware window, see _collection_window)
     for report_name, fixture_file in VOUCHER_FIXTURES.items():
         if report_name in xml_body:
-            return _load_fixture(fixture_file)
+            return _voucher_collection_response(fixture_file, report_name, xml_body)
 
     return _ERROR_RESPONSE

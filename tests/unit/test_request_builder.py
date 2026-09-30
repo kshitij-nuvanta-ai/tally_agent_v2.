@@ -80,8 +80,8 @@ class TestMasterBuilders:
 class TestReportBuilders:
     def test_trial_balance_dates(self):
         xml = build_trial_balance("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
     def test_trial_balance_export_format(self):
         xml = build_trial_balance("01-04-2025", "31-03-2026")
@@ -105,12 +105,12 @@ class TestReportBuilders:
 
     def test_profit_and_loss_dates(self):
         xml = build_profit_and_loss("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
 
     def test_balance_sheet_date(self):
         xml = build_balance_sheet("31-03-2026")
         assert "Balance Sheet" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
     def test_bills_receivable(self):
         xml = build_bills_receivable("31-03-2026")
@@ -132,8 +132,8 @@ class TestReportBuilders:
 class TestVoucherBuilders:
     def test_day_book_dates(self):
         xml = build_day_book("01-04-2025", "30-04-2025")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>30-04-2025</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">30-04-2025</SVTODATE>" in xml
 
     def test_day_book_collection_type(self):
         xml = build_day_book("01-04-2025", "30-04-2025")
@@ -155,12 +155,12 @@ class TestVoucherBuilders:
 
     def test_ledger_vouchers_dates(self):
         xml = build_ledger_vouchers("Cash", "01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
 
     def test_sales_register(self):
         xml = build_sales_register("01-04-2025", "31-03-2026")
         assert "Sales" in xml
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
 
     def test_purchase_register(self):
         xml = build_purchase_register("01-04-2025", "31-03-2026")
@@ -226,8 +226,8 @@ class TestNoInDateRange:
 
     def test_sales_register_has_svfromdate(self):
         xml = build_sales_register("01-07-2025", "31-07-2025")
-        assert "<SVFROMDATE>01-07-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-07-2025</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-07-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-07-2025</SVTODATE>" in xml
 
     def test_day_book_no_type_no_vchfilter(self):
         xml = build_day_book("01-04-2025", "30-04-2025")
@@ -244,8 +244,8 @@ class TestNoInDateRange:
 
     def test_ledger_vouchers_has_svdates(self):
         xml = build_ledger_vouchers("Cash", "01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
 
 class TestFullFYDateRange:
@@ -253,41 +253,125 @@ class TestFullFYDateRange:
 
     def test_trial_balance_full_fy(self):
         xml = build_trial_balance("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
     def test_profit_and_loss_full_fy(self):
         xml = build_profit_and_loss("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
     def test_sales_register_full_fy(self):
         xml = build_sales_register("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
         assert "InDateRange" not in xml
 
     def test_purchase_register_full_fy(self):
         xml = build_purchase_register("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
         assert "InDateRange" not in xml
 
     def test_day_book_full_fy(self):
         xml = build_day_book("01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
         assert "InDateRange" not in xml
 
     def test_ledger_vouchers_full_fy(self):
         xml = build_ledger_vouchers("Cash", "01-04-2025", "31-03-2026")
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
         assert "InDateRange" not in xml
 
     def test_balance_sheet_single_date(self):
         xml = build_balance_sheet("31-03-2026")
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml
 
 
 def test_build_cash_flow_has_report_id():
     from backend.tally_bridge.request_builder import build_cash_flow
     xml = build_cash_flow("01-04-2025", "31-03-2026")
     assert "Cash Flow" in xml
-    assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml
+    assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml
+
+
+# ---------------------------------------------------------------------------
+# C33 (2026-09-24, live-verified): Tally honours SVFROMDATE/SVTODATE on a
+# Voucher COLLECTION export only when the variable carries TYPE="Date";
+# untyped, it silently answers for the company's CURRENT period (every past-FY
+# day book / register / ledger read came back as current-period data, which
+# the Python date filter turned into an empty result). Reports honour both
+# forms byte-identically, so every dated builder uses the typed form.
+# Evidence: docs/backend-date-vars-audit-2026-09-24.md (BI branch).
+# ---------------------------------------------------------------------------
+
+import xml.etree.ElementTree as _ET
+
+import pytest as _pytest
+
+from backend.tally_bridge.request_builder import build_party_vouchers
+
+_PAST_FROM, _PAST_TO = "01-04-2022", "31-03-2023"
+
+_DATED_BUILDERS = {
+    # voucher collections — C33 applies (typed is REQUIRED)
+    "day_book": lambda co=None: build_day_book(_PAST_FROM, _PAST_TO, company=co),
+    "day_book_payment": lambda co=None: build_day_book(_PAST_FROM, _PAST_TO, "Payment", co),
+    "sales_register": lambda co=None: build_sales_register(_PAST_FROM, _PAST_TO, co),
+    "purchase_register": lambda co=None: build_purchase_register(_PAST_FROM, _PAST_TO, co),
+    "ledger_vouchers": lambda co=None: build_ledger_vouchers("Apex Technologies Pvt Ltd", _PAST_FROM, _PAST_TO, co),
+    "party_vouchers": lambda co=None: build_party_vouchers("Apex Technologies Pvt Ltd", ["Sales"], _PAST_FROM, _PAST_TO, co),
+    # reports — typed is equally valid (byte-identical live); one convention
+    "trial_balance": lambda co=None: build_trial_balance(_PAST_FROM, _PAST_TO, co),
+    "profit_and_loss": lambda co=None: build_profit_and_loss(_PAST_FROM, _PAST_TO, co),
+    "balance_sheet": lambda co=None: build_balance_sheet(_PAST_TO, co),
+    "bills_receivable": lambda co=None: build_bills_receivable(_PAST_TO, co),
+    "bills_payable": lambda co=None: build_bills_payable(_PAST_TO, co),
+    "stock_summary": lambda co=None: build_stock_summary(_PAST_TO, None, co),
+    "cash_flow": lambda co=None: build_cash_flow(_PAST_FROM, _PAST_TO, co),
+}
+
+
+class TestTypedDateStaticVariables:
+    @_pytest.mark.parametrize("name", sorted(_DATED_BUILDERS))
+    def test_every_date_var_is_typed(self, name):
+        root = _ET.fromstring(_DATED_BUILDERS[name]())
+        date_vars = [e for e in root.iter() if e.tag in ("SVFROMDATE", "SVTODATE")]
+        assert {e.tag for e in date_vars} == {"SVFROMDATE", "SVTODATE"}
+        for e in date_vars:
+            assert e.get("TYPE") == "Date", f"{name}: <{e.tag}> must carry TYPE=\"Date\" (C33)"
+
+    @_pytest.mark.parametrize("name", sorted(_DATED_BUILDERS))
+    def test_no_untyped_date_tag_anywhere(self, name):
+        xml = _DATED_BUILDERS[name]()
+        assert "<SVFROMDATE>" not in xml
+        assert "<SVTODATE>" not in xml
+
+    def test_past_window_values_are_carried_verbatim(self):
+        xml = build_sales_register(_PAST_FROM, _PAST_TO)
+        assert f'<SVFROMDATE TYPE="Date">{_PAST_FROM}</SVFROMDATE>' in xml
+        assert f'<SVTODATE TYPE="Date">{_PAST_TO}</SVTODATE>' in xml
+
+    def test_as_on_reports_send_same_typed_date_for_from_and_to(self):
+        xml = build_balance_sheet("31-03-2023")
+        assert '<SVFROMDATE TYPE="Date">31-03-2023</SVFROMDATE>' in xml
+        assert '<SVTODATE TYPE="Date">31-03-2023</SVTODATE>' in xml
+
+
+class TestCompanyNameEscaping:
+    """Audit side finding: an unescaped '&' in the company name made Tally answer
+    "Unknown Request, cannot be processed" for every report/voucher read."""
+
+    COMPANY = "Sharma & Sons' Probe Traders"
+
+    @_pytest.mark.parametrize("name", sorted(_DATED_BUILDERS))
+    def test_company_with_ampersand_is_well_formed_and_round_trips(self, name):
+        xml = _DATED_BUILDERS[name](self.COMPANY)
+        assert "Sharma & Sons" not in xml  # raw '&' must never reach Tally
+        root = _ET.fromstring(xml)  # well-formed
+        companies = [e.text for e in root.iter("SVCurrentCompany")]
+        assert companies == [self.COMPANY]
+
+    @_pytest.mark.parametrize("name", sorted(_DATED_BUILDERS))
+    def test_company_with_angle_brackets_is_escaped(self, name):
+        xml = _DATED_BUILDERS[name]("A <B> Co")
+        root = _ET.fromstring(xml)
+        assert [e.text for e in root.iter("SVCurrentCompany")] == ["A <B> Co"]

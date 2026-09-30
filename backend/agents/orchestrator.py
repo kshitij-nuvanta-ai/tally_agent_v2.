@@ -346,6 +346,7 @@ class Orchestrator(BaseAgent):
             if doc_type == "debit_note":
                 party_vouchers_list = await get_party_vouchers(
                     client, party_name, ["Purchase"],
+                    anchor_date=extracted.date,
                 )
                 voucher = build_debit_note_data(
                     doc=extracted, party_ledger=party_name,
@@ -372,6 +373,7 @@ class Orchestrator(BaseAgent):
             if doc_type == "credit_note":
                 party_vouchers_list = await get_party_vouchers(
                     client, party_name, ["Sales"],
+                    anchor_date=extracted.date,
                 )
                 voucher = build_credit_note_data(
                     doc=extracted, party_ledger=party_name,
@@ -454,6 +456,7 @@ class Orchestrator(BaseAgent):
                 invoice_ref=reference,
                 company=getattr(session, "company", None),
                 exclude_file_id=file_id,
+                doc_date=extracted.date,
             )
         if not reference:
             warnings = warnings + [

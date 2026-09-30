@@ -7,6 +7,32 @@ Tally date format: DD-MM-YYYY
 from xml.sax.saxutils import escape as xml_escape
 
 
+def _date_vars(from_date: str, to_date: str) -> str:
+    """Render the SVFROMDATE/SVTODATE static variables, TYPED as Date.
+
+    C33 (live-verified 2026-09-24): on a Voucher COLLECTION export Tally honours
+    the date window only when the variables carry ``TYPE="Date"``; untyped, it
+    silently answers for the company's CURRENT period (past-FY reads returned
+    current-period vouchers, which the Python date filter then emptied).
+    Reports (TYPE=Data) honour both forms byte-identically, so every dated
+    request uses this one typed form. Dates are DD-MM-YYYY.
+
+    C43 (Educational TallyPrime only): a date whose day is not 1/2/31 is ignored
+    and falls back to the current period's end — see LESSONS.md
+    "C33/C43 — date static variables (2026-09-24)". Not clamped here.
+    """
+    return (
+        f'<SVFROMDATE TYPE="Date">{xml_escape(from_date)}</SVFROMDATE>\n'
+        f'<SVTODATE TYPE="Date">{xml_escape(to_date)}</SVTODATE>'
+    )
+
+
+def _company_var(company: str | None) -> str:
+    """SVCurrentCompany static variable, XML-escaped ('&' in a company name
+    otherwise makes Tally answer "Unknown Request, cannot be processed")."""
+    return f"<SVCurrentCompany>{xml_escape(company)}</SVCurrentCompany>" if company else ""
+
+
 def _wrap_envelope(header_id: str, body_desc: str) -> str:
     return f"""<ENVELOPE>
 <HEADER>
@@ -28,7 +54,7 @@ def _wrap_envelope(header_id: str, body_desc: str) -> str:
 
 def _wrap_collection_envelope(collection_name: str, object_type: str, native_methods: list[str], company: str | None = None) -> str:
     methods_xml = "\n".join(f"<NATIVEMETHOD>{m}</NATIVEMETHOD>" for m in native_methods)
-    company_var = f"<SVCurrentCompany>{xml_escape(company)}</SVCurrentCompany>" if company else ""
+    company_var = _company_var(company)
     return f"""<ENVELOPE>
 <HEADER>
 <VERSION>1</VERSION>
@@ -66,11 +92,12 @@ def _voucher_native_methods() -> str:
 
 def _wrap_voucher_collection(collection_name: str, from_date: str, to_date: str, voucher_type_filter: str | None = None, company: str | None = None) -> str:
     """Build a TDL Collection query for vouchers. Returns voucher objects with specific fields only."""
-    company_var = f"<SVCurrentCompany>{company}</SVCurrentCompany>" if company else ""
+    company_var = _company_var(company)
     filters = []
     systems = []
-    # NOTE: SVFROMDATE/SVTODATE alone may not filter TYPE=Collection reliably.
-    # Python-side _filter_vouchers_by_date() in response_parser.py is the safety net.
+    # Dates are TYPED (see _date_vars / C33) — untyped vars are ignored on a
+    # Voucher collection. Python-side _filter_vouchers_by_date() in
+    # response_parser.py stays as the safety net (e.g. C43 on Educational).
     if voucher_type_filter:
         voucher_type_filter = voucher_type_filter.title()
         safe_type = xml_escape(voucher_type_filter, {'"': "&quot;"})
@@ -89,8 +116,7 @@ def _wrap_voucher_collection(collection_name: str, from_date: str, to_date: str,
 <DESC>
 <STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+{_date_vars(from_date, to_date)}
 {company_var}
 </STATICVARIABLES>
 <TDL>
@@ -109,7 +135,7 @@ def _wrap_voucher_collection(collection_name: str, from_date: str, to_date: str,
 
 
 def _wrap_report_envelope(report_id: str, from_date: str, to_date: str, company: str | None = None, extra_vars: str = "") -> str:
-    company_var = f"<SVCurrentCompany>{company}</SVCurrentCompany>" if company else ""
+    company_var = _company_var(company)
     return f"""<ENVELOPE>
 <HEADER>
 <VERSION>1</VERSION>
@@ -121,8 +147,7 @@ def _wrap_report_envelope(report_id: str, from_date: str, to_date: str, company:
 <DESC>
 <STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+{_date_vars(from_date, to_date)}
 {company_var}
 {extra_vars}
 </STATICVARIABLES>
@@ -176,7 +201,7 @@ def build_party_vouchers(
     When multiple voucher_types are given, the CHILDOF lines are emitted once
     per type (Tally treats repeated CHILDOF as a union).
     """
-    company_var = f"<SVCurrentCompany>{xml_escape(company)}</SVCurrentCompany>" if company else ""
+    company_var = _company_var(company)
     safe_party = xml_escape(party, {'"': "&quot;"})
     childof_xml = "\n".join(
         f"<CHILDOF>$$VchType{xml_escape(vt.title())}</CHILDOF>" for vt in voucher_types
@@ -192,8 +217,7 @@ def build_party_vouchers(
 <DESC>
 <STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+{_date_vars(from_date, to_date)}
 {company_var}
 </STATICVARIABLES>
 <TDL>
@@ -267,7 +291,7 @@ def build_ledger_vouchers(ledger_name: str, from_date: str, to_date: str, compan
     the latter cannot handle ledger names containing commas.
     Python-side _filter_vouchers_by_date() in response_parser.py handles date filtering.
     """
-    company_var = f"<SVCurrentCompany>{company}</SVCurrentCompany>" if company else ""
+    company_var = _company_var(company)
     safe_name = xml_escape(ledger_name, {'"': "&quot;"})
     return f"""<ENVELOPE>
 <HEADER>
@@ -280,8 +304,7 @@ def build_ledger_vouchers(ledger_name: str, from_date: str, to_date: str, compan
 <DESC>
 <STATICVARIABLES>
 <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+{_date_vars(from_date, to_date)}
 {company_var}
 </STATICVARIABLES>
 <TDL>

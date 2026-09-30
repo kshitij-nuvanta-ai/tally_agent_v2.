@@ -37,8 +37,8 @@ def _pl_request(to_date: str) -> str:
     return (
         "<ENVELOPE><BODY><REPORTREQUEST>"
         "<STATICVARIABLES>"
-        "<SVFROMDATE>01-04-2025</SVFROMDATE>"
-        f"<SVTODATE>{to_date}</SVTODATE>"
+        "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>"
+        f"<SVTODATE TYPE=\"Date\">{to_date}</SVTODATE>"
         "</STATICVARIABLES>"
         "<TDLMESSAGE><TDL><TDLFILE>Profit and Loss</TDLFILE></TDLMESSAGE>"
         "</REPORTREQUEST></BODY></ENVELOPE>"
@@ -49,8 +49,8 @@ def _bs_request() -> str:
     return (
         "<ENVELOPE><BODY><REPORTREQUEST>"
         "<STATICVARIABLES>"
-        "<SVFROMDATE>01-04-2025</SVFROMDATE>"
-        "<SVTODATE>31-03-2026</SVTODATE>"
+        "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>"
+        "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>"
         "</STATICVARIABLES>"
         "<TDL><TDLMESSAGE><REPORT NAME=\"Balance Sheet\"></REPORT></TDLMESSAGE></TDL>"
         "</REPORTREQUEST></BODY></ENVELOPE>"

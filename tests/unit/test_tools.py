@@ -516,8 +516,8 @@ class TestCrashScenarioEndToEnd:
         })
 
         xml_sent = client.post_xml.call_args[0][0]
-        assert "<SVFROMDATE>01-04-2025</SVFROMDATE>" in xml_sent
-        assert "<SVTODATE>31-03-2026</SVTODATE>" in xml_sent
+        assert "<SVFROMDATE TYPE=\"Date\">01-04-2025</SVFROMDATE>" in xml_sent
+        assert "<SVTODATE TYPE=\"Date\">31-03-2026</SVTODATE>" in xml_sent
         assert "2025-04-01" not in xml_sent
         assert "2026-03-31" not in xml_sent
 

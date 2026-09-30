@@ -54,6 +54,7 @@ async def find_business_key_duplicate(
     party_ledger: str | None,
     invoice_ref: str | None,
     company: str | None = None,
+    doc_date: str | None = None,
 ) -> dict | None:
     """B2 business-key (party ledger + supplier invoice no) duplicate check.
 
@@ -64,6 +65,11 @@ async def find_business_key_duplicate(
 
     No invoice ref → no business-key block (consistent with upload-time
     B2-skip). All matching is normalized (strip + casefold).
+
+    ``doc_date`` (the document's own date, any of YYYY-MM-DD / YYYYMMDD /
+    DD-MM-YYYY) anchors the Tally lookup window — see
+    ``queries.vouchers.party_voucher_window`` (C33: typed date vars make the
+    window binding, so it must follow the document, not a fixed FY).
     """
     if not invoice_ref or not _norm(invoice_ref):
         return None
@@ -93,6 +99,7 @@ async def find_business_key_duplicate(
         try:
             vouchers = await get_party_vouchers(
                 client, party_ledger, _PARTY_VOUCHER_TYPES, company=company,
+                anchor_date=doc_date,
             )
         except Exception as exc:  # noqa: BLE001 — never crash on Tally errors
             logger.warning("Tally dedup query failed for %r: %s", party_ledger, exc)
@@ -118,6 +125,7 @@ async def find_duplicate(
     invoice_ref: str | None,
     company: str | None = None,
     exclude_file_id: str | None = None,
+    doc_date: str | None = None,
 ) -> dict | None:
     """Return a ``{"voucher_no", "date", "reason"}`` descriptor if the upload is a
     duplicate, else None.
@@ -155,4 +163,5 @@ async def find_duplicate(
         party_ledger=party_ledger,
         invoice_ref=invoice_ref,
         company=company,
+        doc_date=doc_date,
     )
