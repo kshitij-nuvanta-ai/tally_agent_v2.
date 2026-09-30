@@ -1,6 +1,7 @@
-"""Auth dependencies for v2 cloud routes (S1 spec §8.1, §9.4).
+"""Auth dependencies for the sync routes (S1 spec §8.1, §9.4).
 
-``web_user`` decodes the current app's own web JWT (A12, same secret). ``any_device`` and ``active_device``
+``web_user`` checks the web access JWT with the app's one token check (``backend.utils.auth.decode_access_token``,
+M7) and answers in the sync error shape. ``any_device`` and ``active_device``
 implement the §8.1 device-check ladder: ``any_device`` covers checks 1-2 (token valid, device not revoked) plus
 the per-device rate limit (check 6) for device endpoints that don't need a bound workspace (login/refresh/logout,
 ``GET /api/agent/workspaces``). ``active_device`` covers the full 1-6 ladder in order for a path that names a
@@ -16,9 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.utils.device_tokens import decode_access
-from backend.sync.passwords import verify_password
-from backend.sync.web_jwt import decode_web_access
-from backend.sync.db import session_dep
+from backend.utils.auth import AccessTokenError, decode_access_token, verify_password
+from backend.db.engine import get_db
 from backend.sync.errors import ApiError
 from backend.db.sync_models import AgentDevice, SyncWorkspace
 
@@ -51,7 +51,10 @@ async def check_user_password(request: Request, session: AsyncSession, user_id: 
 async def web_user(request: Request) -> uuid.UUID:
     """Web JWT -> user id (§9.4). Raises ``ApiError(401, "token_invalid"/"token_expired")``."""
     token = _bearer_token(request)
-    user_id = decode_web_access(token, request.app.state.settings.JWT_SECRET or "")
+    try:
+        user_id = decode_access_token(token, request.app.state.settings.JWT_SECRET or "")
+    except AccessTokenError as exc:
+        raise ApiError(401, "token_expired" if exc.reason == "expired" else "token_invalid") from exc
     return uuid.UUID(user_id)
 
 
@@ -70,7 +73,7 @@ async def _decode_and_load_device(request: Request, session: AsyncSession) -> Ag
     return device
 
 
-async def any_device(request: Request, session: AsyncSession = Depends(session_dep)) -> AgentDevice:
+async def any_device(request: Request, session: AsyncSession = Depends(get_db)) -> AgentDevice:
     """§8.1 checks 1-2 + the per-device rate limit — used by device endpoints with no ``{ws}`` in the path."""
     device = await _decode_and_load_device(request, session)
     request.app.state.device_rate_limiter.hit(str(device.id))
@@ -78,7 +81,7 @@ async def any_device(request: Request, session: AsyncSession = Depends(session_d
 
 
 async def active_device(
-    ws: uuid.UUID, request: Request, session: AsyncSession = Depends(session_dep)
+    ws: uuid.UUID, request: Request, session: AsyncSession = Depends(get_db)
 ) -> tuple[AgentDevice, SyncWorkspace]:
     """§8.1 checks 1-6 in order, for a path that names a workspace."""
     device = await _decode_and_load_device(request, session)  # 1-2

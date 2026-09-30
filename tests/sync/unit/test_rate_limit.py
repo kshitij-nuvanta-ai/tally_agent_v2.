@@ -72,3 +72,42 @@ def test_sweep_never_drops_a_key_still_inside_the_window():
     lim.hit("still-active")  # before-call size 1, not > threshold(1) — no sweep yet; after: size 2
     lim.hit("c")             # before-call size 2 > threshold(1) — sweep runs, but nothing is stale yet
     assert {"a", "still-active", "c"} <= set(lim._hits)  # all hit just now — none pruned
+
+
+# --- v2 merge M8: the one login limiter of an app -------------------------------------------------------------------
+
+
+def test_blocked_for_reports_the_wait_without_recording_or_raising():
+    from datetime import datetime, timezone
+
+    from backend.sync.clock import FixedClock
+    from backend.utils.rate_limit import SlidingWindow
+
+    clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=timezone.utc))
+    limiter = SlidingWindow(2, 60, clock)
+    assert limiter.blocked_for("k") is None
+    limiter.record("k")
+    clock.advance(seconds=10)
+    limiter.record("k")
+    assert limiter.blocked_for("k") == 50 and limiter.blocked_for("k") == 50      # asking records nothing
+    assert len(limiter._hits["k"]) == 2
+    clock.advance(seconds=50)                                                      # the oldest hit leaves the window
+    assert limiter.blocked_for("k") is None
+
+
+def test_login_limiter_is_one_store_per_app():
+    from fastapi import FastAPI
+
+    from backend.config import Settings
+    from backend.sync.clock import SystemClock
+    from backend.sync.wiring import install_state
+    from backend.utils.rate_limit import login_limiter
+
+    wired = FastAPI()
+    install_state(wired, Settings(_env_file=None, LOGIN_RATE_MAX=3), SystemClock())
+    assert login_limiter(wired) is wired.state.login_rate_limiter and login_limiter(wired).max_hits == 3
+
+    bare, other = FastAPI(), FastAPI()                 # assembled by hand, without the wiring
+    first = login_limiter(bare)
+    assert login_limiter(bare) is first and bare.state.login_rate_limiter is first
+    assert login_limiter(other) is not first

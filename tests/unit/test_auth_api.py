@@ -27,21 +27,32 @@ class TestPasswordValidation:
 
 
 class TestRateLimit:
+    # The store is the app's one login limiter (a SlidingWindow, shared with agent login — v2 merge M8), no
+    # longer a module-level dict in backend.api.auth; web login's answer at the limit is unchanged.
+    @staticmethod
+    def _limiter():
+        from backend.sync.clock import SystemClock
+        from backend.utils.rate_limit import SlidingWindow
+        return SlidingWindow(5, 15 * 60, SystemClock())
+
     def test_rate_limit_blocks_after_max_attempts(self):
-        from backend.api.auth import _check_rate_limit, _login_attempts, _RATE_LIMIT_MAX
+        from fastapi import HTTPException
+        from backend.api.auth import _check_rate_limit
         email = "ratelimit-test@example.com"
-        _login_attempts[email] = [time.time() for _ in range(_RATE_LIMIT_MAX)]
-        with pytest.raises(Exception) as exc_info:
-            _check_rate_limit(email)
-        assert "429" in str(exc_info.value.status_code)
-        del _login_attempts[email]
+        limiter = self._limiter()
+        limiter._hits[email] = [time.time() for _ in range(5)]
+        with pytest.raises(HTTPException) as exc_info:
+            _check_rate_limit(limiter, email)
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.detail == "Too many login attempts. Try again later."
+        assert exc_info.value.headers is None
 
     def test_rate_limit_allows_under_threshold(self):
-        from backend.api.auth import _check_rate_limit, _login_attempts
+        from backend.api.auth import _check_rate_limit
         email = "ratelimit-ok@example.com"
-        _login_attempts[email] = [time.time(), time.time()]
-        _check_rate_limit(email)  # Should not raise
-        del _login_attempts[email]
+        limiter = self._limiter()
+        limiter._hits[email] = [time.time(), time.time()]
+        _check_rate_limit(limiter, email)  # Should not raise
 
 
 # ---- New endpoint unit tests ----
@@ -183,10 +194,6 @@ class TestLoginEndpoint:
         mock_result.scalar_one_or_none.return_value = user
         mock_db.execute.return_value = mock_result
 
-        # Clean up rate limiter to avoid leaks from previous tests
-        from backend.api.auth import _login_attempts
-        _login_attempts.pop("badpass@example.com", None)
-
         auth_app.dependency_overrides[get_db] = lambda: mock_db
 
         with TestClient(auth_app) as tc:
@@ -196,9 +203,9 @@ class TestLoginEndpoint:
             })
 
         assert resp.status_code == 401
-
-        # Clean up
-        _login_attempts.pop("badpass@example.com", None)
+        assert resp.json() == {"detail": "Invalid email or password"}
+        # The failure is recorded on this app's own login limiter (one store per app, M8) — nothing to clean up.
+        assert len(auth_app.state.login_rate_limiter._hits["badpass@example.com"]) == 1
 
 
 class TestRefreshEndpoint:

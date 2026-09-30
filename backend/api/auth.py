@@ -22,15 +22,13 @@ from backend.utils.auth import (
     validate_password,
     verify_password,
 )
+from backend.utils.rate_limit import SlidingWindow, login_limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# In-memory rate limiting
-_login_attempts: dict[str, list[float]] = defaultdict(list)
-_RATE_LIMIT_WINDOW = 15 * 60  # 15 minutes
-_RATE_LIMIT_MAX = 5
-_RATE_LIMIT_CLEANUP_THRESHOLD = 1000
+# Login rate limiting (per email) has no store here: web login counts against the app's one login limiter,
+# shared with agent login and the relink password re-check (v2 merge M8) — see backend/utils/rate_limit.py.
 
 # Register rate limiting (per IP)
 _register_attempts: dict[str, list[float]] = defaultdict(list)
@@ -38,19 +36,9 @@ _REGISTER_RATE_LIMIT_WINDOW = 60 * 60  # 1 hour
 _REGISTER_RATE_LIMIT_MAX = 3
 
 
-def _check_rate_limit(email: str) -> None:
-    now = time.time()
-    # Prune all expired entries when dict gets large (S4: prevent memory leak)
-    if len(_login_attempts) > _RATE_LIMIT_CLEANUP_THRESHOLD:
-        expired_keys = [
-            k for k, v in _login_attempts.items()
-            if not any(now - t < _RATE_LIMIT_WINDOW for t in v)
-        ]
-        for k in expired_keys:
-            del _login_attempts[k]
-    attempts = _login_attempts[email]
-    _login_attempts[email] = [t for t in attempts if now - t < _RATE_LIMIT_WINDOW]
-    if len(_login_attempts[email]) >= _RATE_LIMIT_MAX:
+def _check_rate_limit(limiter: SlidingWindow, email: str) -> None:
+    """Web login's own answer at the limit (unchanged by M8): 429 ``{"detail": ...}``, no ``Retry-After``."""
+    if limiter.blocked_for(email) is not None:
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
 
 
@@ -112,17 +100,19 @@ async def register(
 @router.post("/login", response_model=AuthResponse)
 async def login(
     req: LoginRequest,
+    request: fastapi.Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> AuthResponse:
     email = req.email.lower().strip()
-    _check_rate_limit(email)
+    limiter = login_limiter(request.app)
+    _check_rate_limit(limiter, email)  # checked before the lookup; a hit is recorded only on a failed attempt
 
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(req.password, user.password_hash):
-        _login_attempts[email].append(time.time())
+        limiter.record(email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.is_active:

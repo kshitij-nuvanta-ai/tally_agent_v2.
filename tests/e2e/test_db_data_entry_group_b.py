@@ -93,12 +93,10 @@ async def db_app(monkeypatch, tmp_path):
     init_engine(_TEST_DB_URL)
 
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
 
     yield app
 
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
     await tally_client.close()
     from backend.db.engine import close_engine
     await close_engine()

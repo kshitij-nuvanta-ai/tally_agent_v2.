@@ -3,12 +3,10 @@
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-import jwt as pyjwt
-
 from backend.agents.context import SessionStore
 from backend.config import settings
 from backend.tally_bridge.client import TallyClient
-from backend.utils.auth import decode_token
+from backend.utils.auth import AccessTokenError, decode_access_token
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -37,14 +35,11 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        payload = decode_token(credentials.credentials, settings.JWT_SECRET)
-    except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
+        return decode_access_token(credentials.credentials, settings.JWT_SECRET)
+    except AccessTokenError as exc:
+        if exc.reason == "wrong_type":
+            raise HTTPException(status_code=401, detail="Invalid token type")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
-
-    return payload["sub"]
 
 
 async def get_optional_user(
@@ -56,9 +51,6 @@ async def get_optional_user(
     if not credentials:
         return None
     try:
-        payload = decode_token(credentials.credentials, settings.JWT_SECRET)
-        if payload.get("type") != "access":
-            return None
-        return payload["sub"]
-    except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
+        return decode_access_token(credentials.credentials, settings.JWT_SECRET)
+    except AccessTokenError:
         return None

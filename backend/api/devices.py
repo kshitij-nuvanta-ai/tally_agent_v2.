@@ -8,17 +8,17 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.sync_dependencies import web_user
-from backend.sync.db import session_dep
-from backend.sync.errors import ApiError
+from backend.db.engine import get_db
+from backend.sync.errors import ApiError, SyncRoute
 from backend.db.sync_models import AgentDevice
 
-router = APIRouter(prefix="/api/devices", tags=["devices"])
+router = APIRouter(prefix="/api/devices", tags=["devices"], route_class=SyncRoute)
 
 
 @router.get("")
 async def list_devices(
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(web_user),
 ) -> list[dict]:
     devices = (
@@ -53,7 +53,7 @@ async def list_devices(
 async def delete_device(
     device_id: uuid.UUID,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(web_user),
 ) -> Response:
     device = await session.get(AgentDevice, device_id)

@@ -52,3 +52,29 @@ def create_refresh_token(user_id: str, secret: str, expiry_days: int = 7) -> str
 
 def decode_token(token: str, secret: str) -> dict:
     return jwt.decode(token, secret, algorithms=["HS256"])
+
+
+class AccessTokenError(Exception):
+    """Why a web access token was refused: ``reason`` is ``"expired"``, ``"invalid"`` (bad signature, malformed,
+    ...) or ``"wrong_type"`` (a valid token that is not an access token — a refresh token, or a device token)."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def decode_access_token(token: str, secret: str) -> str:
+    """Check a web access JWT and return its user id. The ONE token check (v2 merge M7): ``get_current_user``
+    and the sync routes' ``web_user`` both call it and each turns ``AccessTokenError`` into its own error shape.
+    """
+    try:
+        payload = decode_token(token, secret)
+    except jwt.ExpiredSignatureError as exc:
+        raise AccessTokenError("expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise AccessTokenError("invalid") from exc
+
+    if payload.get("type") != "access":
+        raise AccessTokenError("wrong_type")
+
+    return payload["sub"]

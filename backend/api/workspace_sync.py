@@ -12,12 +12,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.sync_dependencies import check_user_password, web_user
-from backend.sync.db import session_dep
-from backend.sync.errors import ApiError
+from backend.db.engine import get_db
+from backend.sync.errors import ApiError, SyncRoute
 from backend.db.sync_models import SyncWorkspace
 from backend.sync import commands, state
 
-router = APIRouter(prefix="/api/workspaces", tags=["web-sync"])
+router = APIRouter(prefix="/api/workspaces", tags=["web-sync"], route_class=SyncRoute)
 
 
 async def _owned_sync_workspace(session: AsyncSession, ws: uuid.UUID, user_id: uuid.UUID) -> SyncWorkspace:
@@ -41,7 +41,7 @@ async def _owned_sync_workspace(session: AsyncSession, ws: uuid.UUID, user_id: u
 async def get_sync_status(
     ws: uuid.UUID,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(web_user),
 ) -> dict:
     sw = await _owned_sync_workspace(session, ws, user_id)
@@ -77,7 +77,7 @@ async def post_command(
     ws: uuid.UUID,
     body: WebCommandRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(web_user),
 ) -> dict:
     sw = await _owned_sync_workspace(session, ws, user_id)

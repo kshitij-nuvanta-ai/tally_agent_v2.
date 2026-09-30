@@ -93,13 +93,11 @@ async def db_app(monkeypatch):
     # we must clear them explicitly so per-IP register/login throttling doesn't
     # accumulate across tests (every test registers from the same test client IP).
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
 
     yield app
 
     # 5. Teardown — close engine + drop tables. settings restored by monkeypatch.
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
     await tally_client.close()
     from backend.db.engine import close_engine
     await close_engine()
@@ -314,8 +312,6 @@ async def test_db_logout_clears_session(db_app):
 @pytest.mark.asyncio
 async def test_db_login_rate_limiting(db_app):
     """5 failed login attempts → 6th attempt returns 429."""
-    import backend.api.auth as auth_module
-
     async with AsyncClient(transport=ASGITransport(app=db_app), base_url="http://test") as ac:
         # Register a valid user first
         await ac.post("/api/auth/register", json={
@@ -335,9 +331,9 @@ async def test_db_login_rate_limiting(db_app):
             "email": email, "password": "WrongPassword!1",
         })
         assert resp.status_code == 429
-
-    # Clean up in-memory rate limit state to avoid leaking into other tests
-    auth_module._login_attempts.pop(email, None)
+        assert resp.json() == {"detail": "Too many login attempts. Try again later."}
+        assert "retry-after" not in resp.headers
+    # No clean-up: the login limiter lives on this test's own app (one store per app, v2 merge M8).
 
 
 @pytest.mark.asyncio

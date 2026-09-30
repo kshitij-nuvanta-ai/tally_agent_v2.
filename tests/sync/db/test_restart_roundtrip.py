@@ -1,5 +1,5 @@
 """Restart round-trips (CLAUDE.md "Test reality" rule 7, adapted per S1 spec §16: there is no page to refresh, so
-after every state-changing call the test disposes the app's engine, builds a NEW ``create_app`` on the same DB and
+after every state-changing call the test disposes the backend's engine, builds a NEW engine and a NEW app on the same DB and
 re-asserts the WHOLE user-visible state -- ``GET /state`` (device), ``GET sync-status`` (web) and direct row counts of
 every v2 table for the workspace -- not only the attribute the call changed).
 
@@ -16,10 +16,9 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from backend.sync.app import create_app
 from backend.db.sync_models import SYNC_TABLES
 from tests.sync import realdata
-from tests.sync.conftest import requires_db, web_headers
+from tests.sync.conftest import build_sync_app, requires_db, restart_app_engine, web_headers
 from tests.sync.db.ingest_helpers import B_BIND, COUNTERS, batch, bind, fresh, open_run, post_batch
 from tests.sync.db.test_end_to_end_fakeb import FY25, FY26, first_sync, fb_session_fake
 
@@ -33,8 +32,8 @@ async def restart(settings, clock):
     made: list[httpx.AsyncClient] = []
 
     async def _restart(client: httpx.AsyncClient) -> httpx.AsyncClient:
-        await client.app.state.engine.dispose()
-        app = create_app(settings, clock)
+        await restart_app_engine()
+        app = build_sync_app(settings, clock)
         c2 = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2")
         c2.app = app
         made.append(c2)
@@ -42,8 +41,7 @@ async def restart(settings, clock):
 
     yield _restart
     for c in made:
-        await c.aclose()
-        await c.app.state.engine.dispose()
+        await c.aclose()            # the engine itself is closed by ``app_factory`` (behind ``app_client``)
 
 
 async def whole(client, engine, ws, headers: dict, uid) -> dict:

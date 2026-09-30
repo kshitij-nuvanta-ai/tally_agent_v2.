@@ -1,8 +1,7 @@
 """Agent device auth routes (S1 spec §7.1-7.4, §9): login, refresh, logout, and the bound/unbound workspace
-list. Copied semantics (spec §7.1, controller ruling — the brief's "every attempt counts" misdescribed the
-source): ``backend/api/auth.py``'s ``_check_rate_limit`` checks the per-email bucket before the DB lookup but
-records a hit only on a FAILED attempt (``backend/api/auth.py:119,125``). ``SlidingWindow.check``/``record`` are
-split to match: ``check`` runs before the lookup, ``record`` only on the 401 path.
+list. Login counts against the app's one per-email login limiter, shared with web login (v2 merge M8), with
+web login's semantics (spec §7.1): the bucket is checked before the DB lookup and a hit is recorded only on a
+FAILED attempt — ``SlidingWindow.check`` runs before the lookup, ``record`` only on the 401 path.
 """
 from __future__ import annotations
 
@@ -17,13 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.sync_dependencies import any_device
 from backend.utils.device_tokens import hash_refresh, mint_access, new_refresh
-from backend.sync.passwords import verify_password
-from backend.sync.db import session_dep
-from backend.sync.errors import ApiError
+from backend.utils.auth import verify_password
+from backend.db.engine import get_db
+from backend.sync.errors import ApiError, SyncRoute
 from backend.db.sync_models import AgentDevice, SyncWorkspace
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/agent", tags=["agent-auth"])
+router = APIRouter(prefix="/api/agent", tags=["agent-auth"], route_class=SyncRoute)
 
 
 class LoginBody(BaseModel):
@@ -38,7 +37,7 @@ class RefreshBody(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(body: LoginBody, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
+async def login(body: LoginBody, request: Request, session: AsyncSession = Depends(get_db)) -> dict:
     settings = request.app.state.settings
     clock = request.app.state.clock
     now = clock.now()
@@ -102,7 +101,7 @@ async def _workspace_deleted(session: AsyncSession, workspace_id) -> bool:
 
 
 @router.post("/auth/refresh")
-async def refresh(body: RefreshBody, request: Request, session: AsyncSession = Depends(session_dep)) -> dict:
+async def refresh(body: RefreshBody, request: Request, session: AsyncSession = Depends(get_db)) -> dict:
     settings = request.app.state.settings
     clock = request.app.state.clock
     now = clock.now()
@@ -174,7 +173,7 @@ async def refresh(body: RefreshBody, request: Request, session: AsyncSession = D
 @router.post("/auth/logout", status_code=204)
 async def logout(
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     device: AgentDevice = Depends(any_device),
 ) -> Response:
     now = request.app.state.clock.now()
@@ -189,7 +188,7 @@ async def logout(
 @router.get("/workspaces")
 async def list_agent_workspaces(
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     device: AgentDevice = Depends(any_device),
 ) -> list[dict]:
     rows = (

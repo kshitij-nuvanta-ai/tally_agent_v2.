@@ -36,17 +36,21 @@ class TestLoginRateLimitCleanup:
     """S4: Rate limit memory leak prevention."""
 
     def test_login_rate_limit_cleanup_on_threshold(self):
-        from backend.api.auth import _check_rate_limit, _login_attempts, _RATE_LIMIT_CLEANUP_THRESHOLD
+        # The store is the app's one login limiter (shared with agent login, v2 merge M8), not a dict in
+        # backend.api.auth any more; the cleanup rule and its threshold (1000) are the same.
+        from backend.api.auth import _check_rate_limit
+        from backend.sync.clock import SystemClock
+        from backend.utils.rate_limit import DEFAULT_CLEANUP_THRESHOLD, SlidingWindow
+        assert DEFAULT_CLEANUP_THRESHOLD == 1000
+        limiter = SlidingWindow(5, 15 * 60, SystemClock())
         # Fill with expired entries
         old_time = time.time() - 3600  # 1 hour ago (beyond 15 min window)
-        for i in range(_RATE_LIMIT_CLEANUP_THRESHOLD + 10):
-            _login_attempts[f"expired-{i}@test.com"] = [old_time]
+        for i in range(DEFAULT_CLEANUP_THRESHOLD + 10):
+            limiter._hits[f"expired-{i}@test.com"] = [old_time]
         # This call should trigger cleanup
-        _check_rate_limit("new@test.com")
+        _check_rate_limit(limiter, "new@test.com")
         # Expired entries should be pruned
-        assert len(_login_attempts) < _RATE_LIMIT_CLEANUP_THRESHOLD
-        # Clean up
-        _login_attempts.clear()
+        assert len(limiter._hits) < DEFAULT_CLEANUP_THRESHOLD
 
 
 class TestLoginRequestEmailValidation:

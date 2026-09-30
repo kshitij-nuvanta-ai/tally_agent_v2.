@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from backend.api import agent_auth
 from backend.api.sync_dependencies import active_device
 from backend.config import Settings
-from backend.sync.app import create_app
 from tests.sync.conftest import (
     TEST_DB,
     login_device,
@@ -176,10 +175,10 @@ async def test_delete_other_users_device_404(app_client, session):
     assert r.status_code == 404
 
 
-async def test_per_device_rate_limit_429(engine, clock):
+async def test_per_device_rate_limit_429(engine, app_factory, clock):
     settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
                         DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=3)
-    app = create_app(settings, clock)
+    app = app_factory(settings, clock)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
@@ -189,7 +188,6 @@ async def test_per_device_rate_limit_429(engine, clock):
             assert r.status_code == 200
         r = await client.get("/api/agent/workspaces", headers=headers)
         assert r.status_code == 429 and r.json()["error"] == "rate_limited"
-    await app.state.engine.dispose()
 
 
 # --- Fix round 1 ------------------------------------------------------------------------------------------
@@ -323,7 +321,7 @@ async def test_refresh_race_one_wins_other_becomes_reuse_signal(app_client, sess
 
 def _mount_active_device_probe(app) -> None:
     """Test-only route (Fix round 1 #3): drives `active_device` (§8.1 checks 1-6) end to end. Not a production
-    route — never registered by `backend/sync/app.py`."""
+    route — never registered by `backend/sync/wiring.py`."""
     probe_router = APIRouter()
 
     @probe_router.get("/t/{ws}")
@@ -335,13 +333,12 @@ def _mount_active_device_probe(app) -> None:
 
 
 @pytest.fixture
-async def probe_client(engine, settings, clock):
-    app = create_app(settings, clock)
+async def probe_client(engine, app_factory, settings, clock):
+    app = app_factory(settings, clock)
     _mount_active_device_probe(app)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as c:
         c.app = app
         yield c
-    await app.state.engine.dispose()
 
 
 async def _seed_sync_workspace(session, workspace_id, *, active_device_id=None) -> None:
@@ -445,13 +442,13 @@ async def test_active_device_ordering_wrong_workspace_wins_over_deleted(probe_cl
     assert row["revoked_at"] is None  # check 4's revoke side effect must not have run
 
 
-async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
+async def test_active_device_rate_limit_checked_after_not_active(engine, app_factory, clock):
     """§8.1 check 6 (rate limit) is last: with `DEVICE_RATE_MAX=1` and a device that always fails check 5
     (bound, not the workspace's active device), repeated calls must keep returning 409 — never 429 — because
     execution never reaches the limiter once an earlier check has already failed."""
     settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
                         DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=1)
-    app = create_app(settings, clock)
+    app = app_factory(settings, clock)
     _mount_active_device_probe(app)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
@@ -464,17 +461,16 @@ async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
         for _ in range(3):
             r = await client.get(f"/t/{ws}", headers=headers)
             assert r.status_code == 409 and r.json()["error"] == "not_active_device"
-    await app.state.engine.dispose()
 
 
-async def test_active_device_rate_limit_429_with_retry_after(engine, clock):
+async def test_active_device_rate_limit_429_with_retry_after(engine, app_factory, clock):
     """Fix round 2 #3(a): §8.1 check 6, reached through `active_device` (not `any_device`). With
     `DEVICE_RATE_MAX=1` and a device that passes every earlier check (bound, active, live workspace), the first
     call succeeds and the second is 429 `rate_limited` with an integer `Retry-After` header — proving the
     limiter is actually wired into `active_device`'s own code path, not just asserted by omission elsewhere."""
     settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
                         DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=1)
-    app = create_app(settings, clock)
+    app = app_factory(settings, clock)
     _mount_active_device_probe(app)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
@@ -492,7 +488,6 @@ async def test_active_device_rate_limit_429_with_retry_after(engine, clock):
         assert r2.json()["error"] == "rate_limited"
         assert "Retry-After" in r2.headers
         assert int(r2.headers["Retry-After"]) >= 0  # header value must parse as an integer
-    await app.state.engine.dispose()
 
 
 async def test_active_device_invalid_bearer_401(probe_client):

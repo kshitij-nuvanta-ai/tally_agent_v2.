@@ -86,13 +86,11 @@ async def db_app(monkeypatch, tmp_path):
     # Reset auth's in-memory per-IP rate-limit state (was implicitly reset by
     # the old reload; clear it explicitly so it doesn't accumulate across tests).
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
 
     yield app
 
     # 5. Teardown — close engine + drop tables. settings restored by monkeypatch.
     auth._register_attempts.clear()
-    auth._login_attempts.clear()
     await tally_client.close()
     from backend.db.engine import close_engine
     await close_engine()

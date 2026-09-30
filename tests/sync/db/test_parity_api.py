@@ -22,12 +22,12 @@ from decimal import Decimal as D
 import pytest
 from sqlalchemy import text
 
-from backend.sync.app import create_app
 from backend.sync.parity.engine import SUMS_SQL
 from contract import transcode
 from tests.sync import parity_fakebooks as pf
 from tests.sync import realdata
-from tests.sync.conftest import login_device, make_workspace, requires_db, web_headers
+from tests.sync.conftest import (build_sync_app, login_device, make_workspace, requires_db, restart_app_engine,
+                                 web_headers)
 from tests.sync.db.ingest_helpers import batch, fresh, one, post_batch, rows, sw_row
 
 pytestmark = requires_db
@@ -764,8 +764,8 @@ async def test_parity_runs_persist_across_requests_and_ladder_survives_restart(a
     b, _ = await _missing_one_sale(app_client, session)
     r1 = await parity(app_client, b)
     before = await whole_state(engine, b)
-    await app_client.app.state.engine.dispose()
-    app2 = create_app(settings, clock)
+    await restart_app_engine()
+    app2 = build_sync_app(settings, clock)
     import httpx
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app2), base_url="http://v2") as c2:
         status = (await c2.get(f"/api/workspaces/{b.ws}/sync-status", headers=web_headers(b.uid))).json()
@@ -774,7 +774,6 @@ async def test_parity_runs_persist_across_requests_and_ladder_survives_restart(a
                           json=body(b, remediation_done=[x["id"] for x in r1["remediation"]]))
         assert r.status_code == 200, r.text
         assert r.json()["ladder"] == {"state": "alert", "heal_attempts": 1, "resync_offered_fy": None}
-    await app2.state.engine.dispose()
     after = await whole_state(engine, b)
     assert after["runs"][0] == before["runs"][0] and len(after["runs"]) == 2
     assert [l for l in after["lines"] if l["run_id"] == before["runs"][0]["id"]] == before["lines"]

@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.sync_dependencies import active_device, any_device, check_user_password
-from backend.sync.db import session_dep
-from backend.sync.errors import ApiError
+from backend.db.engine import get_db
+from backend.sync.errors import ApiError, SyncRoute
 from backend.sync.ingest import pipeline
 from backend.sync.ingest import reconcile as reconcile_mod
 from backend.sync.ingest import snapshots as snapshots_mod
@@ -25,14 +25,14 @@ from backend.sync import coverage, runs, state
 from backend.sync.binding import BindRequest, bind
 from contract.models import BatchRequest, ParityRequest, ReconcileRequest, SnapshotRequest
 
-router = APIRouter(prefix="/api/sync", tags=["sync"])
+router = APIRouter(prefix="/api/sync", tags=["sync"], route_class=SyncRoute)
 
 
 @router.post("/company")
 async def bind_company(
     body: BindRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     device: AgentDevice = Depends(any_device),
 ) -> dict:
     settings = request.app.state.settings
@@ -71,7 +71,7 @@ async def heartbeat(
     ws: uuid.UUID,
     body: HeartbeatRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -87,7 +87,7 @@ async def heartbeat(
 async def get_state(
     ws: uuid.UUID,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -108,7 +108,7 @@ async def relink(
     ws: uuid.UUID,
     body: RelinkRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -144,7 +144,7 @@ async def post_run(
     ws: uuid.UUID,
     body: runs.RunCreate,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -168,7 +168,7 @@ async def patch_run_route(
     run_id: uuid.UUID,
     body: runs.RunPatch,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -206,7 +206,7 @@ async def patch_coverage(
     ws: uuid.UUID,
     body: CoveragePatchRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -229,7 +229,7 @@ async def patch_coverage(
 async def post_batch(
     ws: uuid.UUID,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> JSONResponse:
     """§7.9: a gzip (or plain) JSON batch. Step 1's limits are enforced while the body streams in, before any
@@ -255,7 +255,7 @@ async def post_reconcile(
     ws: uuid.UUID,
     body: ReconcileRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -273,7 +273,7 @@ async def post_snapshot(
     ws: uuid.UUID,
     body: SnapshotRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     device, sw = bound
@@ -291,7 +291,7 @@ async def post_parity(
     ws: uuid.UUID,
     body: ParityRequest,
     request: Request,
-    session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(get_db),
     bound: tuple = Depends(active_device),
 ) -> dict:
     """§10: preconditions in order, rungs 1-2, classifier, ladder; one transaction (the engine commits), then the
