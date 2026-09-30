@@ -1,6 +1,6 @@
 # Open Items — Parked
 
-_Last updated: 2026-06-03_
+_Last updated: 2026-09-30 (section "From the v2 merge" added; the rest is as of 2026-06-03)_
 
 Items from Phases 1–16 deferred while focus is on SaaS (Set A) and compliance (Set B). Current active work is tracked in [`roadmap.md`](roadmap.md). Closed phases are summarized in [`CLAUDE.md`](../CLAUDE.md).
 
@@ -108,4 +108,50 @@ Set B1d (bank statement import + reconciliation) is deferred per Group B design 
 The eval framework (`tests/eval/`) covers the query flow only. Write paths (Set B1a Payment, Group B Sales/Purchase/DN/CN, and now the connect→Start chat flow) have no eval scenarios. Add write-flow eval scenarios with golden assertions on voucher creation outcomes.
 
 - Owner: eval framework follow-up.
+- Status: Open.
+
+## From the v2 merge (2026-09-30)
+
+Left open on purpose by the merge of the sync service into the main code (spec [`specs/2026-09-30-v2-merge-design.md`](specs/2026-09-30-v2-merge-design.md), status [`plans/2026-09-30-v2-merge-tracker.md`](plans/2026-09-30-v2-merge-tracker.md)). The merge moved code and changed no behaviour; these are the duplicates and gaps it kept.
+
+### Sync request models defined twice (contract vs. API code)
+
+`contract/models.py` holds the typed wire models. The sync API imports only four of them (`BatchRequest`, `ParityRequest`, `ReconcileRequest`, `SnapshotRequest` in `backend/api/sync.py`). The other bodies are validated by looser local models: `SeenCompany`, `Counters`, `HeartbeatRequest`, `RelinkRequest`, `CoveragePatchRequest` in `backend/api/sync.py`; `WebCommandRequest` in `backend/api/workspace_sync.py`; `LoginBody`, `RefreshBody` in `backend/api/agent_auth.py`; `BindRequest` in `backend/sync/binding.py`; `RunCreate`, `RunPatch` in `backend/sync/runs.py`. The contract has its own `SeenCompany`, `Counters`, `HeartbeatRequest`, `RelinkRequest`, `CoveragePatch`, `WebCommand`, `LoginRequest`, `BindRequest`, `RunCreate`, `RunPatch`. An agent built against the contract and a server validating with the local models can drift.
+
+- First raised in the S1 review (`code-review-bi-s1-2026-09-29.md`, finding I2: "the contract's typed model is not the model the route uses"; M7 is the related contract-vs-spec drift).
+- Fix: make the routes use the contract models, or delete the unused contract ones. Do it with the agent + installer spec, when the agent side becomes real.
+- Status: Open.
+
+### The 9 app tables' ORM models differ from their own migrations (27 catalog details)
+
+`alembic upgrade head` and `Base.metadata.create_all` build the same 30 tables, but for the 9 pre-merge app tables 27 catalog entries differ. They are pinned exactly as `KNOWN_APP_TABLE_DRIFT` in `tests/sync/db/test_migration.py` (`test_migrated_schema_equals_model_metadata`), so a new difference fails the test. What differs: server defaults present in the migrations but not in the models (`created_at` on all 9 tables, `updated_at` on 4, `is_active`, `is_deleted` ×2, `agent_type`, `config`, `memory`, two `status` columns, `confidence`, `use_count`), with nullability differences on the timestamp and boolean columns; and migration `005` naming the `voucher_entry_revisions.file_id` foreign key and index differently from the model's default names. The 21 sync tables have no drift.
+
+- Fix: align the models (add `server_default` / names) or write a migration, then empty the dict.
+- Status: Open.
+
+### Two `build_company_list` and two `parse_company_list`
+
+- `tally_bridge/request_builder.py::build_company_list` (app path) and `tally_bridge/envelopes.py::build_company_list` (used by the probes) both exist; the merge kept both because they differ.
+- `tally_bridge/response_parser.py::parse_company_list` (the app's connect-company dropdown) also takes a COMPANY element's inline text as a name, so CMPINFO's `<COMPANY>0</COMPANY>` counter comes back as a company called "0". `tally_bridge/xml_utils.py::parse_company_list` reads only a NAME child or attribute and does not have that defect. The app's one was left unchanged (no behaviour change in the merge).
+- Fix: move the app to the `xml_utils` parser and one builder, with the company-dropdown tests updated.
+- Status: Open.
+
+### Float and Decimal amount parsing side by side
+
+`tally_bridge/response_parser.py::parse_amount` returns `float` (chat path, report parsers unchanged). `tally_bridge/amounts.py` (`parse_decimal`, `parse_amount` returning `Decimal` + forex parts) and `tally_bridge/sync_reports.py` serve the sync path. Two functions named `parse_amount` with different return types live in one package (merge spec M11).
+
+- Fix: belongs to the DB-reads step — once chat answers from the synced tables the float parsers can go.
+- Status: Open.
+
+### `tally_bridge/mock_handler.py` loads `tests/fixtures` at run time
+
+The mock handler reads fixture files from `tests/fixtures/` and loads `tests/fixtures/generate_fixtures.py` by file path. It is the one recorded exception to the layer rule (`RUNTIME_FILE_LOADS` in `tests/test_layers.py`). A packaged `tally_bridge` (e.g. inside the desktop agent) would not have `tests/` next to it.
+
+- Fix: move the mock data into the package, or move the mock handler out of `tally_bridge`.
+- Status: Open — predates the merge.
+
+### S1 review minors M1–M19 still open
+
+The deferred Minor findings of `code-review-bi-s1-2026-09-29.md` (table "Minor", M1–M19) were not touched by the merge; the file paths in that table are pre-merge (`sync/…` → `backend/sync/…`, `api/web_sync.py` → `backend/api/workspace_sync.py`, `api/dependencies.py` → `backend/api/sync_dependencies.py`, `tests/cloud/…` → `tests/sync/…`). M15 names `tests/test_copied_headers.py` / `test_isolation.py` and `web_jwt.py` / `passwords.py`, all deleted by the merge, so it needs re-reading rather than fixing as written. The review's own spec-edit notes record which of them were settled by a spec edit instead of code.
+
 - Status: Open.

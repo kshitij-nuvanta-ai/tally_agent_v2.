@@ -57,6 +57,7 @@
 > `ledger_gap` fallback; §10.1's extra aborts (`tb_imbalance_unknown`, `no_balance_sheet_verified`) and §10.2's
 > group-anchor input for the no-ledger-anchor route; review M7's contract drift (§4.2 command type, `requested_by`,
 > `relink_prompt` keys, `last_parity.run_id`); review M8 (§11 `company_mismatch` not on snapshots).
+> **Changed 2026-09-30 (v2 merged into the main code — [`2026-09-30-v2-merge-design.md`](2026-09-30-v2-merge-design.md)):** superseded by that spec and not edited in the body below: **D27** (port 8100, `V2_` settings prefix — now the one app on port 8000 and unprefixed names such as `DEVICE_TOKEN_SECRET`, with the `V2_*` names still accepted), the **separate Alembic chain** (`alembic_version_v2` / `v2_001` — now revision `006` of the one chain) and the **read-only reflections of `users` / `workspaces`** (D5's mechanism — the sync models now reference the real tables on the one `Base`; binding still attaches to an existing workspace only). Module paths moved: `v2/cloud/` → `backend/sync/`, `backend/db/sync_models/`, `backend/api/{agent_auth,devices,sync,workspace_sync,sync_dependencies}.py` (`web_sync.py` is now `workspace_sync.py`), `backend/utils/{device_tokens,rate_limit}.py`; `v2/contract/` → `contract/`; `v2/tests/cloud/` → `tests/sync/`; `v2/tests/fixtures/sync/` → `tests/fixtures/sync/`.
 > **Status tracking:** [`../plans/2026-09-22-bi-part1-tracker.md`](../plans/2026-09-22-bi-part1-tracker.md) §4 (S1
 > rows). Not in this file.
 >

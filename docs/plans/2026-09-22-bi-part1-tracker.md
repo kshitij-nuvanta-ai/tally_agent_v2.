@@ -7,6 +7,31 @@ Parts 2 and 3 are not started and are not tracked here.
 v2 copies from current code instead of importing it; the cloud side is a separate app with its own Alembic chain.
 A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
+> **Superseded 2026-09-30 — v2 is merged into the main code** (spec `specs/2026-09-30-v2-merge-design.md`, status
+> [`2026-09-30-v2-merge-tracker.md`](2026-09-30-v2-merge-tracker.md)). The paragraph above and the isolation rule no
+> longer apply; `tests/test_layers.py` enforces the new layer rule. **Every path, command and count in rows dated
+> before the merge refers to the pre-merge layout** and is left as written. To read an old row, map:
+>
+> | Pre-merge (in older rows) | Now |
+> |---|---|
+> | `v2/cloud/{sync,ingest,parity}/`, `clock.py`, `errors.py` | `backend/sync/` |
+> | `v2/cloud/models/` | `backend/db/sync_models/` (`current.py`, the read-only reflections, deleted) |
+> | `v2/cloud/api/{agent_auth,devices,sync}.py`, `web_sync.py`, `dependencies.py` | `backend/api/{agent_auth,devices,sync}.py`, `workspace_sync.py`, `sync_dependencies.py` |
+> | `v2/cloud/auth/{device_tokens,rate_limit}.py` | `backend/utils/` (`passwords.py`, `web_jwt.py` deleted) |
+> | `v2/cloud/config.py`, `db.py`, `main.py` | merged into `backend/config.py`, `backend/db/engine.py`, `backend/main.py` |
+> | `v2/cloud/alembic/` (`v2_001`, `alembic_version_v2`) | `backend/db/migrations/versions/006_sync_tables.py` (one chain) |
+> | `python -m v2.cloud migrate` / `purge` | `python -m alembic upgrade head` / `python -m backend.sync purge` |
+> | `v2/contract/`, `v2/probes/` | `contract/`, `probes/` |
+> | `v2/agent/` | `agent/` (placeholder); `v2/agent/tally/` → `tally_bridge/` |
+> | `backend/tally_bridge/` | `tally_bridge/` |
+> | `v2/tests/cloud/{unit,db}/` | `tests/sync/{unit,db}/` |
+> | `v2/tests/agent/`, `v2/tests/contract/`, `v2/tests/probes/` | `tests/tally_bridge/`, `tests/contract/`, `tests/probes/` |
+> | `v2/tests/fixtures/sync/`, `v2/tests/fixtures/tally_samples/` | `tests/fixtures/sync/`, `tests/fixtures/tally_samples/` |
+> | `v2/tests/test_isolation.py`, `test_copied_headers.py` | `tests/test_layers.py` |
+> | `uv run --project v2 pytest v2/tests` | `ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/ --ignore=tests/e2e_live` |
+> | `uv run --project v2 python -m v2.probes …` | `uv run python -m probes …` |
+> | port 8100, `V2_*` settings | port 8000, unprefixed names (`DEVICE_TOKEN_SECRET`, …; `V2_*` still accepted) |
+
 **Legend:** ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked · ⏭ deferred
 
 **Rules for updating this file**
@@ -19,7 +44,37 @@ A change outside `v2/` and `docs/` is a bug in the work, not progress.
 
 ---
 
-## ▶ Resume here (updated 2026-09-30 — **S1 BUILT; `dev` merged in; all suites green; next: push + PR to `dev` (user to confirm), then the S2 spec/plan**)
+## ▶ Resume here (updated 2026-09-30 evening — **S1 BUILT and MERGED INTO THE MAIN CODE on `feat/merge-v2-into-backend` (not pushed, no PR); item-level merge status is in the merge tracker**)
+
+**State left behind:** branch `feat/merge-v2-into-backend` (cut from `feat/bi-s1-cloud` @ `99ced44`), HEAD `23c6401`.
+Four merge commits: `13d6bbd` (packages moved, one uv project), `7d5d64e` (one settings class, one `Base`, one Alembic
+chain — revision `006`), `12c36ba` (one app on port 8000, one engine, one auth, shared login limiter), `23c6401` (one
+top-level `tally_bridge/`, `tests/test_layers.py`). `v2/` no longer holds code. Path mapping: the table at the top of
+this file.
+
+**Suites (2026-09-30, after `23c6401`):** `ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/ --ignore=tests/e2e_live`
+→ **3186 passed / 594 skipped** without a DB; **3770 passed / 10 skipped** with `TEST_DATABASE_URL` (the whole suite in
+one session — the old "v2 and app DB suites must not run together" rule is gone). Proof: commit message of `23c6401`
+and the merge tracker's change log.
+
+**Not done by the merge:** legacy (non-DB) mode still exists; chat still reads Tally live through `tally_bridge` (the
+21 synced tables are not read by chat); the desktop agent and installer are not built (`agent/` is a placeholder).
+The PR of `feat/bi-s1-cloud` → `dev` (checklist item 3 below) was never opened; the merge branch is not pushed.
+
+**Direction (senior dev, 2026-09-30):** installer → agent → tally bridge; the cloud app talks only to its own Postgres.
+
+**Next concrete steps:** (1) finish the merge tracker's open rows — docs (plan T9), real-app pass (T10), code review
+(T11) — see [`2026-09-30-v2-merge-tracker.md`](2026-09-30-v2-merge-tracker.md) "Resume here"; (2) push / PR when the
+user says so; (3) separate later steps, each with its own spec: legacy-mode removal, DB-backed reads (Part 2), agent +
+installer spec (this file's §5, S2).
+
+**Still open from S1 (unchanged by the merge):** user review of D1–D32 / §17.2 / A1–A18 (item 5 below); review DB
+`tallyagent_v2_review` and the throwaway test user kept by the user (item 4b); deferred review minors M1–M19
+(`docs/code-review-bi-s1-2026-09-29.md`, now also listed in `docs/open-items-parked.md`); S2 contract notes.
+
+---
+
+### Previous resume notes (2026-09-30 daytime, pre-PR checklist on `feat/bi-s1-cloud` — superseded by the block above)
 
 **Pre-PR checklist (2026-09-30):**
 
@@ -584,7 +639,7 @@ because its Bank/Cash rows carry the known-corrupt seed sign. Replaced by `Sundr
 |---|---|---|---|---|---|
 | Design | Part 1 brainstorm design | — | `specs/2026-09-21-bi-part1-sync-design.md` | — | ✅ 2026-09-21 |
 | **S0** | `v2/` scaffold + live-Tally probes 0–25 + real fixtures in `v2/tests/fixtures/sync/` | — | `specs/2026-09-22-bi-s0-probes-design.md` | `plans/2026-09-22-bi-s0-probes-plan.md` (part 1 ✅), `plans/2026-09-22-bi-s0-probes-plan-part2.md` (part 2, 13 tasks), `plans/2026-09-23-bi-s0-company-b-loader.md` (part 3, 9 tasks, ✅ built), `.superpowers/sdd/2026-09-24-bi-s0-probes-plan-part4/` (part 4, probes 5+21, ✅ built + run live), `docs/plans/2026-09-24-bi-s0-probes-plan-part5.md` (part 5, probes 11/14/15/16B/18B + 16A/17A/18A re-run, ✅ built + run live), `docs/plans/2026-09-25-bi-s0-probes-plan-part6.md` (part 6, probes 3B/23B/25B + R9, 11 under C46, company C + probe 24, ✅ built + run live + docs) | ✅ **Closed 2026-09-25: the S0 exit gate PASSED with recorded exceptions.** See `docs/bi-s0-exit-gate-2026-09-25.md` § "Final verdict". Items 1–7 all PASS: item 3 by `e8420f1`, item 5 by `9830e97`, item 7 by `bb71f83` + the review fixes `86df230`/`b92a659`. Exceptions: (a) `CLAUDE.md` `dc9bf02`; (b) Educational/Wine only, R8 open; (c) 9/20 ⏭ tier C; (d) 11 B/16 B need an expression-form balance parser; (e) M4 pre-forex B verdicts; (f) part-2 retro M1–M10 and (g) C47 review M1–M6 deferred to S1 hardening; (h) logs local only. **Next: the S1 spec.** **Previous status (superseded 2026-09-25, S0 exit gate):** 🟡 **Plan part 7 done 2026-09-25** (`docs/plans/2026-09-25-bi-s0-probes-plan-part7.md`). Probe 22 **CONFIRMED** (forex INR base stated in the export; decision 15 holds); C36 lifted (USD sales 101/102 loaded as forex); new Ruling C47 (forex ledger at the latest voucher rate); 21 B + 18 B re-run CONFIRMED. **Every tier-B probe now has an outcome.** Remaining for S0: the §10 exit-gate check, then the S1 spec. Open: probes 16 B / 11 need expression-form balance parsing before any re-run. Timing probes ⏭ (Q29). **Previous status (superseded 2026-09-25, plan part 7):** 🟡 **Plan part 6 done 2026-09-25.** 3 B CONFIRMED, 23 B CONFIRMED, 25 B DIFFERENT (R9 CONFIRMED — duplicate ledger name refused), 11 re-run DIFFERENT (ledger AND stock master openings are current-period), company C (100001) created + `setup-c`, 24 CONFIRMED (security/TallyVault export unchanged; pending prompt = empty company list). Review `docs/code-review-bi-s0-part6-2026-09-25.md` (minors M1–M8 deferred). **Every built probe has now run live.** Remaining for S0: probe 22 BLOCKED (C36, USD-sales write shape), the §10 exit-gate check, then the S1 spec. Timing probes 9/20/21-timing ⏭ (Q29). **Previous status (superseded 2026-09-25):** 🟡 **Plan part 5 done 2026-09-24.** Probes 16, 17, 18 A re-run typed (17 CONFIRMED unchanged, 18 A CONFIRMED — supersedes 2026-09-23's DIFFERENT, C43 artefact — 16 A DIFFERENT); probes 11, 14, 15 and 18 B built and run live on company B (14/15/18 B CONFIRMED, 11 FAILED stock-only per C46, 16 B FAILED per C45); C44 (company-switch-on-restart) live-verified both directions. **Every probe through 21 has now run live on at least its built companies**, except 3/23/25's B parts (still pending — no B-part code for those three) and probe 22 (BLOCKED, C36) and probe 24 (needs company C). Timing probes 9/20/21-timing ⏭ (Q29). Results: `docs/bi-s0-probe-results-2026-09-24.md`, `v2/probes/results/results.json`. Review: `docs/code-review-bi-s0-part5-2026-09-24.md` (ready with fixes; I1–I3 applied before the B live run). **Next: plan part 6** — B parts of probes 3, 23, 25; company C + probe 24. Open: part-2 code-review doc not written; auto-mode UI-parity gaps (1/7/8, 16, 19) and file-level-only 13 → **R8 stays open**; harness bug — `tally.ini` `Load=100003` preload making `--auto` restarts open A+B together is now **fixed by C44** (`restart("A")`/`restart("B")` open exactly one company; live-verified both directions, `logs/c44-live-restart-2026-09-24.log`, `logs/c44-verify-A-2026-09-24.log`) |
-| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | ✅ **Built 2026-09-29** on `feat/bi-s1-cloud` — all Tasks P, 0–15 done; review `docs/code-review-bi-s1-2026-09-29.md` fixed; v2 1948 passed with DB. **Not merged** — PR to `dev` pending the user. See §4 "S1 plan tasks" |
+| **S1** | Cloud: tables, device auth, ingest API, parity engine | S0 (probes 6, 16, 17, 18, 21, 25; Q22/Q23) | `specs/2026-09-25-bi-s1-cloud-design.md` | `plans/2026-09-25-bi-s1-cloud-plan.md` (Tasks P, 0–15) | ✅ **Built 2026-09-29; merged into the main code 2026-09-30** on `feat/merge-v2-into-backend` (`13d6bbd`…`23c6401`, not pushed; see the merge tracker). *Before the merge:* on `feat/bi-s1-cloud` — all Tasks P, 0–15 done; review `docs/code-review-bi-s1-2026-09-29.md` fixed; v2 1948 passed with DB. **Not merged** — PR to `dev` pending the user. See §4 "S1 plan tasks" |
 | **S2** | Windows agent | S0 (probe 21 for backfill); parallel with S1 | — | — | ⬜ |
 
 ---
@@ -864,3 +919,4 @@ commit); item 7 🟡 in progress (part-2 review doc + C47 catch-up review). Gate
 | 2026-09-30 | **Pre-PR work.** Merged `origin/dev` (4 commits, typed-date fix `b5b3a5e`) into `feat/bi-s1-cloud` → `e515758`, local only. `LESSONS.md` conflict resolved by keeping both sides (dev's C33/C43 section is unnumbered bullets, so no renumber was needed — the 2026-09-29 note expected one); its cross-reference now points at rules 21–22 above. `.env` :5434 → :5432 (gitignored). Current app non-DB suite 1595 passed / 133 skipped (`logs/app-nodb-after-dev-merge.log`); v2 no-DB, v2 DB and the current DB suite running. **User kept** the review DB + the throwaway test user (4b). Pre-PR checklist added to Resume here. |
 | 2026-09-30 | **Post-merge suites all green:** v2 no-DB 1511/437 skipped, v2 DB 1948, current app non-DB 1595/133 skipped, current app DB suite **283** (268 + dev's 15). **Contradicted expectation:** the DB suite took 22 s, not ~14 min — no skips or failures, count matches dev's review, cause not investigated. `CLAUDE.md` DB-suite count 249 → 283 (4c ✅). Checklist items 1, 2, 4a, 4c ✅; 3 awaits the user's go-ahead; 4b kept by the user. |
 | 2026-09-30 | **Pushed** today's work to `origin/feat/bi-s1-cloud` (dev merge `e515758` + tracker/`CLAUDE.md` docs). PR into `dev` **kept pending** at the user's request. Next direction from the senior dev: fork the repo (all branches), then in the fork merge v2 into v1 (one DB/backend/bridge; bridge moves into the installer/agent; app reads only our DB), with non-DB-mode cleanup afterwards — the user forks by hand; merge plan to be written in the fork. |
+| 2026-09-30 | **v2 merged into the main code** on `feat/merge-v2-into-backend` (cut from `feat/bi-s1-cloud` @ `99ced44`): `13d6bbd` packages moved + one uv project; `7d5d64e` one settings class (`DEVICE_TOKEN_SECRET` etc., `V2_*` still accepted), one `Base`, one Alembic chain (revision `006` creates the 21 sync tables or adopts them from `alembic_version_v2` = `v2_001`, then drops that table); `12c36ba` one app on port 8000 (19 agent/sync routes; port 8100 and `/api/v2/health` gone), one engine, one auth, one per-email login limiter for web login, agent login and relink; `23c6401` one top-level `tally_bridge/` + `tests/test_layers.py`. Suites: **3186 passed / 594 skipped** no-DB, **3770 passed / 10 skipped** with the test DB, one session. **Spec changes:** Part 1 spec §5 "Code isolation (v2)" and §10 "later merge" superseded (dated "Changed 2026-09-30" block in its header; `sync_workspaces` stays a table); S1 spec D27, the separate chain and the read-only reflections superseded (header line). **Findings that contradicted expectations:** one real layer violation (`tally_bridge` imported `backend.utils.date_utils`; FY helpers moved to `tally_bridge/dates.py`); the two `build_company_list` and two `parse_company_list` could not be folded into one because they differ (parked in `docs/open-items-parked.md`); the 9 app tables' models differ from their own migrations in 27 catalog details (pinned as `KNOWN_APP_TABLE_DRIFT` in `tests/sync/db/test_migration.py`, parked). Paths in rows above this one are pre-merge — mapping table at the top. Roadmap Set C updated. Not pushed; no PR. Item-level merge status: `2026-09-30-v2-merge-tracker.md`. |

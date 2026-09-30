@@ -274,6 +274,29 @@
 >   another master counter than the cursor (a later rename, or a restore), is re-captured (`anchor_stale`) rather than
 >   read as a mismatch.
 
+> **Changed 2026-09-30 (v2 merged into the main code — [`2026-09-30-v2-merge-design.md`](2026-09-30-v2-merge-design.md)):**
+> §5 "Code isolation (v2)" and §10's "Merging v2 into the current code is a later step with its own spec" are
+> **superseded** by that spec; the body below is left as written and still says `v2/`. What changed (branch
+> `feat/merge-v2-into-backend`, commits `13d6bbd`, `7d5d64e`, `12c36ba`, `23c6401`):
+> - **Paths.** `v2/cloud/` → `backend/sync/` (sync, ingest, parity, clock, errors), `backend/db/sync_models/` (the 21
+>   tables), `backend/api/{agent_auth,devices,sync,workspace_sync,sync_dependencies}.py`,
+>   `backend/utils/{device_tokens,rate_limit}.py`. `v2/contract/` → `contract/`, `v2/agent/` → `agent/` (placeholder),
+>   `v2/probes/` → `probes/`, `v2/tests/` → `tests/{sync,tally_bridge,contract,probes}/`, fixtures →
+>   `tests/fixtures/sync/`. `backend/tally_bridge/` plus the agent's copied read code → one top-level `tally_bridge/`
+>   (decision 2's "copy, never import" no longer applies; no `# Copied from:` header is left).
+> - **One app.** The sync and agent routes are served by `backend/main.py` on port 8000. The separate FastAPI app,
+>   port 8100 and `GET /api/v2/health` are gone. One settings class (`backend/config.py`): `DEVICE_TOKEN_SECRET` etc.;
+>   the `V2_*` names are still accepted.
+> - **One Alembic chain.** Revision `006` creates the 21 sync tables, or adopts them where the old chain
+>   (`alembic_version_v2` at `v2_001`) already made them, and drops `alembic_version_v2`. The tables keep their
+>   names, columns and constraints, and sit on the app's one `Base` with real foreign keys to `users` / `workspaces`.
+> - **`sync_workspaces` stays a table.** §5's "Folding it into `workspace.config` is part of the later merge" is
+>   dropped (merge spec M6).
+> - **The isolation rule is replaced by a layer rule** (`tests/test_layers.py`, merge spec M12).
+> - **Not part of the merge:** legacy (non-DB) mode still exists; chat still reads Tally live through `tally_bridge`
+>   (the synced tables are not read by chat); the agent and installer are not built. Target direction (senior dev,
+>   2026-09-30): installer → agent → tally bridge, with the cloud app talking only to its own Postgres.
+
 ## 1. Context
 New product direction:
 - **BI layer.** The owner sees their business (sales, profit, who owes money, top customers, stock) and asks the AI chat. Everything is answered from **our DB**.

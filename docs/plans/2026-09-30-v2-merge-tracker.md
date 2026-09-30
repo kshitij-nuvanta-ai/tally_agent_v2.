@@ -10,7 +10,8 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 ## Resume here
 
 **Step 1 in progress on `feat/merge-v2-into-backend`.** Done: T0 baselines, T1 + T2 (commit `13d6bbd`), T3 + T4 (commit
-`7d5d64e`), T5 + T6 (commit `12c36ba`). In progress: T7 (one tally bridge) + T8 (layer test). Next: T9 (docs), T10 (verification), T11 (code review). Commits are local;
+`7d5d64e`), T5 + T6 (commit `12c36ba`), T7 + T8 (commit `23c6401`). T9 (docs) and T10 (real-app pass) done. In progress: T11 (code review).
+After those: the user reviews `tallyagent_fork` in a database viewer, then push to the feature branch. Commits are local;
 pushing needs GitHub login (0.3).
 
 ## Status
@@ -22,17 +23,17 @@ pushing needs GitHub login (0.3).
 | 0.3 | GitHub login on this machine | Not started | `gh auth login` failed 2026-09-30; needed to push |
 | 0.4 | Fork has all 4 branches (compare with old repo) | Not started | local clone has `master`, `dev`, `feat/bi-s0-probe-harness`, `feat/bi-s1-cloud` |
 | **1** | **Merge v2 into backend** (`feat/merge-v2-into-backend`) | **In progress** | started 2026-09-30 |
-| 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | In progress | spec + plan committed in `13d6bbd`; old spec "Changed" line and roadmap still to do (plan T9) |
+| 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | Done | spec + plan `13d6bbd`; "Changed 2026-09-30" blocks in both BI specs, roadmap Set C, README, `CLAUDE.md`, BI tracker (docs commit) |
 | 1.1 | Move files to target layout (`v2/` removed) | Done | commit `13d6bbd`; 3106 passed no-DB, 1719 + 1948 with DB (= baselines). `v2/` holds only `README.md` until the docs task |
 | 1.2 | One app: routers in `backend/main.py`, port 8100 gone | Done | commit `12c36ba`; `tests/sync/unit/test_wiring.py`, `tests/sync/db/test_main_app.py` (19 sync routes + all existing routes on one app, no collisions) |
 | 1.3 | One settings class | Done | commit `7d5d64e`; `tests/unit/test_config_sync.py` (52 tests: both env spellings, new name wins) |
 | 1.4 | One auth (copies deleted, shared login limiter) | Done | commit `12c36ba`; `tests/sync/db/test_shared_login_limiter.py` (7 tests, both directions) |
 | 1.5 | One DB engine + migration `006_sync_tables` | Done | one Base + migration `006` + one DB harness done in `7d5d64e` (`tests/sync/db/test_migration.py`, 21 tests; adopt path also run on a throwaway copy of the dev DB: 32 → 31 tables, only `alembic_version_v2` removed, all row counts equal). One engine: `12c36ba` |
-| 1.6 | One tally bridge (top-level `tally_bridge/`) | In progress | plan T7 + T8 under way |
-| 1.7 | One project, one test tree, new isolation test | In progress | one project + one test tree (`13d6bbd`); whole suite runs in one session with the DB (`7d5d64e`); new layer test is T8 |
-| 1.8 | Parked items recorded in `docs/open-items-parked.md` | Not started | — |
-| 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Not started | — |
-| 1.10 | Code review stored in `docs/`, fixes applied | Not started | — |
+| 1.6 | One tally bridge (top-level `tally_bridge/`) | Done | commit `23c6401`; `request_builder.py` byte-identical to before; 1,129 recorded request-builder calls unchanged; no `Copied from` header left |
+| 1.7 | One project, one test tree, new isolation test | Done | one project + one test tree (`13d6bbd`); whole suite in one session with the DB (`7d5d64e`); `tests/test_layers.py` (`23c6401`, 11 tests; hand-checked that a forbidden import fails it) |
+| 1.8 | Parked items recorded in `docs/open-items-parked.md` | Done | section "From the v2 merge (2026-09-30)", six items |
+| 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Done (awaiting the user's review of the DB) | Migrations: `tallyagent_fork` adopted 005 + v2_001 → `006` (32 → 31 tables); fresh throwaway DB → `006`; schemas identical (`pg_dump -s`). Suites at `23c6401`: 3186 passed no-DB, 3770 passed with DB. Real-app pass on port 8000 against `tallyagent_fork`: web flows, agent login → bind → full first sync (14 batches, 65 masters, 240 vouchers) → parity `ok` (0 mismatches), sync-status, web command delivered on heartbeat, token separation, shared login limiter, restart round-trip — all as expected; logs `logs/be_merge_verify*.log`. Frontend vitest 381 passed. Not run: chat success path (no Claude key), Playwright, `e2e_live`, eval, live Tally |
+| 1.10 | Code review stored in `docs/`, fixes applied | In progress | review of `99ced44..23c6401` under way |
 | **2** | **Remove legacy mode** (`chore/remove-legacy-mode`) | **Not started** | — |
 | 2.1 | Backend legacy paths deleted, `DATABASE_URL` required | Not started | — |
 | 2.2 | Frontend legacy app deleted | Not started | — |
@@ -70,7 +71,7 @@ pushing needs GitHub login (0.3).
 | `v2/agent/` | top-level `agent/` |
 | `v2/agent/tally/` + `backend/tally_bridge/` | one top-level `tally_bridge/` |
 | `v2/probes/` | top-level `probes/` |
-| `v2/tests/` | `tests/sync/`, `tests/agent/`, `tests/contract/`, `tests/probes/` |
+| `v2/tests/` | `tests/sync/`, `tests/tally_bridge/`, `tests/contract/`, `tests/probes/` |
 | `v2/pyproject.toml`, `v2/uv.lock`, `v2/README.md` | deleted; one root project |
 
 ## Installer and agent (step 4) — what is decided, recommended and open
@@ -143,4 +144,6 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-09-30 | **T1 + T2 done, commit `13d6bbd`:** `v2/` moved into the main project, one uv project and lockfile; all suites equal the baselines. Temporary modules left under `backend/sync/` (`config.py`, `db.py`, `app.py`, `alembic/`, `passwords.py`, `web_jwt.py`) and `backend/db/sync_models/{base,current}.py`. T3 + T4 started. |
 | 2026-09-30 | **T3 + T4 done, commit `7d5d64e`:** one settings class (`V2_*` names accepted as aliases), sync models on the one `Base`, migration `006_sync_tables` (create / adopt / refuse), old Alembic chain removed, one DB test harness. Suites: 3167 passed no-DB, 3740 passed with DB in one session (+73 new tests). Finding: the 9 app tables' models differ from their own migrations in 27 catalog details (pre-existing, pinned in the migration test, not changed). Decision taken: if `DEVICE_TOKEN_SECRET` is unset the app starts and agent sync routes are simply not mounted; set-but-invalid fails startup. T5 + T6 started. |
 | 2026-09-30 | **T5 + T6 done, commit `12c36ba`:** one app (port 8100 and `/api/v2/health` removed), one engine, one token decode, one shared login limiter. Suites: 3183 passed no-DB, 3767 passed with DB. Notes: web login now follows `LOGIN_RATE_MAX` / `LOGIN_RATE_WINDOW_S` if an operator sets them (defaults = the old 5 / 900 s); an unexpected non-DB error on a sync route now returns the app's JSON 500 instead of plain text. T7 + T8 started. |
+| 2026-09-30 | **T7 + T8 done, commit `23c6401`:** one top-level `tally_bridge/` (agent copy folded in), `tests/test_layers.py` replaces the isolation and copied-header tests. Suites: 3186 passed no-DB, 3770 passed with DB. Findings: one real layer violation fixed (`tally_bridge` imported `backend.utils.date_utils`; FY helpers moved to `tally_bridge/dates.py`); two `parse_company_list` and two `build_company_list` kept because they differ (parked). `tallyagent_fork` migrated to `006` for the user's review. T9 (docs), T10 (real-app pass) and T11 (code review) started. |
+| 2026-09-30 | **T9 (docs) and T10 (real-app pass) done.** Real-app pass found no merge regression. Pre-existing limitation noticed: `POST /api/chat` with no `ANTHROPIC_API_KEY` returns a generic 500 (server stays up). `tallyagent_fork` now holds two sample synced workspaces (users `merge-verify-20260930-194055@example.com` and `…-194012@example.com`) for the user's review. Code review (T11) still running. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |

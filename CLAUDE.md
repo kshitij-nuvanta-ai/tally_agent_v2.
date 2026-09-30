@@ -11,6 +11,10 @@ TallyPrime AI Agent — an AI-powered chatbot that connects to a live TallyPrime
 
 **Operating mode:** SaaS + DB mode (Postgres + JWT auth + per-workspace conversations) is the default and only maintained mode. Legacy mode (in-memory sessions, no auth) is frozen — bug fixes only, no new features.
 
+**Sync service merged (2026-09-30, branch `feat/merge-v2-into-backend`):** the BI sync service that lived isolated under `v2/` (own app on port 8100, `V2_` settings, own Alembic chain, own uv project) is now part of this project — one app on port 8000, one settings class, one Alembic chain, one uv project. Spec [`docs/specs/2026-09-30-v2-merge-design.md`](docs/specs/2026-09-30-v2-merge-design.md), status [`docs/plans/2026-09-30-v2-merge-tracker.md`](docs/plans/2026-09-30-v2-merge-tracker.md).
+
+**Target architecture (senior dev direction, 2026-09-30): installer → agent → tally bridge.** The bridge runs on the Tally PC; the cloud app talks only to its own Postgres. **Not done yet:** legacy (non-DB) mode still exists (removal is a separate later step); chat still reads Tally live through `tally_bridge` (the synced tables are not read by chat); the desktop agent and installer are not built (`agent/` is a placeholder).
+
 **Where to look:**
 - **What's next** → [`docs/roadmap.md`](docs/roadmap.md) (canonical roadmap, sets A/B/C, active work)
 - **Closed phases** → § Implementation Phases below
@@ -24,8 +28,8 @@ TallyPrime AI Agent — an AI-powered chatbot that connects to a live TallyPrime
 
 ### Backend (Python)
 ```bash
-# Install dependencies
-uv sync --extra dev --extra langfuse --extra db
+# Install dependencies (one uv project; the DB packages are core dependencies — `--extra db` is still accepted, empty)
+uv sync --extra dev --extra langfuse
 
 # Run the FastAPI server (DB mode — default for all new work; requires Postgres + JWT_SECRET in .env)
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
@@ -33,8 +37,15 @@ uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 # Run the FastAPI server (legacy mode — FROZEN; no new features. Omit DATABASE_URL to use in-memory sessions)
 # Kept for reference only — do NOT use for new development.
 
-# Run Alembic migrations
+# Run Alembic migrations (one chain; revision 006 creates the 21 sync tables, or adopts them on a database
+# that already had the old `alembic_version_v2` chain and drops that version table)
 PYTHONPATH=. python -m alembic upgrade head
+
+# Purge synced rows of soft-deleted workspaces past PURGE_GRACE_DAYS
+PYTHONPATH=. uv run python -m backend.sync purge [--url URL] [--workspace ID] [--now]
+
+# Live-Tally probes (S0 harness)
+uv run python -m probes list | run <id> | run --first | run --all [--auto] | report | anchors | reset-a
 
 # Run all unit tests (fast, no external deps)
 pytest tests/unit/ -v
@@ -66,8 +77,10 @@ TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/tallyagent_test ANTHR
 # Full DB suite (283 tests — integration + DB e2e + dedup), all green 2026-09-30 (22 s that run; earlier runs took ~14 min):
 TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/integration/ tests/e2e/test_db_smoke.py tests/e2e/test_db_data_entry.py tests/e2e/test_db_data_entry_group_b.py tests/unit/test_dedup.py -q 2>&1 | tee logs/db-suite-run.log
 
-# All backend tests (unit + integration + E2E mock)
-ANTHROPIC_API_KEY=test-key pytest tests/ -v --ignore=tests/e2e_live/
+# All backend tests (unit + integration + E2E mock + sync + tally_bridge + contract + probes + layer test)
+# 2026-09-30: 3186 passed / 594 skipped without a DB. With TEST_DATABASE_URL set (as above) the whole suite,
+# DB tests included, runs in ONE session: 3770 passed / 10 skipped.
+ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/ --ignore=tests/e2e_live
 
 # All tests with coverage
 pytest --cov=backend --cov-report=html
@@ -129,15 +142,24 @@ npm run test:playwright              # Playwright visual tests (responsive + eva
 
 ## Architecture
 
+### Top-level packages and the layer rule
+
+`tally_bridge/`, `contract/`, `agent/`, `backend/`, `probes/`. Enforced by `tests/test_layers.py`: `tally_bridge` imports none of the others; `contract` may import `tally_bridge` only; `agent` must not import `backend` or `probes`; `backend` must not import `agent` or `probes`; `probes` must not import `backend`. None may import `tests` or `scripts` (one recorded exception: `tally_bridge/mock_handler.py` loads `tests/fixtures/generate_fixtures.py` by file path at run time).
+
+- `contract/` — wire contract between agent and cloud (`models.py`, `parse.py`, `transcode.py`, `tally_rules.py`).
+- `agent/` — placeholder for the desktop agent (not built).
+- `probes/` — live-Tally probe harness (`python -m probes ...`).
+
 ### Three-Layer Backend
 
-1. **Tally Bridge** (`backend/tally_bridge/`) — HTTP client that communicates with TallyPrime's XML/JSON API (default endpoint `localhost:9000`; also works across the LAN). Core modules:
-   - `client.py` — Async HTTP client (httpx) posting to `http://<TALLY_HOST>:<TALLY_PORT>`
+1. **Tally Bridge** (top-level `tally_bridge/`; was `backend/tally_bridge/`, now also holds the read code written for the agent) — HTTP client that communicates with TallyPrime's XML/JSON API (default endpoint `localhost:9000`; also works across the LAN). The backend still imports it directly until the agent ships. Core modules:
+   - `client.py` — Async HTTP client (httpx) posting to `http://<TALLY_HOST>:<TALLY_PORT>`. `post_xml` returns `str`; `post` returns `TallyResponse` with a per-request timeout
    - `request_builder.py` — Builds XML request payloads for each Tally operation
    - `response_parser.py` — Parses XML/JSON responses into normalized Python dicts
    - `queries/` — Domain-specific queries: `masters.py` (ledgers, groups), `reports.py` (TB, P&L, BS), `vouchers.py` (day book, sales/purchase register)
    - `models.py` — Pydantic models for Tally data structures
-   - `exceptions.py` — `TallyConnectionError`, `TallyResponseError`
+   - `exceptions.py` — `TallyConnectionError`, `TallyResponseError`, `TallyTimeoutError`
+   - Sync-path additions: `envelopes.py`, `xml_utils.py`, `amounts.py` (Decimal amounts), `sync_reports.py` (Decimal report parsers), `dates.py`. The chat path's float parsers (`response_parser.py`) are unchanged and sit beside them.
 
 2. **Multi-Agent System** (`backend/agents/`) — Orchestrator routes queries to specialized agents:
    - `orchestrator.py` — Classifies query type (simple_lookup, comparison, trend, top_n, aggregation, greeting) and routes to appropriate agent(s)
@@ -154,11 +176,15 @@ npm run test:playwright              # Playwright visual tests (responsive + eva
    - `GET /api/companies` — List loaded Tally companies (legacy mode)
    - `GET /api/reports/{name}` — Direct report access
    - DB mode adds: `POST /api/auth/{register,login,refresh,logout}`, `GET /api/auth/me`, workspace CRUD (`/api/workspaces`), conversation CRUD (`/api/workspaces/:id/conversations`), `GET /api/usage`
+   - Agent/sync routes (19; same app, port 8000; mounted only in DB mode when `DEVICE_TOKEN_SECRET` is set): `backend/api/agent_auth.py` (`/api/agent/auth/{login,refresh,logout}`, `/api/agent/workspaces`), `sync.py` (`/api/sync/company`, `/api/sync/{ws}/{heartbeat,state,relink,runs,coverage,batches,reconcile,snapshots,parity}`), `devices.py` (`/api/devices`), `workspace_sync.py` (`/api/workspaces/{ws}/sync-status`, `/sync/commands`), shared dependencies in `sync_dependencies.py`. These routes return errors as `{"error", "detail"}`; the existing routes keep `{"detail"}`. Web login, agent login and relink share one per-email login limiter.
+
+   **Sync server logic** lives in `backend/sync/` (binding, runs, state, coverage, commands, maintenance, `ingest/`, `parity/`, `clock.py`, `errors.py`, `wiring.py`, purge CLI), with `backend/utils/device_tokens.py` and `backend/utils/rate_limit.py`.
 
 4. **Database Layer** (`backend/db/`) — PostgreSQL persistence (Set A1, optional via `DATABASE_URL`):
    - `engine.py` — Async SQLAlchemy engine + session factory
    - `models.py` — ORM models: User, Workspace, Conversation, Message, UploadedFile, VoucherEntry, VoucherEntryRevision (edit-history version trail), LedgerMapping, UsageLog
-   - `migrations/` — Alembic migrations
+   - `sync_models/` — the 21 sync tables (bookkeeping, masters, vouchers, snapshots, parity) on the same `Base`, with foreign keys to `users` / `workspaces`. Not read by chat yet.
+   - `migrations/` — Alembic migrations, one chain (`001`–`006`); 30 application tables + `alembic_version` after `upgrade head`
 
 5. **Agent Registry** (`backend/agents/registry.py`) — Pluggable agent types keyed by `workspace.agent_type`. Currently registers "tally" → `Orchestrator`. `BaseAgent` interface in `backend/agents/base.py`.
 
@@ -185,7 +211,7 @@ Key components: `ChatWindow`, `MessageBubble` (renders text/table/chart inline),
 - **XML requests**: Preferred over JSON for Tally communication — more stable and documented across versions. Use `xml.etree.ElementTree` for parsing.
 - **Claude models**: `claude-sonnet-4-6` for query/analysis agents, `claude-haiku-4-5-20251001` for orchestrator classification, `claude-opus-4-6` for eval judge.
 - **Session management**: **DB mode** (Postgres-backed, persistent conversations, per-workspace config) is the default and only maintained path. Legacy in-memory mode is frozen.
-- **Tally Bridge supports reads + writes**: query path (`backend/tally_bridge/queries/`) is read-only and broadly used. Write path (`backend/tally_bridge/import_builder.py`) lands vouchers via Set B1a (Payment) and Group B (Sales/Purchase/DN/CN). All writes must follow [`LESSONS.md` § 15 Tally Write Safety](LESSONS.md).
+- **Tally Bridge supports reads + writes**: query path (`tally_bridge/queries/`) is read-only and broadly used. Write path (`tally_bridge/import_builder.py`) lands vouchers via Set B1a (Payment) and Group B (Sales/Purchase/DN/CN). All writes must follow [`LESSONS.md` § 15 Tally Write Safety](LESSONS.md).
 - **Configuration**: All settings via `.env` file loaded by `pydantic_settings.BaseSettings` in `backend/config.py`.
 
 ## Environment Variables
@@ -207,11 +233,23 @@ JWT_REFRESH_TOKEN_EXPIRY_DAYS        # default: 7
 VITE_DB_MODE=true                    # frontend: always set to true for DB mode (auth + sidebar)
 TEST_DATABASE_URL                    # for DB integration tests (separate DB recommended)
 TALLY_WRITE_ENABLED=true             # required for write paths (Set B1a, Group B)
+
+# Agent sync (same settings class, backend/config.py; full list with defaults in .env.example)
+DEVICE_TOKEN_SECRET                  # signs device tokens. Unset: app starts, sync routes NOT mounted (warning logged).
+                                     # Set but under 32 chars, or equal to JWT_SECRET: startup fails.
+DEVICE_ACCESS_MINUTES, DEVICE_REFRESH_DAYS, TAKEOVER_LOGIN_MAX_AGE_MINUTES
+INGEST_MAX_GZIP_BYTES, INGEST_MAX_DECOMPRESSED_BYTES, INGEST_MAX_OBJECTS
+PARITY_TOLERANCE_PAISE, QUARANTINE_ERROR_THRESHOLD, STORAGE_ALERT_BYTES
+LOGIN_RATE_MAX, LOGIN_RATE_WINDOW_S  # one per-email budget for web login, agent login and relink
+DEVICE_RATE_MAX, DEVICE_RATE_WINDOW_S
+MAINTENANCE_SLICE_SECONDS, MAINTENANCE_SLICE_ROWS, STORAGE_ESTIMATE_INTERVAL_SECONDS, PURGE_GRACE_DAYS
+# The old V2_-prefixed names (V2_DEVICE_TOKEN_SECRET, V2_DATABASE_URL, V2_WEB_JWT_SECRET, ...) are still read;
+# the new name wins when both are set. V2_PORT is no longer used.
 ```
 
 ## Testing
 
-_Approximate counts as of 2026-06-29 (write-flow edit + edit-history closeout); ~1,625 backend + ~381 frontend, 0 failures. (Live-Tally e2e_live and eval are gated/expensive — see commands above.)_
+_Whole backend suite on 2026-09-30 (after the v2 merge, `tests/` minus `e2e_live`): 3186 passed / 594 skipped without a DB; 3770 passed / 10 skipped with `TEST_DATABASE_URL`. The per-directory counts below for unit / integration / e2e are approximate and date from 2026-06-29; frontend ~381. (Live-Tally e2e_live and eval are gated/expensive — see commands above.)_
 
 - **Unit tests** (`tests/unit/`): Pure logic, no I/O. Test request XML construction, response parsing, date utils, currency formatting, mock handler, auth utils, pricing, DB models. ~956 tests.
 - **Integration tests** (`tests/integration/`): Use mock Tally HTTP server (`tests/mocks/mock_tally_server.py`) built with aiohttp. Tests full request→parse→return cycle + mock format parity. Also includes DB integration tests (auth flow, workspace CRUD, conversation persistence) — these require `TEST_DATABASE_URL`. ~132 + 15 DB tests.
@@ -220,6 +258,9 @@ _Approximate counts as of 2026-06-29 (write-flow edit + edit-history closeout); 
 - **Eval tests** (`tests/eval/`): Two-phase eval framework (collect → judge → report). Playwright drives multi-turn conversations against real frontend, LLM-as-a-judge scores responses across 5 dimensions (factual, quality, coherence, error handling, chart quality). 8 scenarios, 49 turns. Gated by `RUN_EVAL_TESTS=1`. Run standalone: `collect.py` → `judge.py` → `report.py`. Mock mode: `--tally-mode mock` auto-selects `*_mock.yaml` scenario variants when available.
 - **Frontend unit tests** (`frontend/src/__tests__/`): Vitest + React Testing Library. Tests all components + utils. ~381 tests. NOTE: the default sandbox `TMPDIR` is not writable for vitest/Playwright — run with `TMPDIR="$PWD/.tmp_vitest"` (see § Workflow Preferences).
 - **Frontend Playwright tests** (`frontend/tests/playwright/`): Visual tests — responsive (5 page states × 3 viewports) + eval-visual (8 fixtures × 3 viewports) + db-mode (20 specs × 3 viewports, 11 viewport-specific skips) ≈ 49 pass + 11 skip. Discipline rules (state matrix, visual checklist, screenshot regeneration scope, main-agent visual review) live in § Workflow Preferences → Playwright discipline.
+- **Sync tests** (`tests/sync/`): `unit/` (no DB) and `db/` (require `TEST_DATABASE_URL`; include the migration tests for revision `006`, which create and drop throwaway `<test db>_mig_<random>` databases, and the shared-login-limiter test).
+- **Bridge, contract and probe tests** (`tests/tally_bridge/`, `tests/contract/`, `tests/probes/`): no DB, no live Tally (probes run against fakes).
+- **Layer test** (`tests/test_layers.py`): the import rules in § Architecture.
 - **Fixtures** in `tests/fixtures/` — Sample Tally XML/JSON responses for each report type.
 - **Test plan thoroughness** is mandatory for every design spec — see § Workflow Preferences → Spec & test plan thoroughness.
 - **Test company**: `Bharat Traders Private Limited` (Electronics & Office Supplies trader, Maharashtra, FY Apr 2025–Mar 2026). Seeded via `scripts/seed_tally_data.py`; backup committed at `seed_data/TDBK1800_100003.001`. Setup procedure in [`docs/seed-data-setup.md`](docs/seed-data-setup.md).

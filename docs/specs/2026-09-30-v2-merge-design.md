@@ -69,7 +69,7 @@ to `users` and `workspaces`. So this merge moves code and bookkeeping. It moves 
 | `v2/agent/` | `agent/` |
 | `v2/agent/tally/` + `backend/tally_bridge/` | `tally_bridge/` |
 | `v2/probes/` | `probes/` |
-| `v2/tests/` | `tests/{sync,agent,contract,probes}/` |
+| `v2/tests/` | `tests/{sync,tally_bridge,contract,probes}/` (the agent read-code tests sit with the bridge they now test) |
 | `v2/pyproject.toml`, `v2/uv.lock`, `v2/README.md` | deleted; README content moves to the root `README.md` |
 
 ## 5. Migration `006_sync_tables`
@@ -105,7 +105,7 @@ updated in the same commit with the reason.
 | `tests/unit`, `tests/integration`, `tests/e2e` (no DB) | Same pass count as the pre-merge baseline (1595) apart from import-path edits. |
 | DB suite (`TEST_DATABASE_URL`) | 283 stay green. |
 | `tests/sync` (was `v2/tests/cloud`) unit + DB | Same counts as `v2/tests/cloud` before the merge. |
-| `tests/agent`, `tests/contract`, `tests/probes` | Same counts as before. |
+| `tests/tally_bridge` (was `tests/agent`), `tests/contract`, `tests/probes` | Same counts as before. |
 | New: `tests/test_layers.py` | Enforces M12. |
 | New: migration tests | The three rows of §5; model metadata equals the migrated schema. |
 | New: shared login limiter | Failures on web login count against agent login and the reverse. |
