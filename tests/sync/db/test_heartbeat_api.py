@@ -760,7 +760,7 @@ async def test_device_relink_wrong_passwords_are_throttled_429(app_client, sessi
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
     await _prompt(session, ws)
     body = {"new_company_guid": "new-guid-0000", "company_name": "New Co", "password": "wrong"}
-    for _ in range(app_client.app.state.settings.login_rate_max):
+    for _ in range(app_client.app.state.settings.LOGIN_RATE_MAX):
         r = await app_client.post(f"/api/sync/{ws}/relink", json=body, headers=headers)
         assert (r.status_code, r.json()["error"]) == (401, "invalid_credentials")
     r = await app_client.post(f"/api/sync/{ws}/relink", json={**body, "password": "Passw0rd!Passw0rd"},
@@ -774,7 +774,7 @@ async def test_device_relink_wrong_passwords_are_throttled_429(app_client, sessi
 async def test_web_confirm_relink_wrong_passwords_are_throttled_429(app_client, session, clock):
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
     await _prompt(session, ws)
-    for _ in range(app_client.app.state.settings.login_rate_max):
+    for _ in range(app_client.app.state.settings.LOGIN_RATE_MAX):
         r = await app_client.post(f"/api/workspaces/{ws}/sync/commands",
                                   json={"type": "confirm_relink", "password": "wrong"}, headers=web_headers(uid))
         assert (r.status_code, r.json()["error"]) == (401, "invalid_credentials")
@@ -791,7 +791,7 @@ async def test_relink_failures_share_the_login_budget(app_client, session, clock
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
     await _prompt(session, ws)
     email = (await session.execute(text("SELECT email FROM users WHERE id = :i"), {"i": uid})).scalar_one()
-    for _ in range(app_client.app.state.settings.login_rate_max):
+    for _ in range(app_client.app.state.settings.LOGIN_RATE_MAX):
         r = await app_client.post(f"/api/sync/{ws}/relink", headers=headers, json={
             "new_company_guid": "new-guid-0000", "company_name": "New Co", "password": "wrong"})
         assert r.status_code == 401
@@ -802,7 +802,7 @@ async def test_relink_failures_share_the_login_budget(app_client, session, clock
 
 async def test_successful_relink_does_not_consume_the_budget(app_client, session, clock):
     uid, ws, device_id, headers = await _login_and_bind(app_client, session)
-    for _ in range(app_client.app.state.settings.login_rate_max - 1):
+    for _ in range(app_client.app.state.settings.LOGIN_RATE_MAX - 1):
         await _prompt(session, ws)
         r = await app_client.post(f"/api/sync/{ws}/relink", headers=headers, json={
             "new_company_guid": "new-guid-0000", "company_name": "New Co", "password": "wrong"})

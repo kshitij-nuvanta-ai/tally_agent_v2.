@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.sync.app import create_app
-from backend.db.sync_models import V2_TABLES
+from backend.db.sync_models import SYNC_TABLES
 from tests.sync import realdata
 from tests.sync.conftest import requires_db, web_headers
 from tests.sync.db.ingest_helpers import B_BIND, COUNTERS, batch, bind, fresh, open_run, post_batch
@@ -53,7 +53,7 @@ async def whole(client, engine, ws, headers: dict, uid) -> dict:
     assert ss.status_code == 200, ss.text
     async with fresh(engine) as s:
         counts = {t: (await s.execute(text(f"SELECT count(*) FROM {t} WHERE workspace_id = :w"), {"w": ws}))
-                  .scalar_one() for t in V2_TABLES}
+                  .scalar_one() for t in SYNC_TABLES}
         sw = dict((await s.execute(text("SELECT * FROM sync_workspaces WHERE workspace_id = :w"), {"w": ws}))
                   .mappings().one())
         devices = [dict(r) for r in (await s.execute(text(
@@ -81,7 +81,7 @@ def cov(after: dict) -> dict[str, tuple]:
     return {r["fy_start"]: (r["state"], r["months_complete"]) for r in after["state"]["coverage"]}
 
 
-BOUND = {**{t: 0 for t in V2_TABLES}, "sync_workspaces": 1, "agent_devices": 1, "sync_fy_coverage": 5}
+BOUND = {**{t: 0 for t in SYNC_TABLES}, "sync_workspaces": 1, "agent_devices": 1, "sync_fy_coverage": 5}
 MASTER_TABLES = {"currency": "tally_currencies", "group": "tally_groups", "voucher_type": "tally_voucher_types",
                  "unit": "tally_units", "stock_group": "tally_stock_groups", "ledger": "tally_ledgers",
                  "stock_item": "tally_stock_items"}
@@ -125,7 +125,7 @@ async def test_restart_after_bind(app_client, session, engine, restart):
     assert after["status"]["agent"]["device_name"] == "ACCOUNTS-PC" and after["status"]["last_parity"] is None
     assert after["sw"]["tally_company_guid"] == realdata.COMPANY_B_GUID
     assert [(d["is_active"], d["revoked_at"]) for d in after["devices"]] == [(True, None)]
-    assert after["counts"] == {**{t: 0 for t in V2_TABLES}, "sync_workspaces": 1, "agent_devices": 1,
+    assert after["counts"] == {**{t: 0 for t in SYNC_TABLES}, "sync_workspaces": 1, "agent_devices": 1,
                                "sync_fy_coverage": 5}
     # the re-bind on the new app is a no-op: no second row of anything
     r = await c2.post("/api/sync/company", json={**B_BIND, "workspace_id": str(ws)}, headers=headers)

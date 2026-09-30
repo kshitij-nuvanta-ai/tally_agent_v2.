@@ -9,7 +9,7 @@ from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from backend.db.models import Base
 
 MONEY = Numeric(18, 2)
 

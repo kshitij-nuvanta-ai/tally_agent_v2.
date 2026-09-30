@@ -14,7 +14,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from backend.db.models import Base
 
 MONEY = Numeric(18, 2)
 FACE = Numeric(18, 4)
@@ -33,10 +33,10 @@ class _MasterCommon:
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    # No bare index here: v2_001 gives every master table `uq_<t>_ws_guid` and `ix_<t>_ws_name_live`
+    # No bare index here: migration 006 gives every master table `uq_<t>_ws_guid` and `ix_<t>_ws_name_live`
     # (both workspace_id-leading), so a separate workspace_id-only index would be redundant and would not
-    # match the migration (the authority — see `_master_indexes` below and `models/__init__.py`'s note on
-    # keeping this module in sync with `v2_001_sync_tables.py`).
+    # match the migration (the authority — see `_master_indexes` below and `tests/sync/db/test_migration.py`, which
+    # keeps the models equal to the migrated schema).
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     guid: Mapped[str] = mapped_column(Text, nullable=False)
     alter_id: Mapped[int] = mapped_column(BigInteger, nullable=False)

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.sync.clock import Clock, fy_start_of, window_fys
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.errors import ApiError
 from backend.db.sync_models import AgentDevice, SyncCommand, SyncFyCoverage, SyncRun, SyncWorkspace
 from backend.sync import commands, maintenance
@@ -86,7 +86,7 @@ async def heartbeat(
     sw: SyncWorkspace,
     device: AgentDevice,
     body,  # HeartbeatRequest (backend.api.sync) — kept untyped here to avoid an api -> sync import cycle
-    settings: V2Settings,
+    settings: Settings,
     clock: Clock,
 ) -> dict:
     now = clock.now()

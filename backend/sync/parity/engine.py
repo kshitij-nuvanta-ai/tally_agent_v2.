@@ -35,7 +35,7 @@ from sqlalchemy import func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.sync.clock import Clock, fy_end_of, fy_start_of, ist_date
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.errors import ApiError
 from backend.sync.ingest import snapshots as snapshots_mod
 from backend.sync.ingest.resolve import NameIndex, ResolveError
@@ -409,7 +409,7 @@ async def _finish_abort(session: AsyncSession, run: _Run, status: str, reason: s
 # --- the engine --------------------------------------------------------------------------------------------------------
 
 
-async def run_parity(session: AsyncSession, sw: SyncWorkspace, body: ParityRequest, settings: V2Settings,
+async def run_parity(session: AsyncSession, sw: SyncWorkspace, body: ParityRequest, settings: Settings,
                      clock: Clock) -> dict:
     if body.scope not in SCOPES:
         raise ApiError(422, "invalid_scope")
@@ -430,7 +430,7 @@ async def run_parity(session: AsyncSession, sw: SyncWorkspace, body: ParityReque
                                                   ist_date(clock.now()))      # review M20, C4
 
     await session.refresh(sw, with_for_update=True)     # one parity run at a time per workspace (ladder)
-    tol = Decimal(settings.parity_tolerance_paise) / 100
+    tol = Decimal(settings.PARITY_TOLERANCE_PAISE) / 100
     now = clock.now()
     run = _Run(sw, body, as_on, now)
     before, after = body.counters_before, body.counters_after

@@ -21,7 +21,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.sync.clock import Clock, fy_start_of, ist_date
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.errors import ApiError
 from backend.sync.ingest import store
 from backend.sync.ingest.derive import is_base_currency, is_forex_ledger
@@ -52,7 +52,7 @@ def _too_large() -> ApiError:
     return ApiError(413, "payload_too_large")
 
 
-async def read_body(request: Request, settings: V2Settings) -> dict:
+async def read_body(request: Request, settings: Settings) -> dict:
     """§12 step 1. Streams the request: the on-the-wire body may not pass `ingest_max_gzip_bytes`; a gzip body is
     inflated in 64 KiB steps with a running total that aborts as soon as it passes `ingest_max_decompressed_bytes`
     (the zip-bomb guard never inflates past the cap); then the JSON is parsed and the object count checked. No
@@ -63,14 +63,14 @@ async def read_body(request: Request, settings: V2Settings) -> dict:
     out = bytearray()
 
     def take(data: bytes) -> None:
-        if len(out) + len(data) > settings.ingest_max_decompressed_bytes:
+        if len(out) + len(data) > settings.INGEST_MAX_DECOMPRESSED_BYTES:
             raise _too_large()
         out.extend(data)
 
     try:
         async for chunk in request.stream():
             received += len(chunk)
-            if received > settings.ingest_max_gzip_bytes:
+            if received > settings.INGEST_MAX_GZIP_BYTES:
                 raise _too_large()
             if inflater is None:
                 take(chunk)
@@ -90,7 +90,7 @@ async def read_body(request: Request, settings: V2Settings) -> dict:
     if not isinstance(body, dict):
         raise ApiError(422, "invalid_body", "json")
     objects = body.get("objects")
-    if isinstance(objects, list) and len(objects) > settings.ingest_max_objects:
+    if isinstance(objects, list) and len(objects) > settings.INGEST_MAX_OBJECTS:
         raise _too_large()
     return body
 
@@ -221,7 +221,7 @@ def _check_quarantine(entries: list[QuarantineEntry]) -> list[ObjectError]:
 
 
 async def _record_quarantine(session: AsyncSession, sw: SyncWorkspace, entries: list[QuarantineEntry],
-                             stored_guids: set[str], settings: V2Settings, clock: Clock) -> None:
+                             stored_guids: set[str], settings: Settings, clock: Clock) -> None:
     """§12 step 13 / D12: record each quarantined object (one open row per `(kind, guid)`), resolve every open row
     whose GUID this batch stored, recount, and move a first sync to `error` past the threshold (§8.2, A8)."""
     now = clock.now()
@@ -243,7 +243,7 @@ async def _record_quarantine(session: AsyncSession, sw: SyncWorkspace, entries: 
     open_count = (await session.execute(select(func.count()).select_from(t).where(
         t.c.workspace_id == sw.workspace_id, t.c.resolved_at.is_(None)))).scalar_one()
     sw.quarantine_count = open_count
-    if open_count > settings.quarantine_error_threshold and (sw.sync_state, "fatal") in state.TRANSITIONS:
+    if open_count > settings.QUARANTINE_ERROR_THRESHOLD and (sw.sync_state, "fatal") in state.TRANSITIONS:
         state.transition(sw, "fatal")
 
 
@@ -468,7 +468,7 @@ def _moves_last_synced(run: SyncRun, body: BatchRequest, has_masters: bool, wind
 
 
 async def ingest_batch(session: AsyncSession, sw: SyncWorkspace, device: AgentDevice, body: BatchRequest,
-                       raw_sha256: str, settings: V2Settings, clock: Clock) -> tuple[int, dict]:
+                       raw_sha256: str, settings: Settings, clock: Clock) -> tuple[int, dict]:
     ws_id = sw.workspace_id
     run_id = await _existing_run_id(session, ws_id, body.run_id)
     claim = await _claim_batch_id(session, ws_id, run_id, body, raw_sha256, clock)          # step 2

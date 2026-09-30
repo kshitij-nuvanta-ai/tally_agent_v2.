@@ -67,7 +67,7 @@ async def login(body: LoginBody, request: Request, session: AsyncSession = Depen
         device_name=body.device_name,
         agent_version=body.agent_version,
         refresh_hash=refresh_hash,
-        refresh_expires_at=now + timedelta(days=settings.device_refresh_days),
+        refresh_expires_at=now + timedelta(days=settings.DEVICE_REFRESH_DAYS),
         last_login_at=now,
         is_active=False,
     )
@@ -75,13 +75,13 @@ async def login(body: LoginBody, request: Request, session: AsyncSession = Depen
     await session.commit()
 
     access_token = mint_access(
-        device_id, row["id"], None, secret=settings.device_token_secret,
-        minutes=settings.device_access_minutes, now=now,
+        device_id, row["id"], None, secret=settings.DEVICE_TOKEN_SECRET,
+        minutes=settings.DEVICE_ACCESS_MINUTES, now=now,
     )
     return {
         "device_id": str(device_id),
         "access_token": access_token,
-        "expires_in": settings.device_access_minutes * 60,
+        "expires_in": settings.DEVICE_ACCESS_MINUTES * 60,
         "refresh_token": refresh_token,
         "user": {"id": str(row["id"]), "name": row["name"]},
     }
@@ -133,7 +133,7 @@ async def refresh(body: RefreshBody, request: Request, session: AsyncSession = D
         raise ApiError(401, "refresh_expired")
 
     new_token, new_hash = new_refresh()
-    new_expiry = now + timedelta(days=settings.device_refresh_days)
+    new_expiry = now + timedelta(days=settings.DEVICE_REFRESH_DAYS)
 
     # Atomic conditional rotate (D6 "rotated on use" + reuse detection under concurrency): only succeeds if
     # refresh_hash on the row still equals what THIS request presented. Under READ COMMITTED, a concurrent
@@ -160,13 +160,13 @@ async def refresh(body: RefreshBody, request: Request, session: AsyncSession = D
         raise ApiError(401, "device_revoked", reason="refresh_reuse")
 
     access_token = mint_access(
-        device.id, device.user_id, device.workspace_id, secret=settings.device_token_secret,
-        minutes=settings.device_access_minutes, now=now,
+        device.id, device.user_id, device.workspace_id, secret=settings.DEVICE_TOKEN_SECRET,
+        minutes=settings.DEVICE_ACCESS_MINUTES, now=now,
     )
     return {
         "device_id": str(device.id),
         "access_token": access_token,
-        "expires_in": settings.device_access_minutes * 60,
+        "expires_in": settings.DEVICE_ACCESS_MINUTES * 60,
         "refresh_token": new_token,
     }
 

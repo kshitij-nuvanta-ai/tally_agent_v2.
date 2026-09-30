@@ -9,9 +9,10 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 
 ## Resume here
 
-**Merge approved by the user 2026-09-30; step 1 in progress.** Branch `feat/merge-v2-into-backend` (cut from
-`feat/bi-s1-cloud` @ `99ced44`). Working through `docs/plans/2026-09-30-v2-merge-plan.md`: T0 baselines, then T1
-(move packages). Everything outside step 1 stays parked until the user picks it up.
+**Step 1 in progress on `feat/merge-v2-into-backend`.** Done: T0 baselines, T1 + T2 (commit `13d6bbd`). In progress:
+T3 (one settings class) + T4 (one Base, migration `006`, one DB test harness). Next: T5 (one engine, one app), T6 (one
+auth), T7 (one tally bridge), T8 (layer test), T9 (docs), T10 (verification), T11 (code review). Commits are local;
+pushing needs GitHub login (0.3).
 
 ## Status
 
@@ -22,14 +23,14 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 | 0.3 | GitHub login on this machine | Not started | `gh auth login` failed 2026-09-30; needed to push |
 | 0.4 | Fork has all 4 branches (compare with old repo) | Not started | local clone has `master`, `dev`, `feat/bi-s0-probe-harness`, `feat/bi-s1-cloud` |
 | **1** | **Merge v2 into backend** (`feat/merge-v2-into-backend`) | **In progress** | started 2026-09-30 |
-| 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | In progress (drafts only) | uncommitted drafts: `docs/specs/2026-09-30-v2-merge-design.md`, `docs/plans/2026-09-30-v2-merge-plan.md`; old spec and roadmap not yet updated |
-| 1.1 | Move files to target layout (`v2/` removed) | In progress | plan tasks T1 + T2 under way |
+| 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | In progress | spec + plan committed in `13d6bbd`; old spec "Changed" line and roadmap still to do (plan T9) |
+| 1.1 | Move files to target layout (`v2/` removed) | Done | commit `13d6bbd`; 3106 passed no-DB, 1719 + 1948 with DB (= baselines). `v2/` holds only `README.md` until the docs task |
 | 1.2 | One app: routers in `backend/main.py`, port 8100 gone | Not started | — |
-| 1.3 | One settings class | Not started | — |
+| 1.3 | One settings class | In progress | plan T3 under way |
 | 1.4 | One auth (copies deleted, shared login limiter) | Not started | — |
-| 1.5 | One DB engine + migration `006_sync_tables` | Not started | — |
+| 1.5 | One DB engine + migration `006_sync_tables` | In progress | plan T4 (one Base, migration 006, one test harness) under way; engine is T5 |
 | 1.6 | One tally bridge (top-level `tally_bridge/`) | Not started | — |
-| 1.7 | One project, one test tree, new isolation test | Not started | — |
+| 1.7 | One project, one test tree, new isolation test | In progress | one project + one test tree done in `13d6bbd`; the two DB harnesses still need two runs until T4; new layer test is T8 |
 | 1.8 | Parked items recorded in `docs/open-items-parked.md` | Not started | — |
 | 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Not started | — |
 | 1.10 | Code review stored in `docs/`, fixes applied | Not started | — |
@@ -140,4 +141,5 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-09-30 | **User approved starting step 1 (the merge).** Steps 2–4 and the open questions stay parked. Backend keeps its direct Tally access during the merge (no behaviour change). |
 | 2026-09-30 | User: when done, push to the feature branch `feat/merge-v2-into-backend` on the fork; where it merges (`dev` / `master`) is decided later. Needs GitHub login on this machine (0.3). |
 | 2026-09-30 | Baselines measured (T0 done): app 1595 / 1719 with DB, v2 1511 / 1948 with DB. T1 + T2 (move packages, one project) started. |
+| 2026-09-30 | **T1 + T2 done, commit `13d6bbd`:** `v2/` moved into the main project, one uv project and lockfile; all suites equal the baselines. Temporary modules left under `backend/sync/` (`config.py`, `db.py`, `app.py`, `alembic/`, `passwords.py`, `web_jwt.py`) and `backend/db/sync_models/{base,current}.py`. T3 + T4 started. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |

@@ -1,14 +1,11 @@
-"""v2 cloud ORM models — S1 spec §4 (migration ``v2_001``).
+"""Sync ORM models — S1 spec §4 (migration ``006_sync_tables``, formerly ``v2_001``).
 
-All 21 v2 tables share ``Base.metadata`` (this module's own, distinct from the current app's
-``backend.db.models.Base``). ``current.py``'s ``users_table`` / ``workspaces_table`` are read-only reflections
-in the same metadata so v2 tables' FKs resolve, but carry ``info={"v2_readonly": True}`` so the v2 Alembic chain
-never emits DDL for them (see ``alembic/env.py``'s ``include_object``).
+The 21 sync tables are declared on the one declarative ``Base`` (``backend.db.models.Base``, v2 merge M4), next to
+the 9 app tables, so their foreign keys point at the real ``users`` / ``workspaces`` tables. ``backend/db/__init__``
+imports this package, so ``Base.metadata`` always holds all 30 tables.
 """
 from __future__ import annotations
 
-from . import current  # noqa: F401  (registers users_table/workspaces_table for FK resolution)
-from .base import Base
 from .bookkeeping import (
     AgentDevice,
     SyncBatch,
@@ -37,8 +34,7 @@ from .vouchers import (
 )
 
 __all__ = [
-    "Base",
-    "V2_TABLES",
+    "SYNC_TABLES",
     "SyncWorkspace",
     "AgentDevice",
     "SyncRun",
@@ -62,9 +58,9 @@ __all__ = [
     "ParityLine",
 ]
 
-# FK-safe DROP order (children first). `python -m backend.sync purge` (Task 11) and the DB test harness
-# (tests/sync/conftest.py) both rely on this ordering.
-V2_TABLES: tuple[str, ...] = (
+# The 21 sync tables in FK-safe DELETE/DROP order (children first). `python -m backend.sync purge` (Task 11), the
+# storage estimate (`backend/sync/maintenance.py`) and the DB test harness (tests/sync/conftest.py) rely on it.
+SYNC_TABLES: tuple[str, ...] = (
     "parity_lines",
     "tally_bill_allocations",
     "tally_voucher_inventory_lines",

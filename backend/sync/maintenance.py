@@ -3,8 +3,8 @@ retention (Q21), batch-log retention and the storage estimate/alert (Q23). No sc
 a heartbeat arrives (S1-R9) — the `purge` CLI (`backend/sync/purge.py`, Q5) is the only thing that ever deletes a
 whole workspace's rows.
 
-Each sub-step is bounded BOTH by rows (`LIMIT settings.maintenance_slice_rows`) and by elapsed wall time
-(`settings.maintenance_slice_seconds`) — a slice that runs long on one sub-step skips the rest rather than
+Each sub-step is bounded BOTH by rows (`LIMIT settings.MAINTENANCE_SLICE_ROWS`) and by elapsed wall time
+(`settings.MAINTENANCE_SLICE_SECONDS`) — a slice that runs long on one sub-step skips the rest rather than
 blowing the heartbeat's budget; the next heartbeat picks up where this one left off (nothing here is
 transactionally atomic across sub-steps, and that is fine: each sub-step's own WHERE clause makes it safe to
 retry or interrupt at any point).
@@ -24,7 +24,7 @@ retry or interrupt at any point).
 - **Batch-log retention:** `sync_batches` rows older than 90 days are pruned.
 - **Quarantine retention:** resolved `sync_quarantine` rows are pruned 90 days after `resolved_at`.
 - **Storage estimate + alert (Q23):** `storage_estimate_bytes = Σ row counts × AVG_ROW_BYTES[table]`, refreshed
-  at most hourly (the count walk is O(rows)); `storage_alert = estimate > settings.storage_alert_bytes` — an ops signal (counts only, per
+  at most hourly (the count walk is O(rows)); `storage_alert = estimate > settings.STORAGE_ALERT_BYTES` — an ops signal (counts only, per
   `parity/opsignal.py`'s decision-14 discipline) fires on the false->true transition. No hard stop.
 """
 from __future__ import annotations
@@ -40,10 +40,10 @@ from sqlalchemy import and_, delete, func, null, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.sync.clock import Clock, fy_end_of, ist_date
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.ingest.store import raw_window_fys
 from backend.db.sync_models import (
-    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncWorkspace, TallyVoucher, V2_TABLES,
+    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncWorkspace, TallyVoucher, SYNC_TABLES,
 )
 from backend.sync.parity.model import PROBLEM_VERDICTS
 
@@ -244,22 +244,22 @@ async def _prune_quarantine_slice(session: AsyncSession, ws_id: uuid.UUID, clock
 _ESTIMATED_AT_KEY = "storage_estimated_at"
 
 
-def _estimate_due(sw: SyncWorkspace, settings: V2Settings, clock: Clock) -> bool:
+def _estimate_due(sw: SyncWorkspace, settings: Settings, clock: Clock) -> bool:
     """D20/Q23: the per-table `count(*)` walk is O(rows), so it refreshes at most once per
     `storage_estimate_interval_seconds` (last refresh time kept under `sync_workspaces.ladder`, no schema change)."""
     last = (sw.ladder or {}).get(_ESTIMATED_AT_KEY)
     if not last:
         return True
-    return clock.now() - datetime.fromisoformat(last) >= timedelta(seconds=settings.storage_estimate_interval_seconds)
+    return clock.now() - datetime.fromisoformat(last) >= timedelta(seconds=settings.STORAGE_ESTIMATE_INTERVAL_SECONDS)
 
 
 async def _storage_estimate(session: AsyncSession, ws_id: uuid.UUID) -> int:
     """Q23: Σ row counts × `AVG_ROW_BYTES[table]` across this workspace's own rows in every v2 table."""
     total = 0
-    for table in V2_TABLES:
+    for table in SYNC_TABLES:
         n = (
             await session.execute(
-                text(f"SELECT count(*) FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from V2_TABLES, not user input)
+                text(f"SELECT count(*) FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from SYNC_TABLES, not user input)
             )
         ).scalar_one()
         total += n * AVG_ROW_BYTES.get(table, 0)
@@ -279,13 +279,13 @@ def _storage_alert_event(ws_id: uuid.UUID, estimate_bytes: int, threshold_bytes:
 
 
 async def run_slice(
-    session: AsyncSession, sw: SyncWorkspace, settings: V2Settings, clock: Clock
+    session: AsyncSession, sw: SyncWorkspace, settings: Settings, clock: Clock
 ) -> SliceReport:
     """D20: one bounded maintenance slice, called from every heartbeat (`state.heartbeat`). Each sub-step is
-    skipped once the slice's time budget (`settings.maintenance_slice_seconds`) is spent; the storage estimate
+    skipped once the slice's time budget (`settings.MAINTENANCE_SLICE_SECONDS`) is spent; the storage estimate
     runs last, only when the time budget allows and at most once per `storage_estimate_interval_seconds`."""
-    budget = _Budget(settings.maintenance_slice_seconds)
-    limit = settings.maintenance_slice_rows
+    budget = _Budget(settings.MAINTENANCE_SLICE_SECONDS)
+    limit = settings.MAINTENANCE_SLICE_ROWS
     report = SliceReport(ran=True)
 
     if budget.has_time():
@@ -304,14 +304,14 @@ async def run_slice(
 
     if budget.has_time() and _estimate_due(sw, settings, clock):
         estimate = await _storage_estimate(session, sw.workspace_id)
-        alert = estimate > settings.storage_alert_bytes
+        alert = estimate > settings.STORAGE_ALERT_BYTES
         was_alert = sw.storage_alert
         sw.storage_estimate_bytes = estimate
         sw.storage_alert = alert
         sw.ladder = {**(sw.ladder or {}), _ESTIMATED_AT_KEY: clock.now().isoformat()}
         if alert and not was_alert:                     # ops signal on the false -> true transition only
             logging.getLogger(_OPS_LOGGER).info(
-                json.dumps(_storage_alert_event(sw.workspace_id, estimate, settings.storage_alert_bytes))
+                json.dumps(_storage_alert_event(sw.workspace_id, estimate, settings.STORAGE_ALERT_BYTES))
             )
     report.storage_estimate_bytes = sw.storage_estimate_bytes
     report.storage_alert = sw.storage_alert

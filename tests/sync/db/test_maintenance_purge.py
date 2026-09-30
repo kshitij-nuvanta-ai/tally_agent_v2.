@@ -13,9 +13,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.sync.clock import FixedClock
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.db.sync_models import (
-    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncRun, SyncWorkspace, TallyVoucher, V2_TABLES,
+    ParityLine, ParityRun, SyncBatch, SyncQuarantine, SyncRun, SyncWorkspace, TallyVoucher, SYNC_TABLES,
 )
 from backend.sync import coverage, maintenance, purge
 from tests.sync.conftest import requires_db
@@ -72,11 +72,11 @@ def _batch(ws: uuid.UUID, run_id: uuid.UUID, *, created_at: datetime) -> SyncBat
     )
 
 
-def _settings(**overrides) -> V2Settings:
+def _settings(**overrides) -> Settings:
     import os
 
-    return V2Settings(_env_file=None, database_url=os.environ["TEST_DATABASE_URL"], web_jwt_secret="w" * 32,
-                      device_token_secret="d" * 32, **overrides)
+    return Settings(_env_file=None, DATABASE_URL=os.environ["TEST_DATABASE_URL"], JWT_SECRET="w" * 32,
+                    DEVICE_TOKEN_SECRET="d" * 32, **overrides)
 
 
 async def _table_count(s, table: str, ws: uuid.UUID) -> int:
@@ -117,7 +117,7 @@ async def test_raw_window_follows_ist_fy(app_client, session, engine):
 
 
 async def test_raw_purge_is_bounded_per_slice(app_client, session, engine):
-    """§14.20: 12 vouchers outside the window, `maintenance_slice_rows=5` -> 5, 5, 2 nulled across three
+    """§14.20: 12 vouchers outside the window, `MAINTENANCE_SLICE_ROWS=5` -> 5, 5, 2 nulled across three
     heartbeat-driven slices."""
     clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
     ws, sw = await _bound_sw(app_client, session)
@@ -128,7 +128,7 @@ async def test_raw_purge_is_bounded_per_slice(app_client, session, engine):
         session.add(_voucher(ws, f"{B_GUID}-old-{i}", date(2022, 6, 15)))
     await session.commit()
 
-    settings = _settings(maintenance_slice_rows=5)
+    settings = _settings(MAINTENANCE_SLICE_ROWS=5)
     counts = []
     for _ in range(3):
         report = await maintenance.run_slice(session, sw, settings, clock)
@@ -254,7 +254,7 @@ async def test_storage_alert_sets_flag_over_threshold(app_client, session, engin
     session.add(_voucher(ws, f"{B_GUID}-est", date(2026, 6, 15)))
     await session.commit()
 
-    settings = _settings(storage_alert_bytes=1)
+    settings = _settings(STORAGE_ALERT_BYTES=1)
     with caplog.at_level(logging.INFO, logger="v2.ops.storage"):
         report = await maintenance.run_slice(session, sw, settings, clock)
         await session.commit()
@@ -304,7 +304,7 @@ async def test_purge_now_deletes_only_that_workspaces_rows(app_client, session, 
     await session.commit()
 
     async with fresh(engine) as s:
-        before2 = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
+        before2 = {t: await _table_count(s, t, ws2) for t in SYNC_TABLES}
     sm = await _sessionmaker(engine)
     clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
     counts = await purge.purge(sm, workspace_id=ws1, now=True, clock=clock, settings=_settings())
@@ -314,9 +314,9 @@ async def test_purge_now_deletes_only_that_workspaces_rows(app_client, session, 
     assert counts["sync_workspaces"] == 1
 
     async with fresh(engine) as s:
-        after = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
-        gone = {t: await _table_count(s, t, ws1) for t in V2_TABLES}
-    assert gone == {t: 0 for t in V2_TABLES}                       # purged workspace: 0 rows in EVERY v2 table
+        after = {t: await _table_count(s, t, ws2) for t in SYNC_TABLES}
+        gone = {t: await _table_count(s, t, ws1) for t in SYNC_TABLES}
+    assert gone == {t: 0 for t in SYNC_TABLES}                       # purged workspace: 0 rows in EVERY v2 table
     assert after == before2                                        # neighbour: every table's count unchanged
     assert before2["tally_vouchers"] == 1 and before2["agent_devices"] >= 1 and before2["sync_runs"] == 1
     async with fresh(engine) as s:
@@ -442,12 +442,12 @@ async def test_purge_survives_device_moved_between_workspaces(app_client, sessio
     sm = await _sessionmaker(engine)
     clock = FixedClock(datetime(2026, 9, 25, 6, 30, tzinfo=UTC))
     async with fresh(engine) as s:
-        before2 = {t: await _table_count(s, t, ws2) for t in V2_TABLES}
+        before2 = {t: await _table_count(s, t, ws2) for t in SYNC_TABLES}
     await purge.purge(sm, workspace_id=ws1, now=True, clock=clock, settings=_settings())
     async with fresh(engine) as s:
         assert await s.get(SyncWorkspace, ws1) is None
-        assert {t: await _table_count(s, t, ws1) for t in V2_TABLES} == {t: 0 for t in V2_TABLES}
-        assert {t: await _table_count(s, t, ws2) for t in V2_TABLES} == before2
+        assert {t: await _table_count(s, t, ws1) for t in SYNC_TABLES} == {t: 0 for t in SYNC_TABLES}
+        assert {t: await _table_count(s, t, ws2) for t in SYNC_TABLES} == before2
         assert await s.get(SyncRun, moved_run.id) is not None
         d = (await s.execute(text("SELECT workspace_id, is_active, revoked_at FROM agent_devices WHERE id = :d"),
                              {"d": dev1})).mappings().one()
@@ -514,7 +514,7 @@ async def test_storage_estimate_is_time_gated(app_client, session, engine, monke
         return await real(sess, ws_id)
 
     monkeypatch.setattr(maintenance, "_storage_estimate", counting)
-    settings = _settings(storage_estimate_interval_seconds=3600)
+    settings = _settings(STORAGE_ESTIMATE_INTERVAL_SECONDS=3600)
     for _ in range(3):
         await maintenance.run_slice(session, sw, settings, clock)
         await session.commit()
@@ -532,7 +532,7 @@ async def test_storage_alert_signal_only_on_transition(app_client, session, capl
     ws, sw = await _bound_sw(app_client, session)
     session.add(_voucher(ws, f"{B_GUID}-tr", date(2026, 6, 15)))
     await session.commit()
-    settings = _settings(storage_alert_bytes=1, storage_estimate_interval_seconds=1)
+    settings = _settings(STORAGE_ALERT_BYTES=1, STORAGE_ESTIMATE_INTERVAL_SECONDS=1)
     with caplog.at_level(logging.INFO, logger="v2.ops.storage"):
         for _ in range(3):
             await maintenance.run_slice(session, sw, settings, clock)

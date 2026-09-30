@@ -1,42 +1,18 @@
-"""v2 cloud Alembic wrappers — used by ``python -m backend.sync`` and the DB test harness (S1 task 3).
+"""``purge_cli`` — the retention sweep behind ``python -m backend.sync purge`` (Q5, Task 11).
 
-``purge_cli`` (Q5 retention sweep, Task 11) wraps ``sync/purge.py``'s ``purge()`` for ``__main__.py``: builds its
-own engine/session_factory from ``url`` so the CLI never shares a connection with the app's own lifespan.
+Wraps ``sync/purge.py``'s ``purge()``: builds its own engine/session_factory from ``url`` so the CLI never shares
+a connection with the app's own lifespan. Schema migrations are not run from here: the sync tables are part of
+the one Alembic chain (``alembic upgrade head``, revision ``006``).
 """
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from backend.config import Settings
 from backend.sync.clock import Clock, SystemClock
-from backend.sync.config import V2Settings
 from backend.sync.db import make_engine
-
-_BASE_DIR = Path(__file__).resolve().parent
-
-
-def _config() -> Config:
-    cfg = Config(str(_BASE_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(_BASE_DIR / "alembic"))
-    return cfg
-
-
-def migrate(url: str, revision: str = "head") -> None:
-    """Run the v2 Alembic chain (``alembic_version_v2``) up to ``revision`` against ``url``."""
-    cfg = _config()
-    cfg.attributes["url"] = url
-    command.upgrade(cfg, revision)
-
-
-def downgrade(url: str, revision: str = "base") -> None:
-    """Run the v2 Alembic chain down to ``revision`` against ``url``."""
-    cfg = _config()
-    cfg.attributes["url"] = url
-    command.downgrade(cfg, revision)
 
 
 async def purge_cli(
@@ -50,7 +26,7 @@ async def purge_cli(
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         return await purge_mod.purge(
             session_factory, workspace_id=workspace_id, now=now, clock=clock or SystemClock(),
-            settings=V2Settings(database_url=url),
+            settings=Settings(DATABASE_URL=url),
         )
     finally:
         await engine.dispose()

@@ -1,10 +1,9 @@
 """``python -m backend.sync purge`` (S1 spec §4.9 Q5): deletes every v2 row of workspaces soft-deleted at least
-``settings.purge_grace_days`` ago (or immediately with ``--now``), in FK-safe order (``V2_TABLES``), and logs
+``settings.PURGE_GRACE_DAYS`` ago (or immediately with ``--now``), in FK-safe order (``SYNC_TABLES``), and logs
 counts only — never names, GUIDs or workspace ids in the log line (decision 14 discipline).
 
-``workspaces`` itself (and ``users``) is the CURRENT app's table, read-only from v2 (`models/current.py`); this
-module only ever reads it (to find soft-deleted rows and their ``updated_at``) and never writes or deletes from
-it. The grace clock is ``workspaces.updated_at`` — the only timestamp the current app's soft-delete sets (see
+This module never writes to or deletes from ``workspaces`` (or ``users``): it only reads ``workspaces`` to find
+soft-deleted rows and their ``updated_at``. The grace clock is ``workspaces.updated_at`` — the only timestamp the current app's soft-delete sets (see
 ``backend/api/workspaces.py``: ``ws.is_deleted = True``, and ``Workspace.updated_at`` has ``onupdate=_utcnow``
 so it moves on that same flush); there is no dedicated ``deleted_at`` column to read instead (A16).
 """
@@ -19,8 +18,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.sync.clock import Clock
-from backend.sync.config import V2Settings
-from backend.db.sync_models import V2_TABLES
+from backend.config import Settings
+from backend.db.sync_models import SYNC_TABLES
 
 _OPS_LOGGER = "v2.ops.purge"
 
@@ -45,17 +44,17 @@ async def purge(
     workspace_id: uuid.UUID | None = None,
     now: bool = False,
     clock: Clock,
-    settings: V2Settings | None = None,
+    settings: Settings | None = None,
 ) -> dict[str, int]:
-    """Row counts deleted per v2 table (``V2_TABLES`` order — children first, so every FK is satisfied without
+    """Row counts deleted per v2 table (``SYNC_TABLES`` order — children first, so every FK is satisfied without
     relying on ``ON DELETE CASCADE``). A live workspace, or one still inside the grace period (unless ``now``),
     is never touched — ``_eligible_workspace_ids`` is the only source of truth for which workspaces qualify."""
-    settings = settings or V2Settings()
-    counts: dict[str, int] = {t: 0 for t in V2_TABLES}
+    settings = settings or Settings()
+    counts: dict[str, int] = {t: 0 for t in SYNC_TABLES}
     detached = 0
     async with session_factory() as session:
         ids = await _eligible_workspace_ids(
-            session, workspace_id=workspace_id, now=now, grace_days=settings.purge_grace_days, clock=clock
+            session, workspace_id=workspace_id, now=now, grace_days=settings.PURGE_GRACE_DAYS, clock=clock
         )
     purged = 0
     for ws_id in ids:
@@ -87,7 +86,7 @@ async def _purge_workspace(session, ws_id: uuid.UUID, clock: Clock) -> tuple[dic
     device still referenced by any surviving row is detached instead (``workspace_id`` NULL, inactive, revoked)."""
     counts: dict[str, int] = {}
     detached = 0
-    for table in V2_TABLES:
+    for table in SYNC_TABLES:
         if table == "agent_devices":
             referenced = (
                 "id IN (SELECT device_id FROM sync_runs WHERE workspace_id <> :w) "
@@ -102,7 +101,7 @@ async def _purge_workspace(session, ws_id: uuid.UUID, clock: Clock) -> tuple[dic
             )
             detached += det.rowcount or 0
         result = await session.execute(
-            text(f"DELETE FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from V2_TABLES)
+            text(f"DELETE FROM {table} WHERE workspace_id = :w"), {"w": ws_id}  # noqa: S608 (table from SYNC_TABLES)
         )
         counts[table] = result.rowcount or 0
     return counts, detached

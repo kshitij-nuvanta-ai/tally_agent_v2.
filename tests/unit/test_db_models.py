@@ -28,5 +28,9 @@ def test_workspace_default_agent_type():
     assert ws.default.arg == "tally"
 
 def test_base_has_metadata():
+    """One Base for the 9 app tables and the 21 sync tables (v2 merge M4); it was 9 before the merge."""
+    from backend.db.sync_models import SYNC_TABLES
+
     assert Base.metadata is not None
-    assert len(Base.metadata.tables) == 9
+    assert len(Base.metadata.tables) == 30
+    assert len(set(Base.metadata.tables) - set(SYNC_TABLES)) == 9

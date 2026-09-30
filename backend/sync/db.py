@@ -1,5 +1,5 @@
-"""V2 cloud's own async SQLAlchemy engine + session dependency — its own connection, its own Alembic chain
-(``alembic_version_v2``); it never shares the current app's engine (S1 Global Constraints)."""
+"""The sync routes' async SQLAlchemy engine + session dependency. Temporary: the routes move onto the one engine
+in ``backend/db/engine.py`` in v2 merge T5. The schema is the one Alembic chain's (revision ``006``)."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator

@@ -423,7 +423,7 @@ async def test_concurrent_identical_batches_store_once(app_client, session, engi
 async def test_oversize_gzip_413(app_client, session, engine):
     ws, headers, run_id, _ = await bound(app_client, session)
     body = batch(run_id, realdata.b_masters())
-    app_client.app.state.settings.ingest_max_gzip_bytes = len(gz(body)) - 1
+    app_client.app.state.settings.INGEST_MAX_GZIP_BYTES = len(gz(body)) - 1
     r = await post_batch(app_client, ws, headers, body)
     assert r.status_code == 413 and r.json()["error"] == "payload_too_large"
     async with fresh(engine) as s:
@@ -673,9 +673,9 @@ async def test_quarantine_accepts_every_task_8a_deterministic_code(app_client, s
 
 
 async def test_quarantine_over_threshold_moves_first_sync_to_error(app_client, session, engine):
-    """§8.2 / A8: quarantine > `V2_QUARANTINE_ERROR_THRESHOLD` during a first sync -> `sync_state = error`."""
+    """§8.2 / A8: quarantine > `QUARANTINE_ERROR_THRESHOLD` during a first sync -> `sync_state = error`."""
     ws, headers, run_id, _ = await bound(app_client, session)
-    app_client.app.state.settings.quarantine_error_threshold = 1
+    app_client.app.state.settings.QUARANTINE_ERROR_THRESHOLD = 1
     q = [{"kind": "voucher", "guid": f"{B}-9{i:07d}", "code": "unbalanced_voucher"} for i in range(2)]
     await post_ok(app_client, ws, headers, run_id, [], quarantine=q[:1])
     async with fresh(engine) as s:

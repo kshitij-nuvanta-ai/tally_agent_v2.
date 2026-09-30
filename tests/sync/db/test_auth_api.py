@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.api import agent_auth
 from backend.api.sync_dependencies import active_device
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.app import create_app
 from tests.sync.conftest import (
     TEST_DB,
@@ -177,8 +177,8 @@ async def test_delete_other_users_device_404(app_client, session):
 
 
 async def test_per_device_rate_limit_429(engine, clock):
-    settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
-                           device_token_secret="d" * 32, device_rate_max=3)
+    settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
+                        DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=3)
     app = create_app(settings, clock)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://v2") as client:
@@ -446,11 +446,11 @@ async def test_active_device_ordering_wrong_workspace_wins_over_deleted(probe_cl
 
 
 async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
-    """§8.1 check 6 (rate limit) is last: with `device_rate_max=1` and a device that always fails check 5
+    """§8.1 check 6 (rate limit) is last: with `DEVICE_RATE_MAX=1` and a device that always fails check 5
     (bound, not the workspace's active device), repeated calls must keep returning 409 — never 429 — because
     execution never reaches the limiter once an earlier check has already failed."""
-    settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
-                           device_token_secret="d" * 32, device_rate_max=1)
+    settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
+                        DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=1)
     app = create_app(settings, clock)
     _mount_active_device_probe(app)
 
@@ -469,11 +469,11 @@ async def test_active_device_rate_limit_checked_after_not_active(engine, clock):
 
 async def test_active_device_rate_limit_429_with_retry_after(engine, clock):
     """Fix round 2 #3(a): §8.1 check 6, reached through `active_device` (not `any_device`). With
-    `device_rate_max=1` and a device that passes every earlier check (bound, active, live workspace), the first
+    `DEVICE_RATE_MAX=1` and a device that passes every earlier check (bound, active, live workspace), the first
     call succeeds and the second is 429 `rate_limited` with an integer `Retry-After` header — proving the
     limiter is actually wired into `active_device`'s own code path, not just asserted by omission elsewhere."""
-    settings = V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32,
-                           device_token_secret="d" * 32, device_rate_max=1)
+    settings = Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32,
+                        DEVICE_TOKEN_SECRET="d" * 32, DEVICE_RATE_MAX=1)
     app = create_app(settings, clock)
     _mount_active_device_probe(app)
 

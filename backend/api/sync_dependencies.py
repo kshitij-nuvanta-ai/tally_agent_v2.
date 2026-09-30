@@ -51,7 +51,7 @@ async def check_user_password(request: Request, session: AsyncSession, user_id: 
 async def web_user(request: Request) -> uuid.UUID:
     """Web JWT -> user id (§9.4). Raises ``ApiError(401, "token_invalid"/"token_expired")``."""
     token = _bearer_token(request)
-    user_id = decode_web_access(token, request.app.state.settings.web_jwt_secret)
+    user_id = decode_web_access(token, request.app.state.settings.JWT_SECRET or "")
     return uuid.UUID(user_id)
 
 
@@ -60,7 +60,7 @@ async def _decode_and_load_device(request: Request, session: AsyncSession) -> Ag
     settings = request.app.state.settings
     clock = request.app.state.clock
     token = _bearer_token(request)
-    claims = decode_access(token, secret=settings.device_token_secret, now=clock.now())
+    claims = decode_access(token, secret=settings.DEVICE_TOKEN_SECRET, now=clock.now())
 
     device = await session.get(AgentDevice, claims.device_id)
     if device is None:

@@ -7,7 +7,7 @@ import pytest
 
 from backend.sync.web_jwt import decode_web_access
 from backend.sync.clock import FixedClock, current_fy_start, fy_start_of, ist_date
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.errors import ApiError
 from backend.sync.app import create_app
 
@@ -26,23 +26,28 @@ def test_current_fy_uses_ist():
 
 
 def test_settings_defaults_and_web_secret_alias(monkeypatch):
+    """The sync settings live on the one ``Settings`` class (M2); the web secret is its ``JWT_SECRET``. ``V2_PORT``
+    is gone with the separate app. Both env spellings are covered in ``tests/unit/test_config_sync.py``."""
     monkeypatch.setenv("JWT_SECRET", "w" * 32)
     monkeypatch.delenv("V2_WEB_JWT_SECRET", raising=False)
-    s = V2Settings(_env_file=None)
-    assert (s.port, s.ingest_max_objects, s.parity_tolerance_paise, s.web_jwt_secret) == (8100, 500, 100, "w" * 32)
+    monkeypatch.delenv("INGEST_MAX_OBJECTS", raising=False)
+    monkeypatch.delenv("PARITY_TOLERANCE_PAISE", raising=False)
+    s = Settings(_env_file=None)
+    assert (s.INGEST_MAX_OBJECTS, s.PARITY_TOLERANCE_PAISE, s.JWT_SECRET) == (500, 100, "w" * 32)
+    assert not hasattr(s, "port")
 
 
 def test_settings_refuse_short_device_secret():
     with pytest.raises(ValueError):
-        V2Settings(_env_file=None, database_url="postgresql+asyncpg://x/y", web_jwt_secret="w" * 32,
-                   device_token_secret="short").validate_for_serving()
+        Settings(_env_file=None, DATABASE_URL="postgresql+asyncpg://x/y", JWT_SECRET="w" * 32,
+                 DEVICE_TOKEN_SECRET="short").validate_for_serving()
 
 
 def test_settings_refuse_equal_secrets():
     """D6 controller ruling: the device secret must differ from the web JWT secret."""
     with pytest.raises(ValueError):
-        V2Settings(_env_file=None, database_url="postgresql+asyncpg://x/y", web_jwt_secret="w" * 32,
-                   device_token_secret="w" * 32).validate_for_serving()
+        Settings(_env_file=None, DATABASE_URL="postgresql+asyncpg://x/y", JWT_SECRET="w" * 32,
+                 DEVICE_TOKEN_SECRET="w" * 32).validate_for_serving()
 
 
 def test_web_jwt_accepts_access_rejects_refresh_and_device_typ():
@@ -57,8 +62,8 @@ def test_web_jwt_accepts_access_rejects_refresh_and_device_typ():
 
 
 async def test_health_route_without_db():
-    app = create_app(V2Settings(_env_file=None, database_url="", web_jwt_secret="w" * 32,
-                                device_token_secret="d" * 32))
+    app = create_app(Settings(_env_file=None, DATABASE_URL="", JWT_SECRET="w" * 32,
+                              DEVICE_TOKEN_SECRET="d" * 32))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/api/v2/health")
     assert r.status_code == 200 and r.json() == {"ok": True}

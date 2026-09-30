@@ -306,11 +306,11 @@ async def test_web_matrix(app_client, session, clock, route, variant):
 async def _tenant_rows(engine, ws, uid) -> dict:
     """Every v2 row of ``ws`` (whole rows, not counts) + its owner's devices + the workspace row, from a FRESH
     session."""
-    from backend.db.sync_models import V2_TABLES
+    from backend.db.sync_models import SYNC_TABLES
     from tests.sync.db.ingest_helpers import fresh
     out = {}
     async with fresh(engine) as s:
-        for t in V2_TABLES:
+        for t in SYNC_TABLES:
             rows = (await s.execute(text(f"SELECT * FROM {t} WHERE workspace_id = :w"), {"w": ws})).mappings().all()
             out[t] = sorted((dict(r) for r in rows), key=repr)
         out["owner_devices"] = [dict(r) for r in (await s.execute(text(

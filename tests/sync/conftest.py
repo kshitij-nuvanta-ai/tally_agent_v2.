@@ -1,6 +1,18 @@
-"""S1 DB harness. TEST_DATABASE_URL only (never .env, never the dev DB). The DB is shared with the current app's
-suite (plan ambiguity A2): stand-in users/workspaces are created only if absent, and teardown leaves the DB as
-found."""
+"""Sync DB harness. TEST_DATABASE_URL only (never .env, never the dev DB).
+
+One metadata, one database, one pytest session (v2 merge T4). The sync tests use the real tables of the single
+``Base.metadata`` — the same 30 tables the app's own DB fixtures (``tests/integration/conftest.py`` and the
+``tests/e2e/test_db_*`` modules) build with ``create_all`` and remove with ``drop_all`` around each of their tests.
+Both harnesses therefore work on the same schema and can run in one session, in any order:
+
+- ``engine`` (per test) makes sure the tables exist — one catalog query, and a ``create_all`` only when an app
+  test has just dropped them — then empties the sync tables and removes this harness's own test users;
+- ``sync_schema`` (per session) notes which tables the database held before the first sync test and, at the end
+  of the session, puts the database back as it found it (``restore_as_found``).
+
+The migration chain itself is tested in throwaway databases (``tests/sync/db/test_migration.py``), which also
+proves the migrated schema equals this metadata.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -14,26 +26,20 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.sync.passwords import _pwd_context
-from backend.sync.cli import downgrade, migrate
-from backend.sync.clock import FixedClock
-from backend.sync.config import V2Settings
+from backend.config import Settings
+from backend.db.models import Base
+from backend.db.sync_models import SYNC_TABLES
 from backend.sync.app import create_app
-from backend.db.sync_models import V2_TABLES
+from backend.sync.clock import FixedClock
+from backend.sync.passwords import _pwd_context
 
 TEST_DB = os.environ.get("TEST_DATABASE_URL", "")
-requires_db = pytest.mark.skipif(not TEST_DB, reason="TEST_DATABASE_URL not set — skipping v2 DB tests")
+requires_db = pytest.mark.skipif(not TEST_DB, reason="TEST_DATABASE_URL not set — skipping sync DB tests")
 TEST_EMAIL_DOMAIN = "@v2test.invalid"
 
-# Copied shape from: backend/db/models.py @ 9335469 (User, Workspace) — test-only stand-ins, created only if absent.
-STANDIN_DDL = (
-    """CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email varchar(255) UNIQUE NOT NULL,
-       password_hash varchar(255) NOT NULL, name varchar(255) NOT NULL, is_active boolean DEFAULT true,
-       created_at timestamptz, updated_at timestamptz)""",
-    """CREATE TABLE IF NOT EXISTS workspaces (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id),
-       name varchar(255) NOT NULL, agent_type varchar(50) NOT NULL DEFAULT 'tally', config jsonb NOT NULL DEFAULT '{}',
-       memory jsonb NOT NULL DEFAULT '{}', is_deleted boolean DEFAULT false, created_at timestamptz,
-       updated_at timestamptz)""",
+_DELETE_TEST_ROWS = (
+    f"DELETE FROM workspaces WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}')",
+    f"DELETE FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}'",
 )
 
 
@@ -46,53 +52,60 @@ async def _existing(url: str) -> set[str]:
     return names
 
 
-async def _exec(url: str, *sql: str) -> None:
+async def ensure_schema(conn) -> None:
+    """Create whichever of the metadata's tables are missing. Cheap when none is: one catalog query."""
+    present = (
+        await conn.execute(
+            text("SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(:names)"),
+            {"names": list(Base.metadata.tables)},
+        )
+    ).scalar_one()
+    if present != len(Base.metadata.tables):
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def _restore_as_found(url: str, before: set[str]) -> None:
     eng = create_async_engine(url)
     async with eng.begin() as c:
-        for s in sql:
-            await c.execute(text(s))
+        now = {r[0] for r in await c.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))}
+        kept = [t for t in SYNC_TABLES if t in now and t in before]
+        if kept:
+            await c.execute(text("TRUNCATE " + ", ".join(kept) + " CASCADE"))
+        if {"users", "workspaces"} <= (now & before):
+            for sql in _DELETE_TEST_ROWS:
+                await c.execute(text(sql))
+        created = [t for name, t in Base.metadata.tables.items() if name in now and name not in before]
+        await c.run_sync(lambda sync_conn: Base.metadata.drop_all(sync_conn, tables=created))
     await eng.dispose()
 
 
-def teardown_v2(url: str, created: list[str]) -> None:
-    """The harness's real teardown (Review Focus 2 / controller ruling 1): runs the v2 Alembic chain down to
-    ``base``, drops ``alembic_version_v2``, removes every test user/workspace this session's tests created
-    (``@v2test.invalid`` emails), and drops any stand-in ``users``/``workspaces`` tables the harness itself
-    created (a pre-existing ``users``/``workspaces`` — the normal case, shared with the current app's suite — is
-    left alone). Used both by the session fixture below and directly by
-    ``test_session_teardown_leaves_no_v2_objects``.
-    """
-    downgrade(url, "base")
-    asyncio.run(
-        _exec(
-            url,
-            "DROP TABLE IF EXISTS alembic_version_v2",
-            f"DELETE FROM workspaces WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}')",
-            f"DELETE FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}'",
-            *[f"DROP TABLE IF EXISTS {t}" for t in reversed(created)],
-        )
-    )
+def restore_as_found(url: str, before: set[str]) -> None:
+    """The harness's session teardown: put the database back as it was when ``before`` (its table names) was
+    taken. Every metadata table that was not there is dropped. A table that was already there stays, with the
+    rows other users of the database put in it; only what this harness writes is removed from it — the sync
+    tables are emptied (the ``engine`` fixture empties them before every test anyway) and the
+    ``@v2test.invalid`` users and their workspaces are deleted. Used by ``sync_schema`` below and exercised
+    directly by ``test_migration.py::test_harness_teardown_leaves_the_database_as_found``."""
+    asyncio.run(_restore_as_found(url, before))
 
 
 @pytest.fixture(scope="session")
-def v2_schema():
+def sync_schema():
     if not TEST_DB:
         pytest.skip("TEST_DATABASE_URL not set")
     before = asyncio.run(_existing(TEST_DB))
-    created = [t for t in ("users", "workspaces") if t not in before]
-    asyncio.run(_exec(TEST_DB, *STANDIN_DDL))
-    migrate(TEST_DB)
-    yield {"created_standins": created}
-    teardown_v2(TEST_DB, created)
+    yield {"tables_before": before}
+    restore_as_found(TEST_DB, before)
 
 
 @pytest.fixture
-async def engine(v2_schema):
+async def engine(sync_schema):
     eng = create_async_engine(TEST_DB)
-    async with eng.begin() as c:           # every test starts from empty v2 tables + no test users
-        await c.execute(text("TRUNCATE " + ", ".join(V2_TABLES) + " CASCADE"))
-        await c.execute(text(f"DELETE FROM workspaces WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}')"))
-        await c.execute(text(f"DELETE FROM users WHERE email LIKE '%{TEST_EMAIL_DOMAIN}'"))
+    async with eng.begin() as c:           # every test starts from empty sync tables + no test users
+        await ensure_schema(c)
+        await c.execute(text("TRUNCATE " + ", ".join(SYNC_TABLES) + " CASCADE"))
+        for sql in _DELETE_TEST_ROWS:
+            await c.execute(text(sql))
     yield eng
     await eng.dispose()
 
@@ -131,7 +144,7 @@ def clock():
 
 @pytest.fixture
 def settings():
-    return V2Settings(_env_file=None, database_url=TEST_DB, web_jwt_secret="w" * 32, device_token_secret="d" * 32)
+    return Settings(_env_file=None, DATABASE_URL=TEST_DB, JWT_SECRET="w" * 32, DEVICE_TOKEN_SECRET="d" * 32)
 
 
 @pytest.fixture

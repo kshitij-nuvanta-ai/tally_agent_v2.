@@ -10,7 +10,7 @@ from backend.sync.errors import ApiError
 
 
 def decode_web_access(token: str, secret: str) -> str:
-    """Decode the current app's web access JWT (same secret, via V2Settings.web_jwt_secret/A12) and return the
+    """Decode the current app's web access JWT (same secret, ``Settings.JWT_SECRET``) and return the
     user id. Raises ApiError(401, "token_expired") on expiry, ApiError(401, "token_invalid") otherwise —
     including a wrong/missing ``type`` claim (a refresh token, or a device token's ``typ``)."""
     try:

@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.utils.device_tokens import mint_access
 from backend.sync.clock import Clock, ist_date
-from backend.sync.config import V2Settings
+from backend.config import Settings
 from backend.sync.errors import ApiError
 from backend.db.sync_models import AgentDevice, SyncFyCoverage, SyncWorkspace
 from backend.sync.coverage import fy_rows_for_bind
@@ -159,7 +159,7 @@ async def _rebind(session: AsyncSession, sw: SyncWorkspace, body: BindRequest, b
 
 
 async def _guard_takeover(
-    session: AsyncSession, sw: SyncWorkspace, device: AgentDevice, body: BindRequest, settings: V2Settings, clock: Clock
+    session: AsyncSession, sw: SyncWorkspace, device: AgentDevice, body: BindRequest, settings: Settings, clock: Clock
 ) -> None:
     """Fix round 1 #3 (controller ruling): D7's take-over guard applies to ANY bind that would displace another
     LIVE active device of the workspace, whatever GUID is being bound. No-op if there's no other live device,
@@ -170,7 +170,7 @@ async def _guard_takeover(
     if not body.takeover:
         raise ApiError(409, "takeover_required", active_device=_device_info(active))
     login_age = clock.now() - (device.last_login_at or clock.now())
-    if login_age > timedelta(minutes=settings.takeover_login_max_age_minutes):
+    if login_age > timedelta(minutes=settings.TAKEOVER_LOGIN_MAX_AGE_MINUTES):
         raise ApiError(401, "reauth_required")
 
 
@@ -271,7 +271,7 @@ async def _lock_workspace(session: AsyncSession, workspace_id: uuid.UUID) -> Syn
 
 
 async def bind(
-    session: AsyncSession, device: AgentDevice, body: BindRequest, settings: V2Settings, clock: Clock
+    session: AsyncSession, device: AgentDevice, body: BindRequest, settings: Settings, clock: Clock
 ) -> dict:
     ws = await _load_workspace(session, body.workspace_id)
     if ws is None or ws.user_id != device.user_id:
@@ -317,8 +317,8 @@ async def bind(
     await session.commit()
 
     access_token = mint_access(
-        device.id, device.user_id, sw.workspace_id, secret=settings.device_token_secret,
-        minutes=settings.device_access_minutes, now=clock.now(),
+        device.id, device.user_id, sw.workspace_id, secret=settings.DEVICE_TOKEN_SECRET,
+        minutes=settings.DEVICE_ACCESS_MINUTES, now=clock.now(),
     )
     return {
         "bound": True,
