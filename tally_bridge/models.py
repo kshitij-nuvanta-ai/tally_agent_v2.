@@ -22,16 +22,6 @@ class TrialBalanceRow(BaseModel):
     closing_balance: float = 0.0
 
 
-class VoucherEntry(BaseModel):
-    date: date
-    voucher_type: str
-    voucher_number: str
-    party_name: str | None = None
-    ledger_name: str
-    amount: float
-    narration: str | None = None
-
-
 class ReportResponse(BaseModel):
     report_name: str
     company: str

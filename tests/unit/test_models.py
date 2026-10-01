@@ -1,5 +1,5 @@
 from datetime import date
-from tally_bridge.models import (Company, Ledger, TrialBalanceRow, VoucherEntry, ReportResponse, OutstandingBill, StockItem, AccountGroup)
+from tally_bridge.models import (Company, Ledger, TrialBalanceRow, ReportResponse, OutstandingBill, StockItem, AccountGroup)
 
 def test_company_minimal():
     c = Company(name="Bharat Traders Pvt Ltd")
@@ -24,11 +24,6 @@ def test_trial_balance_row_defaults():
     assert r.debit_amount == 0.0
     assert r.credit_amount == 0.0
     assert r.closing_balance == 0.0
-
-def test_voucher_entry():
-    v = VoucherEntry(date=date(2025, 10, 1), voucher_type="Sales", voucher_number="S001", ledger_name="Sales - Electronics", amount=94000.0, party_name="Apex Technologies Pvt Ltd")
-    assert v.party_name == "Apex Technologies Pvt Ltd"
-    assert v.narration is None
 
 def test_report_response():
     r = ReportResponse(report_name="Trial Balance", company="Bharat Traders", rows=[{"account_name": "Cash", "closing_balance": 50000}])
