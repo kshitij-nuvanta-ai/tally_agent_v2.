@@ -45,8 +45,12 @@ spec §7a, the parked review minors and this tracker. Verification on 2026-10-01
 **Next steps, in order:**
 1. User decides where the branch merges (`dev` / `master`) and when; a pull request needs `gh auth login` (0.3) or
    the GitHub web page.
-2. Proposed next (not approved): a small `tally_bridge` cleanup PR after the push — company-list duplicates, a guard
-   test against new duplicate names, rename of the float parsers (see `docs/open-items-parked.md`).
+2. `tally_bridge` cleanup, phase 1 — **done locally, not pushed:** branch `chore/tally-bridge-dedupe-1` (from this
+   branch @ `72edd3f`), commits `19c7d69` `dcc734f` `3c6a64e` `ca43433` `85eb0cc`. One company-list request and parser,
+   the "0" company fixed, guard test against duplicate names, unused `tally_bridge` `VoucherEntry` removed. Suites
+   3212 no-DB / 3808 with DB, 0 failed; checked on real TallyPrime (Wine). Review:
+   `docs/code-review-tally-bridge-dedupe-1-2026-10-01.md`. Waiting for the user: push, and it merges only after this
+   branch. Float/Decimal parser pairs stay until step 3.
 3. Steps 2–4 of this tracker and the open questions stay parked until the user picks them up.
 
 ## Status
@@ -217,5 +221,6 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-10-01 | Fix worker cut off by an API overload; main agent reviewed its diff, ran the new tests (24 passed) and part of the suite (395 passed), checked the stricter adopt path on copies of both old-chain DBs, wrote the review doc, spec §7a and parked items. Full-suite runs stalled while the Mac slept — still owed. Nothing new committed. |
 | 2026-10-01 | **Fix round verified.** Full suites with the Mac awake: 3209 passed no-DB (one flaky mock-server read error, passed on re-run); with DB the first run caught one stale test (`test_mid_batch_failure_leaves_zero_rows` expected the pre-M6 exception), updated to expect the 500 answer with its rollback checks unchanged; re-run 3806 passed / 0 failed. The overnight stalls were the Mac sleeping. Committed on the user's go-ahead (`fix(merge): code review fix round …`). |
 | 2026-10-01 | **Step 1 done.** User reviewed `tallyagent_fork` in TablePlus and approved. Branch `feat/merge-v2-into-backend` pushed to the fork on the user's instruction (push only — no merge into `dev`/`master`, no PR). `gh` is not logged in; the push used the keychain credentials. |
+| 2026-10-01 | `tally_bridge` cleanup phase 1 on `chore/tally-bridge-dedupe-1` (user approved): parts A–D + review fixes, 5 local commits, not pushed. Real TallyPrime (Wine) showed the dropdown's "0" company before and not after. Incident: a DB-suite run with Tally listening on :9000 crashed Tally (no data changed); re-run with Tally stopped, green. Parked: integration tests that reach `localhost:9000`. |
 | 2026-09-30 | **Code review (T11) done:** 0 Critical, 3 Important (all on migrations), 10 Minor — table under "Code review". Fix round for I1, I2, I3, M6 started; still running and uncommitted at end of day. "Resume here" rewritten for tomorrow; "Database for review" section added. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |

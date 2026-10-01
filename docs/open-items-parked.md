@@ -165,3 +165,15 @@ The deferred Minor findings of `code-review-bi-s1-2026-09-29.md` (table "Minor",
   failed-login counts between tests.
 - **M4 rest:** `V2_ROOT` constant in `probes/__main__.py` / `probes/setup/s1_capture.py`; stale "Task 5 lands binding.py"
   docstring in `backend/sync/__init__.py`.
+
+### Integration tests reach a real Tally on `localhost:9000` (found 2026-10-01)
+
+Some DB integration tests (`tests/integration/test_invoice_dedup_flow.py`, `test_invoice_inventory_flow.py`) build a
+non-mock `TallyClient("localhost", 9000)` with writes enabled and rely on nothing listening there (connection refused).
+With TallyPrime running on this Mac (Wine) their read requests reached it and Tally crashed; no data changed
+(`code-review-tally-bridge-dedupe-1-2026-10-01.md`, "Incident during verification"). Until fixed: stop TallyPrime
+before running `pytest tests/`.
+
+- Fix: point those tests at the mock server or an unused port (a fixture that refuses connections), and add a
+  session-level guard that fails fast if `localhost:9000` answers during a non-live run.
+- Status: Open.
