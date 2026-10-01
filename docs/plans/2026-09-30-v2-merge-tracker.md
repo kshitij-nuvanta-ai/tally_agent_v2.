@@ -14,6 +14,10 @@ migrated database reviewed by the user. Branch `feat/merge-v2-into-backend` is *
 (`origin`, `kshitij-nuvanta-ai/tally_agent_v2.`). **Not merged** into `dev` or `master`, and no pull request opened —
 the user asked for the push only.
 
+**Current local branch:** `chore/tally-bridge-dedupe-1` (cut from the merge branch @ `72edd3f`) — `tally_bridge` cleanup
+phase 1 is done there and **not pushed**; see next step 2 and rows 1.11–1.13. The pushed merge branch does not contain
+this cleanup or these tracker lines.
+
 | Commit | What |
 |---|---|
 | `13d6bbd` | T1 + T2: `v2/` moved into the main project, one uv project |
@@ -73,6 +77,9 @@ spec §7a, the parked review minors and this tracker. Verification on 2026-10-01
 | 1.8 | Parked items recorded in `docs/open-items-parked.md` | Done | section "From the v2 merge (2026-09-30)", six items |
 | 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Done | user reviewed `tallyagent_fork` in TablePlus 2026-10-01 (`sync_workspaces` → `workspaces` → `users`); 31 tables at `006`, no `alembic_version_v2`, 33 foreign keys to `users`/`workspaces` as in the old DB, no orphaned sync or voucher rows. Note: `sync_workspaces.base_currency_name` is `?` in the sample data (sent by the one-off real-app pass; tests send `INR`) — test data, not a merge issue.  Migrations: `tallyagent_fork` adopted 005 + v2_001 → `006` (32 → 31 tables); fresh throwaway DB → `006`; schemas identical (`pg_dump -s`). Suites at `23c6401`: 3186 passed no-DB, 3770 passed with DB. Real-app pass on port 8000 against `tallyagent_fork`: web flows, agent login → bind → full first sync (14 batches, 65 masters, 240 vouchers) → parity `ok` (0 mismatches), sync-status, web command delivered on heartbeat, token separation, shared login limiter, restart round-trip — all as expected; logs `logs/be_merge_verify*.log`. Frontend vitest 381 passed. Not run: chat success path (no Claude key), Playwright, `e2e_live`, eval, live Tally |
 | 1.10 | Code review stored in `docs/`, fixes applied | Done | committed 2026-10-01 (`fix(merge): code review fix round …`); review: 0 Critical, 3 Important, 10 Minor (`docs/code-review-v2-merge-2026-09-30.md`). Fixes for I1, I2, I3, M6 (+ M4 log text). Full suites 2026-10-01: 3209 passed / 606 skipped no-DB (1 flaky mock-server read error, passed on re-run); 3806 passed / 10 skipped with DB (`logs/fixround-*.log`) |
+| 1.11 | `tally_bridge` cleanup phase 1: company-list duplicates, guard test, unused `VoucherEntry` (`chore/tally-bridge-dedupe-1`) | Done (local, not pushed) | commits `19c7d69` `dcc734f` `3c6a64e` `ca43433` `85eb0cc` `f67d72f`; suites 3212 passed no-DB / 3808 passed with DB, 0 failed (`logs/dedupe1-*.log`); real TallyPrime (Wine): dropdown showed "0" before, two real companies after (`logs/tally-dedupe-baseline/`, `logs/dedupe1-real-tally.log`); review `docs/code-review-tally-bridge-dedupe-1-2026-10-01.md` (0 Critical, 0 Important, 4 Minor fixed) |
+| 1.12 | `tally_bridge` cleanup phase 2: one request wrapper pair and one escape function in `request_builder.py` | Not started | changes the XML sent to Tally — needs a real-Tally check (stop Tally before full suites) |
+| 1.13 | `tally_bridge` cleanup phase 3: delete the 5 float parsers | Parked | waits for step 3 (chat reads the synced tables); guard test pins the 5 pairs |
 | **2** | **Remove legacy mode** (`chore/remove-legacy-mode`) | **Not started** | — |
 | 2.1 | Backend legacy paths deleted, `DATABASE_URL` required | Not started | — |
 | 2.2 | Frontend legacy app deleted | Not started | — |
