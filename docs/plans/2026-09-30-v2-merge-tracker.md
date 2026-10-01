@@ -9,8 +9,10 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 
 ## Resume here
 
-**State on 2026-10-01.** Step 1 (the merge) is built, reviewed, and the review fixes are verified by full suite
-runs. Branch `feat/merge-v2-into-backend`, six local commits, **nothing pushed**.
+**State on 2026-10-01.** Step 1 (the merge) is done: built, reviewed, review fixes verified by full suite runs, the
+migrated database reviewed by the user. Branch `feat/merge-v2-into-backend` is **pushed to the fork**
+(`origin`, `kshitij-nuvanta-ai/tally_agent_v2.`). **Not merged** into `dev` or `master`, and no pull request opened —
+the user asked for the push only.
 
 | Commit | What |
 |---|---|
@@ -41,12 +43,11 @@ spec §7a, the parked review minors and this tracker. Verification on 2026-10-01
   (both adopted, 32 → 31 tables, row counts unchanged); `tallyagent_fork` untouched (still `006`, 31 tables).
 
 **Next steps, in order:**
-1. User reviews `tallyagent_fork` in TablePlus / DBeaver (connection details under "Database for review").
-2. User runs `gh auth login` (0.3); compare the fork's branches with the old repo (0.4); push
-   `feat/merge-v2-into-backend`. Where it merges (`dev` / `master`) is decided after that.
-3. Proposed next (not approved): a small `tally_bridge` cleanup PR after the push — company-list duplicates, a guard
+1. User decides where the branch merges (`dev` / `master`) and when; a pull request needs `gh auth login` (0.3) or
+   the GitHub web page.
+2. Proposed next (not approved): a small `tally_bridge` cleanup PR after the push — company-list duplicates, a guard
    test against new duplicate names, rename of the float parsers (see `docs/open-items-parked.md`).
-4. Steps 2–4 of this tracker and the open questions stay parked until the user picks them up.
+3. Steps 2–4 of this tracker and the open questions stay parked until the user picks them up.
 
 ## Status
 
@@ -54,9 +55,9 @@ spec §7a, the parked review minors and this tracker. Verification on 2026-10-01
 |---|---|---|---|
 | 0.1 | Explore v1, v2, docs and git state | Done | findings summarised below |
 | 0.2 | Plan approved | Done | user: "we can start the merging v2 into our old code", 2026-09-30 (step 1 only) |
-| 0.3 | GitHub login on this machine | Not started | `gh auth login` failed 2026-09-30; needed to push |
-| 0.4 | Fork has all 4 branches (compare with old repo) | Not started | local clone has `master`, `dev`, `feat/bi-s0-probe-harness`, `feat/bi-s1-cloud` |
-| **1** | **Merge v2 into backend** (`feat/merge-v2-into-backend`) | **In progress** | started 2026-09-30 |
+| 0.3 | GitHub login on this machine | Not needed for push | `gh` is not logged in, but `git push` worked with the GitHub credentials in the macOS keychain (2026-10-01). Still needed to open a PR with `gh` |
+| 0.4 | Fork has all 4 branches (compare with old repo) | In progress | fork (`origin`) has `master`, `dev`, `feat/bi-s0-probe-harness`, `feat/bi-s1-cloud` (`git ls-remote`, 2026-10-01), plus the pushed merge branch; comparison with the old repo not done |
+| **1** | **Merge v2 into backend** (`feat/merge-v2-into-backend`) | **Done** (pushed, not merged) | started 2026-09-30; pushed to `origin` 2026-10-01; merge target not decided |
 | 1.0 | Merge spec + plan in `docs/`, old spec marked changed, roadmap updated | Done | spec + plan `13d6bbd`; "Changed 2026-09-30" blocks in both BI specs, roadmap Set C, README, `CLAUDE.md`, BI tracker (docs commit) |
 | 1.1 | Move files to target layout (`v2/` removed) | Done | commit `13d6bbd`; 3106 passed no-DB, 1719 + 1948 with DB (= baselines). `v2/` holds only `README.md` until the docs task |
 | 1.2 | One app: routers in `backend/main.py`, port 8100 gone | Done | commit `12c36ba`; `tests/sync/unit/test_wiring.py`, `tests/sync/db/test_main_app.py` (19 sync routes + all existing routes on one app, no collisions) |
@@ -66,7 +67,7 @@ spec §7a, the parked review minors and this tracker. Verification on 2026-10-01
 | 1.6 | One tally bridge (top-level `tally_bridge/`) | Done | commit `23c6401`; `request_builder.py` byte-identical to before; 1,129 recorded request-builder calls unchanged; no `Copied from` header left |
 | 1.7 | One project, one test tree, new isolation test | Done | one project + one test tree (`13d6bbd`); whole suite in one session with the DB (`7d5d64e`); `tests/test_layers.py` (`23c6401`, 11 tests; hand-checked that a forbidden import fails it) |
 | 1.8 | Parked items recorded in `docs/open-items-parked.md` | Done | section "From the v2 merge (2026-09-30)", six items |
-| 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Done (awaiting the user's review of the DB) | Migrations: `tallyagent_fork` adopted 005 + v2_001 → `006` (32 → 31 tables); fresh throwaway DB → `006`; schemas identical (`pg_dump -s`). Suites at `23c6401`: 3186 passed no-DB, 3770 passed with DB. Real-app pass on port 8000 against `tallyagent_fork`: web flows, agent login → bind → full first sync (14 batches, 65 masters, 240 vouchers) → parity `ok` (0 mismatches), sync-status, web command delivered on heartbeat, token separation, shared login limiter, restart round-trip — all as expected; logs `logs/be_merge_verify*.log`. Frontend vitest 381 passed. Not run: chat success path (no Claude key), Playwright, `e2e_live`, eval, live Tally |
+| 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Done | user reviewed `tallyagent_fork` in TablePlus 2026-10-01 (`sync_workspaces` → `workspaces` → `users`); 31 tables at `006`, no `alembic_version_v2`, 33 foreign keys to `users`/`workspaces` as in the old DB, no orphaned sync or voucher rows. Note: `sync_workspaces.base_currency_name` is `?` in the sample data (sent by the one-off real-app pass; tests send `INR`) — test data, not a merge issue.  Migrations: `tallyagent_fork` adopted 005 + v2_001 → `006` (32 → 31 tables); fresh throwaway DB → `006`; schemas identical (`pg_dump -s`). Suites at `23c6401`: 3186 passed no-DB, 3770 passed with DB. Real-app pass on port 8000 against `tallyagent_fork`: web flows, agent login → bind → full first sync (14 batches, 65 masters, 240 vouchers) → parity `ok` (0 mismatches), sync-status, web command delivered on heartbeat, token separation, shared login limiter, restart round-trip — all as expected; logs `logs/be_merge_verify*.log`. Frontend vitest 381 passed. Not run: chat success path (no Claude key), Playwright, `e2e_live`, eval, live Tally |
 | 1.10 | Code review stored in `docs/`, fixes applied | Done | committed 2026-10-01 (`fix(merge): code review fix round …`); review: 0 Critical, 3 Important, 10 Minor (`docs/code-review-v2-merge-2026-09-30.md`). Fixes for I1, I2, I3, M6 (+ M4 log text). Full suites 2026-10-01: 3209 passed / 606 skipped no-DB (1 flaky mock-server read error, passed on re-run); 3806 passed / 10 skipped with DB (`logs/fixround-*.log`) |
 | **2** | **Remove legacy mode** (`chore/remove-legacy-mode`) | **Not started** | — |
 | 2.1 | Backend legacy paths deleted, `DATABASE_URL` required | Not started | — |
@@ -215,5 +216,6 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-09-30 | **T9 (docs) and T10 (real-app pass) done.** Real-app pass found no merge regression. Pre-existing limitation noticed: `POST /api/chat` with no `ANTHROPIC_API_KEY` returns a generic 500 (server stays up). `tallyagent_fork` now holds two sample synced workspaces (users `merge-verify-20260930-194055@example.com` and `…-194012@example.com`) for the user's review. Code review (T11) still running. |
 | 2026-10-01 | Fix worker cut off by an API overload; main agent reviewed its diff, ran the new tests (24 passed) and part of the suite (395 passed), checked the stricter adopt path on copies of both old-chain DBs, wrote the review doc, spec §7a and parked items. Full-suite runs stalled while the Mac slept — still owed. Nothing new committed. |
 | 2026-10-01 | **Fix round verified.** Full suites with the Mac awake: 3209 passed no-DB (one flaky mock-server read error, passed on re-run); with DB the first run caught one stale test (`test_mid_batch_failure_leaves_zero_rows` expected the pre-M6 exception), updated to expect the 500 answer with its rollback checks unchanged; re-run 3806 passed / 0 failed. The overnight stalls were the Mac sleeping. Committed on the user's go-ahead (`fix(merge): code review fix round …`). |
+| 2026-10-01 | **Step 1 done.** User reviewed `tallyagent_fork` in TablePlus and approved. Branch `feat/merge-v2-into-backend` pushed to the fork on the user's instruction (push only — no merge into `dev`/`master`, no PR). `gh` is not logged in; the push used the keychain credentials. |
 | 2026-09-30 | **Code review (T11) done:** 0 Critical, 3 Important (all on migrations), 10 Minor — table under "Code review". Fix round for I1, I2, I3, M6 started; still running and uncommitted at end of day. "Resume here" rewritten for tomorrow; "Database for review" section added. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |
