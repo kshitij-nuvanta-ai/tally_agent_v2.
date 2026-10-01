@@ -128,10 +128,10 @@ async def test_a_database_error_keeps_each_route_familys_own_answer(engine, monk
         assert (r.status_code, r.json()) == (500, {"error": "internal_error", "detail": ""})
         logged = caplog.text + "".join(
             "".join(traceback.format_exception(rec.exc_info[1])) for rec in caplog.records if rec.exc_info)
-        assert SECRET[:20] not in logged and "v2 db error" in caplog.text
+        assert SECRET[:20] not in logged and "sync db error" in caplog.text
         assert "Unhandled exception" not in caplog.text          # it never reached the generic handler
 
         caplog.clear()
         r = await c.get("/api/_test_plain_db_boom")
         assert (r.status_code, r.json()) == (500, {"error": "Internal server error", "detail": None})
-        assert "Unhandled exception" in caplog.text and "v2 db error" not in caplog.text
+        assert "Unhandled exception" in caplog.text and "sync db error" not in caplog.text

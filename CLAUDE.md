@@ -78,8 +78,8 @@ TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/tallyagent_test ANTHR
 TEST_DATABASE_URL=postgresql+asyncpg://nuvanta-mac-3@localhost/tallyagent_test ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/integration/ tests/e2e/test_db_smoke.py tests/e2e/test_db_data_entry.py tests/e2e/test_db_data_entry_group_b.py tests/unit/test_dedup.py -q 2>&1 | tee logs/db-suite-run.log
 
 # All backend tests (unit + integration + E2E mock + sync + tally_bridge + contract + probes + layer test)
-# 2026-09-30: 3186 passed / 594 skipped without a DB. With TEST_DATABASE_URL set (as above) the whole suite,
-# DB tests included, runs in ONE session: 3770 passed / 10 skipped.
+# 2026-10-01: 3209 passed / 606 skipped without a DB. With TEST_DATABASE_URL set (as above) the whole suite,
+# DB tests included, runs in ONE session: 3806 passed / 10 skipped (~10 min — keep the Mac awake: `caffeinate -i`).
 ANTHROPIC_API_KEY=test-key PYTHONPATH=. uv run pytest tests/ --ignore=tests/e2e_live
 
 # All tests with coverage
@@ -249,7 +249,7 @@ MAINTENANCE_SLICE_SECONDS, MAINTENANCE_SLICE_ROWS, STORAGE_ESTIMATE_INTERVAL_SEC
 
 ## Testing
 
-_Whole backend suite on 2026-09-30 (after the v2 merge, `tests/` minus `e2e_live`): 3186 passed / 594 skipped without a DB; 3770 passed / 10 skipped with `TEST_DATABASE_URL`. The per-directory counts below for unit / integration / e2e are approximate and date from 2026-06-29; frontend ~381. (Live-Tally e2e_live and eval are gated/expensive — see commands above.)_
+_Whole backend suite on 2026-10-01 (after the v2 merge and its review fixes, `tests/` minus `e2e_live`): 3209 passed / 606 skipped without a DB; 3806 passed / 10 skipped with `TEST_DATABASE_URL`. The per-directory counts below for unit / integration / e2e are approximate and date from 2026-06-29; frontend ~381. (Live-Tally e2e_live and eval are gated/expensive — see commands above.)_
 
 - **Unit tests** (`tests/unit/`): Pure logic, no I/O. Test request XML construction, response parsing, date utils, currency formatting, mock handler, auth utils, pricing, DB models. ~956 tests.
 - **Integration tests** (`tests/integration/`): Use mock Tally HTTP server (`tests/mocks/mock_tally_server.py`) built with aiohttp. Tests full request→parse→return cycle + mock format parity. Also includes DB integration tests (auth flow, workspace CRUD, conversation persistence) — these require `TEST_DATABASE_URL`. ~132 + 15 DB tests.

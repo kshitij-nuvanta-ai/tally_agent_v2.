@@ -113,6 +113,22 @@ updated in the same commit with the reason.
 
 Not run in this step: `e2e_live`, eval, Playwright, live Tally tiers B and C.
 
+## 7a. Behaviour notes from the code review (2026-09-30)
+
+Accepted consequences of the decisions above, recorded so nobody mistakes them for bugs
+(`code-review-v2-merge-2026-09-30.md`):
+
+- **M2 aliases:** `V2_DATABASE_URL` is an alias of `DATABASE_URL`, so setting only the old name also switches the
+  main app into DB mode. The new name wins over the old one even across sources (new name in `.env`, old name in the
+  process environment).
+- **M10 / M3:** `pool_pre_ping` and `hide_parameters` apply to every route, not only sync routes: one extra ping per
+  connection checkout, and bound values no longer appear in database error logs.
+- **M12:** the agent may import all of `tally_bridge`, including the write builders. The old "agent ships no write
+  code" rule is dropped on purpose: writes will go through the agent (merge tracker O1).
+- **Migrations:** Alembic migrates the database the app uses (`backend/db/migration_url.py`); `alembic.ini` has no
+  URL. Revision `006` adopts old-chain tables only when every column matches its definition, and refuses sync tables
+  found without the old version table.
+
 ## 8. Risks
 
 | Risk | Mitigation |

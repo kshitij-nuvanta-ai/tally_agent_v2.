@@ -155,3 +155,13 @@ The mock handler reads fixture files from `tests/fixtures/` and loads `tests/fix
 The deferred Minor findings of `code-review-bi-s1-2026-09-29.md` (table "Minor", M1–M19) were not touched by the merge; the file paths in that table are pre-merge (`sync/…` → `backend/sync/…`, `api/web_sync.py` → `backend/api/workspace_sync.py`, `api/dependencies.py` → `backend/api/sync_dependencies.py`, `tests/cloud/…` → `tests/sync/…`). M15 names `tests/test_copied_headers.py` / `test_isolation.py` and `web_jwt.py` / `passwords.py`, all deleted by the merge, so it needs re-reading rather than fixing as written. The review's own spec-edit notes record which of them were settled by a spec edit instead of code.
 
 - Status: Open.
+
+### Code review minors parked (2026-09-30, `code-review-v2-merge-2026-09-30.md`)
+- **M7:** no startup check that the database is at revision `006` when the sync routes are mounted; a server started
+  against an unmigrated database answers every sync call with 500 `internal_error`.
+- **M8:** `TallyClient.health_check` for probe callers now sends the app's company-list request with the 90 s timeout
+  (no caller found today).
+- **M9:** the login limiter lives on the module-level app; e2e DB tests that share that app and an email can carry
+  failed-login counts between tests.
+- **M4 rest:** `V2_ROOT` constant in `probes/__main__.py` / `probes/setup/s1_capture.py`; stale "Task 5 lands binding.py"
+  docstring in `backend/sync/__init__.py`.

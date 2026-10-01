@@ -3,18 +3,23 @@
 Every test that runs a migration does so in a throwaway database (``<test db>_mig_<random>``), created and
 dropped here, so no other test's tables are ever touched. The server is the one ``TEST_DATABASE_URL`` points at.
 
-Covered: the three rows of spec §5 (fresh database, adopting the old ``v2_001`` chain, refusing any other state
-of the old chain), ``downgrade``, the columns / money types / partial and covering indexes of the sync tables,
+Covered: the three rows of spec §5 (fresh database, adopting the old ``v2_001`` chain — also one built by the
+original ``v2_001`` file from git history — refusing any other state of the old chain, a drifted schema, or sync
+tables with no old version table), ``downgrade``, the columns / money types / partial and covering indexes of the sync tables,
 that the schema ``alembic upgrade head`` builds equals the schema ``Base.metadata`` describes, and the sync
 harness's own session teardown.
 """
 import asyncio
+import importlib.util
+import subprocess
 import uuid
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -61,7 +66,7 @@ def scratch_db():
 def _alembic_config(url: str) -> Config:
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(REPO_ROOT / "backend" / "db" / "migrations"))
-    cfg.attributes["url"] = url   # env.py reads this before DATABASE_URL / alembic.ini, so nothing else is hit
+    cfg.attributes["url"] = url   # env.py reads this before DATABASE_URL / .env, so nothing else is hit
     return cfg
 
 
@@ -174,6 +179,38 @@ def _as_if_migrated_by_the_old_chain(url: str, old_revisions: tuple[str, ...] = 
     upgrade(url, "head")
     _exec(url, "UPDATE alembic_version SET version_num = '005'", OLD_VERSION_TABLE_DDL,
           *[f"INSERT INTO alembic_version_v2 (version_num) VALUES ('{r}')" for r in old_revisions])
+
+
+OLD_V2_001_IN_GIT = "99ced44:v2/cloud/alembic/versions/v2_001_sync_tables.py"
+
+
+def _migrated_by_the_real_old_chain(url: str, tmp_path: Path) -> None:
+    """Like ``_as_if_migrated_by_the_old_chain``, but the 21 tables are built by the ORIGINAL ``v2_001`` revision
+    file, read out of git history and run with Alembic's operations context — not by ``006``. Skips when that
+    commit is not in this checkout (a shallow clone, or a source archive with no ``.git``)."""
+    try:
+        shown = subprocess.run(["git", "-C", str(REPO_ROOT), "show", OLD_V2_001_IN_GIT], capture_output=True,
+                               text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        pytest.skip(f"cannot run git to read the old v2_001 revision: {type(exc).__name__}")
+    if shown.returncode != 0 or "def upgrade()" not in shown.stdout:
+        pytest.skip(f"`git show {OLD_V2_001_IN_GIT}` failed (commit not in this checkout): "
+                    f"{shown.stderr.strip()[:200]}")
+    path = tmp_path / "v2_001_sync_tables.py"
+    path.write_text(shown.stdout, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("old_v2_001_sync_tables", path)
+    old = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(old)
+    assert old.revision == "v2_001" and len(old.V2_TABLES) == 21
+
+    upgrade(url, "005")
+
+    def run_old_upgrade(sync_conn):
+        with Operations.context(MigrationContext.configure(sync_conn)):
+            old.upgrade()
+
+    asyncio.run(_run(url, lambda c: c.run_sync(run_old_upgrade)))
+    _exec(url, OLD_VERSION_TABLE_DDL, "INSERT INTO alembic_version_v2 (version_num) VALUES ('v2_001')")
 
 
 @pytest.fixture(scope="module")
@@ -471,6 +508,100 @@ def test_adopt_refuses_when_a_sync_table_is_missing(scratch_db):
     assert schema_snapshot(url) == schema_before
     assert _scalar(url, "SELECT version_num FROM alembic_version") == "005"
     assert _scalar(url, "SELECT version_num FROM alembic_version_v2") == "v2_001"
+
+
+def test_database_built_by_the_original_v2_001_revision_is_adopted(scratch_db, migrated_db, tmp_path):
+    """§5 row 2 against the REAL old chain (review I1): the sync tables are created by the original ``v2_001``
+    file from git history, not by ``006``. Adopt accepts them, keeps the rows, and the schema equals a fresh
+    database's."""
+    url = scratch_db()
+    _migrated_by_the_real_old_chain(url, tmp_path)
+    _seed(url)
+    tables = [*APP_TABLES, *SYNC_TABLES]
+    schema_before, rows_before = schema_snapshot(url), _row_counts(url, tables)
+    assert _scalar(url, "SELECT version_num FROM alembic_version") == "005"
+    assert rows_before["tally_groups"] == 3
+
+    upgrade(url, "head")
+
+    assert schema_snapshot(url) == schema_before == schema_snapshot(migrated_db)
+    assert _row_counts(url, tables) == rows_before
+    assert _scalar(url, "SELECT version_num FROM alembic_version") == "006"
+    assert _scalar(url, "SELECT to_regclass('public.alembic_version_v2')") is None
+
+
+@pytest.mark.parametrize("drift,message", [
+    # a column dropped
+    (("ALTER TABLE tally_groups DROP COLUMN nature",), r"tally_groups\.nature: column is missing"),
+    # a column added
+    (("ALTER TABLE parity_lines ADD COLUMN extra_note text",), r"parity_lines\.extra_note: unexpected column"),
+    # a type changed — to another type, and to another precision of the same type
+    (("ALTER TABLE tally_vouchers ALTER COLUMN narration TYPE varchar(50)",),
+     r"tally_vouchers\.narration: type is character varying\(50\), expected text"),
+    (("ALTER TABLE tally_ledgers ALTER COLUMN opening_balance TYPE numeric(18,4)",),
+     r"tally_ledgers\.opening_balance: type is numeric\(18,4\), expected numeric\(18,2\)"),
+    (("ALTER TABLE tally_voucher_ledger_lines ALTER COLUMN amount TYPE double precision",),
+     r"tally_voucher_ledger_lines\.amount: type is double precision, expected numeric\(18,2\)"),
+    # nullability changed, both directions
+    (("ALTER TABLE sync_commands ALTER COLUMN requested_by DROP NOT NULL",),
+     r"sync_commands\.requested_by: is nullable, expected NOT NULL"),
+    (("ALTER TABLE tally_vouchers ALTER COLUMN narration SET NOT NULL",),
+     r"tally_vouchers\.narration: is NOT NULL, expected nullable"),
+    # several at once, in different tables: every one is named
+    (("ALTER TABLE tally_groups DROP COLUMN nature", "ALTER TABLE parity_lines ADD COLUMN extra_note text"),
+     r"tally_groups\.nature: column is missing.*parity_lines\.extra_note: unexpected column"
+     r"|parity_lines\.extra_note: unexpected column.*tally_groups\.nature: column is missing"),
+])
+def test_adopt_refuses_a_drifted_schema_and_nothing_changes(scratch_db, drift, message):
+    """Review I1: ``alembic_version_v2`` says ``v2_001`` and all 21 tables exist, but a column was altered by
+    hand. That is not the schema ``v2_001`` built, so it is not stamped ``006``: the upgrade stops, names the
+    table and column, and leaves the database exactly as it was."""
+    url = scratch_db()
+    _as_if_migrated_by_the_old_chain(url)
+    _exec(url, *drift)
+    _seed(url)
+    tables = [*APP_TABLES, *SYNC_TABLES]
+    schema_before, rows_before = schema_snapshot(url), _row_counts(url, tables)
+
+    with pytest.raises(RuntimeError, match=message) as ei:
+        upgrade(url, "head")
+    assert "Migration 006" in str(ei.value) and "Nothing was changed" in str(ei.value)
+
+    assert schema_snapshot(url) == schema_before and _row_counts(url, tables) == rows_before
+    assert rows_before["tally_groups"] == 3 and rows_before["sync_workspaces"] == 1
+    assert _scalar(url, "SELECT version_num FROM alembic_version") == "005"
+    assert _scalar(url, "SELECT version_num FROM alembic_version_v2") == "v2_001"
+
+
+@pytest.mark.parametrize("kept", [
+    tuple(SYNC_TABLES),                                  # all 21 present
+    ("tally_groups", "sync_commands"),                   # a partial restore: only some present
+    ("tally_report_snapshots",),
+])
+def test_sync_tables_without_the_old_version_table_are_refused(scratch_db, kept):
+    """Review I2: no ``alembic_version_v2``, yet sync tables are already there (the version table was dropped, or
+    a partial restore). Not a fresh database and not an adoptable one: refuse before creating anything, list the
+    tables found, and leave everything as it was — instead of dying on a raw ``DuplicateTableError``."""
+    url = scratch_db()
+    upgrade(url, "head")
+    _seed(url)
+    drop = [t for t in SYNC_TABLES if t not in kept]
+    _exec(url, "UPDATE alembic_version SET version_num = '005'",
+          *([f"DROP TABLE {', '.join(drop)} CASCADE"] if drop else []))
+    assert _scalar(url, "SELECT to_regclass('public.alembic_version_v2')") is None
+    tables = [*APP_TABLES, *kept]
+    schema_before, rows_before = schema_snapshot(url), _row_counts(url, tables)
+
+    with pytest.raises(RuntimeError, match="alembic_version_v2 does not exist, but") as ei:
+        upgrade(url, "head")
+    message = str(ei.value)
+    assert "Migration 006" in message and "Nothing was changed" in message
+    assert f"{len(kept)} of the 21 sync tables already exist" in message
+    assert all(t in message for t in kept) and not any(t in message for t in drop)
+
+    assert _tables(url) == set(tables) | {"alembic_version"}
+    assert schema_snapshot(url) == schema_before and _row_counts(url, tables) == rows_before
+    assert _scalar(url, "SELECT version_num FROM alembic_version") == "005"
 
 
 def test_downgrade_drops_the_21_sync_tables_and_keeps_the_app_tables(scratch_db):

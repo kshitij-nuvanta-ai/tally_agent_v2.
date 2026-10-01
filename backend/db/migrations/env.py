@@ -1,22 +1,21 @@
 """Alembic env.py — async migration runner for the one chain (app tables and sync tables).
 
 Database URL, first one set wins: ``config.attributes["url"]`` (a caller driving Alembic from Python, e.g. the
-migration tests), the ``DATABASE_URL`` environment variable, then ``sqlalchemy.url`` from ``alembic.ini``.
+migration tests), then the URL the app itself uses (``backend.config.Settings``: the ``DATABASE_URL`` environment
+variable, then ``.env``). Nothing set: the run fails — there is no fallback URL in ``alembic.ini``. See
+``backend/db/migration_url.py``.
 """
 import asyncio
-import os
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 import backend.db  # noqa: F401  (registers every model: the 9 app tables and the 21 sync tables)
+from backend.db.migration_url import resolve_migration_url
 from backend.db.models import Base
 
 target_metadata = Base.metadata  # all 30 tables
 
 def get_url() -> str:
-    return (
-        context.config.attributes.get("url")
-        or os.environ.get("DATABASE_URL", context.config.get_main_option("sqlalchemy.url"))
-    )
+    return resolve_migration_url(context.config.attributes.get("url"))
 
 def run_migrations_offline() -> None:
     context.configure(

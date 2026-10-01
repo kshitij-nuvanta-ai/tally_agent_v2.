@@ -852,8 +852,6 @@ async def test_claim_taken_over_when_the_concurrent_winner_rolls_back(app_client
 async def test_mid_batch_failure_leaves_zero_rows(app_client, session, engine, monkeypatch):
     """Atomicity: masters are already flushed when the voucher store blows up -> the whole batch rolls back, the
     claim row included (so a retry with the same `batch_id` is a fresh attempt, §11 "a 500 is always retried")."""
-    import pytest
-
     from backend.sync.ingest import store
 
     ws, headers, run_id, _ = await bound(app_client, session)
@@ -863,8 +861,9 @@ async def test_mid_batch_failure_leaves_zero_rows(app_client, session, engine, m
 
     monkeypatch.setattr(store, "upsert_vouchers", boom)
     body = batch(run_id, realdata.b_masters() + month_09())
-    with pytest.raises(RuntimeError, match="injected"):
-        await post_batch(app_client, ws, headers, body)
+    r = await post_batch(app_client, ws, headers, body)
+    assert r.status_code == 500                                         # SyncRoute answers it (merge review M6)
+    assert r.json() == {"error": "internal_error", "detail": ""}
     async with fresh(engine) as s:
         assert sum((await table_counts(s, ws)).values()) == 0
         assert await count(s, "sync_batches", ws) == 0

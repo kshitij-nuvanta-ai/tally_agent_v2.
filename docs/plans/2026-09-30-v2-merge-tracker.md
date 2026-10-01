@@ -9,10 +9,44 @@ Status values: **Not started** · **In progress** · **Done**. Update this file 
 
 ## Resume here
 
-**Step 1 in progress on `feat/merge-v2-into-backend`.** Done: T0 baselines, T1 + T2 (commit `13d6bbd`), T3 + T4 (commit
-`7d5d64e`), T5 + T6 (commit `12c36ba`), T7 + T8 (commit `23c6401`). T9 (docs) and T10 (real-app pass) done. In progress: T11 (code review).
-After those: the user reviews `tallyagent_fork` in a database viewer, then push to the feature branch. Commits are local;
-pushing needs GitHub login (0.3).
+**State on 2026-10-01.** Step 1 (the merge) is built, reviewed, and the review fixes are verified by full suite
+runs. Branch `feat/merge-v2-into-backend`, six local commits, **nothing pushed**.
+
+| Commit | What |
+|---|---|
+| `13d6bbd` | T1 + T2: `v2/` moved into the main project, one uv project |
+| `7d5d64e` | T3 + T4: one settings class, one `Base`, migration `006`, one DB test harness |
+| `12c36ba` | T5 + T6: one app, one engine, one auth, shared login limiter |
+| `23c6401` | T7 + T8: one `tally_bridge/`, `tests/test_layers.py` |
+| `e01ff43` | T9 + T10: docs, real-app pass recorded |
+| the commit after `e01ff43` (`fix(merge): code review fix round …`) | T11: review fix round + review write-up |
+
+**Committed 2026-10-01 with the user's go-ahead:** the fix round for review
+findings I1, I2, I3, M6 and the M4 log text, plus the review write-up (`docs/code-review-v2-merge-2026-09-30.md`),
+spec §7a, the parked review minors and this tracker. Verification on 2026-10-01, Mac kept awake with `caffeinate -i`:
+- full suite without a DB: **3209 passed / 606 skipped / 1 failed** (`logs/fixround-nodb-full.log`). The failure,
+  `tests/integration/test_vouchers.py::test_ledger_vouchers_with_ampersand_in_name`, was an `httpx.ReadError` from
+  the mock Tally server; the file passed 5/5 re-runs and `tests/integration` 166/166. No fix-round change touches
+  `tally_bridge/`, the mock server or those tests — recorded as a flaky run.
+- full suite with `TEST_DATABASE_URL`, first run: 3805 passed / 1 failed (`logs/fixround-db-full.log`):
+  `tests/sync/db/test_ingest_api.py::test_mid_batch_failure_leaves_zero_rows` still expected the exception to
+  propagate, which M6 changed on purpose. The test now expects the 500 `internal_error` answer; its rollback checks
+  (zero rows, zero `sync_batches`, `sync_workspaces` untouched, retry succeeds) are unchanged and pass. No other test
+  expects an exception out of a sync route.
+- full suite with `TEST_DATABASE_URL` after that test update: **3806 passed / 10 skipped / 0 failed**
+  (`logs/fixround-db-full-2.log`). `tallyagent_test` left as found (`alembic_version` only).
+- The overnight stalls did not recur with the Mac awake (runs took 4 m 45 s and 10 m 21 s): they were the machine
+  sleeping (`sleep 1` in `pmset -g`).
+- Earlier checks still stand: the stricter adopt check on throwaway copies of `tallyagent` and `tallyagent_v2_review`
+  (both adopted, 32 → 31 tables, row counts unchanged); `tallyagent_fork` untouched (still `006`, 31 tables).
+
+**Next steps, in order:**
+1. User reviews `tallyagent_fork` in TablePlus / DBeaver (connection details under "Database for review").
+2. User runs `gh auth login` (0.3); compare the fork's branches with the old repo (0.4); push
+   `feat/merge-v2-into-backend`. Where it merges (`dev` / `master`) is decided after that.
+3. Proposed next (not approved): a small `tally_bridge` cleanup PR after the push — company-list duplicates, a guard
+   test against new duplicate names, rename of the float parsers (see `docs/open-items-parked.md`).
+4. Steps 2–4 of this tracker and the open questions stay parked until the user picks them up.
 
 ## Status
 
@@ -33,7 +67,7 @@ pushing needs GitHub login (0.3).
 | 1.7 | One project, one test tree, new isolation test | Done | one project + one test tree (`13d6bbd`); whole suite in one session with the DB (`7d5d64e`); `tests/test_layers.py` (`23c6401`, 11 tests; hand-checked that a forbidden import fails it) |
 | 1.8 | Parked items recorded in `docs/open-items-parked.md` | Done | section "From the v2 merge (2026-09-30)", six items |
 | 1.9 | Verification: migrations (fresh + already-v2 DB), all suites, real-app pass | Done (awaiting the user's review of the DB) | Migrations: `tallyagent_fork` adopted 005 + v2_001 → `006` (32 → 31 tables); fresh throwaway DB → `006`; schemas identical (`pg_dump -s`). Suites at `23c6401`: 3186 passed no-DB, 3770 passed with DB. Real-app pass on port 8000 against `tallyagent_fork`: web flows, agent login → bind → full first sync (14 batches, 65 masters, 240 vouchers) → parity `ok` (0 mismatches), sync-status, web command delivered on heartbeat, token separation, shared login limiter, restart round-trip — all as expected; logs `logs/be_merge_verify*.log`. Frontend vitest 381 passed. Not run: chat success path (no Claude key), Playwright, `e2e_live`, eval, live Tally |
-| 1.10 | Code review stored in `docs/`, fixes applied | In progress | review of `99ced44..23c6401` under way |
+| 1.10 | Code review stored in `docs/`, fixes applied | Done | committed 2026-10-01 (`fix(merge): code review fix round …`); review: 0 Critical, 3 Important, 10 Minor (`docs/code-review-v2-merge-2026-09-30.md`). Fixes for I1, I2, I3, M6 (+ M4 log text). Full suites 2026-10-01: 3209 passed / 606 skipped no-DB (1 flaky mock-server read error, passed on re-run); 3806 passed / 10 skipped with DB (`logs/fixround-*.log`) |
 | **2** | **Remove legacy mode** (`chore/remove-legacy-mode`) | **Not started** | — |
 | 2.1 | Backend legacy paths deleted, `DATABASE_URL` required | Not started | — |
 | 2.2 | Frontend legacy app deleted | Not started | — |
@@ -73,6 +107,39 @@ pushing needs GitHub login (0.3).
 | `v2/probes/` | top-level `probes/` |
 | `v2/tests/` | `tests/sync/`, `tests/tally_bridge/`, `tests/contract/`, `tests/probes/` |
 | `v2/pyproject.toml`, `v2/uv.lock`, `v2/README.md` | deleted; one root project |
+
+## Database for review
+
+| Field | Value |
+|---|---|
+| Host / port | `localhost` / `5432` |
+| User / password | `nuvanta-mac-3` / (empty) |
+| Migrated database | `tallyagent_fork` — revision `006`, 31 tables, two sample synced workspaces |
+| Old database, untouched, to compare | `tallyagent` — revision `005` + `alembic_version_v2`, 32 tables |
+
+App login for the sample data: `merge-verify-20260930-194055@example.com` / `Merge-Verify-12345!`. The servers are
+stopped; start with `PYTHONPATH=. uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000` and
+`cd frontend && npm run dev`.
+
+## Code review (2026-09-30, range `99ced44..23c6401`)
+
+No Critical findings; no regression found for chat, upload, write-to-Tally, auth, workspaces or the sync API.
+
+| ID | Finding | Status |
+|---|---|---|
+| I1 | Migration `006` adopt path only checks table names, so a hand-altered sync table would be accepted | Fixed (uncommitted): compares column names, types, nullability; refuses on a difference. Checked on copies of both old-chain DBs |
+| I2 | Sync tables present but no `alembic_version_v2` → raw `DuplicateTableError` | Fixed (uncommitted): refuses with a clear message |
+| I3 | `alembic upgrade head` ignores `.env` and falls back to `alembic.ini`'s hard-coded `tallyagent`, so it can migrate a different database than the app uses (pre-existing; bit this session once) | Fixed (uncommitted): `backend/db/migration_url.py` — the app's own database URL; fails if none is set; `alembic.ini` has no URL |
+| M6 | An unexpected non-DB error on a sync route answers in neither the old shape nor the sync contract | Fixed (uncommitted): `{"error": "internal_error", "detail": ""}` |
+| M1 | Only `V2_DATABASE_URL` set now puts the main app in DB mode | Accepted; noted in merge spec §7a |
+| M2 | New name in `.env` beats old name in the real environment | Accepted ("new name wins"); noted in merge spec §7a |
+| M3 | `v2/README.md` still tracked | Fixed in `e01ff43` |
+| M4 | Stale `v2` names in log text / logger names / `V2_ROOT` | Log text fix in flight; logger names `v2.ops.*` and token `typ` `v2_device` kept on purpose; rest to park |
+| M5 | "Agent ships no write code" guarantee is gone | Accepted — matches the user's direction that writes go through the agent (O1) |
+| M7 | No startup check that the DB is at `006` when sync routes are mounted | Parked in `open-items-parked.md` |
+| M8 | Probe `health_check` now uses the app's request and 90 s timeout (no caller found) | Parked in `open-items-parked.md` |
+| M9 | Login-limiter state on the module-level app can carry between e2e tests | Parked in `open-items-parked.md` |
+| M10 | `pool_pre_ping` and `hide_parameters` now apply to every route | Accepted (spec M3) |
 
 ## Installer and agent (step 4) — what is decided, recommended and open
 
@@ -146,4 +213,7 @@ Status of every row: **Proposed 2026-09-30, awaiting confirmation.**
 | 2026-09-30 | **T5 + T6 done, commit `12c36ba`:** one app (port 8100 and `/api/v2/health` removed), one engine, one token decode, one shared login limiter. Suites: 3183 passed no-DB, 3767 passed with DB. Notes: web login now follows `LOGIN_RATE_MAX` / `LOGIN_RATE_WINDOW_S` if an operator sets them (defaults = the old 5 / 900 s); an unexpected non-DB error on a sync route now returns the app's JSON 500 instead of plain text. T7 + T8 started. |
 | 2026-09-30 | **T7 + T8 done, commit `23c6401`:** one top-level `tally_bridge/` (agent copy folded in), `tests/test_layers.py` replaces the isolation and copied-header tests. Suites: 3186 passed no-DB, 3770 passed with DB. Findings: one real layer violation fixed (`tally_bridge` imported `backend.utils.date_utils`; FY helpers moved to `tally_bridge/dates.py`); two `parse_company_list` and two `build_company_list` kept because they differ (parked). `tallyagent_fork` migrated to `006` for the user's review. T9 (docs), T10 (real-app pass) and T11 (code review) started. |
 | 2026-09-30 | **T9 (docs) and T10 (real-app pass) done.** Real-app pass found no merge regression. Pre-existing limitation noticed: `POST /api/chat` with no `ANTHROPIC_API_KEY` returns a generic 500 (server stays up). `tallyagent_fork` now holds two sample synced workspaces (users `merge-verify-20260930-194055@example.com` and `…-194012@example.com`) for the user's review. Code review (T11) still running. |
+| 2026-10-01 | Fix worker cut off by an API overload; main agent reviewed its diff, ran the new tests (24 passed) and part of the suite (395 passed), checked the stricter adopt path on copies of both old-chain DBs, wrote the review doc, spec §7a and parked items. Full-suite runs stalled while the Mac slept — still owed. Nothing new committed. |
+| 2026-10-01 | **Fix round verified.** Full suites with the Mac awake: 3209 passed no-DB (one flaky mock-server read error, passed on re-run); with DB the first run caught one stale test (`test_mid_batch_failure_leaves_zero_rows` expected the pre-M6 exception), updated to expect the 500 answer with its rollback checks unchanged; re-run 3806 passed / 0 failed. The overnight stalls were the Mac sleeping. Committed on the user's go-ahead (`fix(merge): code review fix round …`). |
+| 2026-09-30 | **Code review (T11) done:** 0 Critical, 3 Important (all on migrations), 10 Minor — table under "Code review". Fix round for I1, I2, I3, M6 started; still running and uncommitted at end of day. "Resume here" rewritten for tomorrow; "Database for review" section added. |
 | 2026-09-30 | Corrected: the plan is **not** approved yet. 0.2 and 1 set back to Not started; work paused until approval. App no-DB baseline measured on this machine: 1595 passed / 134 skipped. |

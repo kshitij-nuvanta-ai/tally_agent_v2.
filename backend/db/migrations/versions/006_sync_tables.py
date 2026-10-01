@@ -4,10 +4,12 @@ Bookkeeping, masters, vouchers, snapshots and parity tables (S1 spec §4). They 
 Alembic chain (revision ``v2_001``, version table ``alembic_version_v2``). This revision does one of three things
 (merge spec §5), decided by that old version table:
 
-- no ``alembic_version_v2``: a fresh database — create the 21 tables;
-- ``alembic_version_v2`` at ``v2_001``: the tables already exist, with their rows — create nothing, drop
-  ``alembic_version_v2``;
-- ``alembic_version_v2`` in any other state: stop with an error and change nothing.
+- no ``alembic_version_v2`` and none of the 21 tables: a fresh database — create the 21 tables;
+- ``alembic_version_v2`` at ``v2_001``: the tables already exist, with their rows — check that they are the
+  tables ``v2_001`` built (all 21 there; every column's name, type and nullability as defined below), create
+  nothing, drop ``alembic_version_v2``;
+- anything else — ``alembic_version_v2`` in any other state, the tables not as ``v2_001`` built them, or sync
+  tables present with no ``alembic_version_v2`` at all: stop with an error and change nothing.
 
 Hand-written, CREATE TABLE / CREATE INDEX only. The table definitions are the body of ``v2_001`` unchanged (M6), so
 a database that takes the first path ends up identical to one that takes the second.
@@ -20,6 +22,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 revision: str = "006"
@@ -80,9 +83,9 @@ def _master_columns():
     ]
 
 
-def _master_indexes(table: str) -> None:
-    op.create_index(f"uq_{table}_ws_guid", table, ["workspace_id", "guid"], unique=True)
-    op.create_index(
+def _master_indexes(ops, table: str) -> None:
+    ops.create_index(f"uq_{table}_ws_guid", table, ["workspace_id", "guid"], unique=True)
+    ops.create_index(
         f"ix_{table}_ws_name_live",
         table,
         ["workspace_id", "name"],
@@ -106,18 +109,94 @@ def _old_chain_revisions(conn) -> list[str] | None:
     return [row[0] for row in conn.execute(sa.text(f"SELECT version_num FROM {OLD_VERSION_TABLE}"))]
 
 
-def _adopt(conn) -> None:
-    """The old chain already built the tables (spec §5 row 2): check they are all there, keep every row, and
-    retire the old version table."""
-    missing = [
+class _ColumnRecorder:
+    """Stands in for ``op`` in ``_create_sync_tables``: creates nothing, and records for every table each
+    column's type (as Postgres' ``format_type`` prints it) and nullability."""
+
+    def __init__(self) -> None:
+        self.tables: dict[str, dict[str, tuple[str, bool]]] = {}
+
+    def create_table(self, name: str, *columns: sa.Column) -> None:
+        self.tables[name] = {
+            c.name: (str(c.type.compile(dialect=postgresql.dialect())).lower().replace(", ", ","), bool(c.nullable))
+            for c in columns
+        }
+
+    def create_index(self, *args, **kwargs) -> None:
+        """Indexes are not part of the adopt check (see ``_schema_drift``)."""
+
+
+def _expected_columns() -> dict[str, dict[str, tuple[str, bool]]]:
+    """``{table: {column: (type, nullable)}}`` exactly as this revision creates them. Frozen with this file: it
+    comes from the definitions in ``_create_sync_tables`` below, never from ``backend.db.sync_models`` (which
+    later revisions change)."""
+    recorder = _ColumnRecorder()
+    _create_sync_tables(recorder)
+    return recorder.tables
+
+
+def _existing_sync_tables(conn) -> list[str]:
+    """Those of the 21 tables that exist, in creation order."""
+    return [
         table for table in reversed(SYNC_TABLES)
-        if conn.execute(sa.text("SELECT to_regclass(:name)"), {"name": table}).scalar() is None
+        if conn.execute(sa.text("SELECT to_regclass(:name)"), {"name": table}).scalar() is not None
     ]
+
+
+def _schema_drift(conn) -> list[str]:
+    """Every difference between the sync tables in the database and the ones this revision creates, one line
+    per column: a column missing, an unexpected column, another data type (length / precision included), another
+    nullability.
+
+    NOT compared: column defaults, indexes, and primary key / foreign key / unique / check constraints. A
+    database whose only hand-made change is one of those is still adopted.
+    """
+    drift: list[str] = []
+    for table, expected in _expected_columns().items():
+        actual = {
+            name: (type_, not not_null)
+            for name, type_, not_null in conn.execute(
+                sa.text(
+                    "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull "
+                    "FROM pg_attribute a "
+                    "WHERE a.attrelid = to_regclass(:name) AND a.attnum > 0 AND NOT a.attisdropped"
+                ),
+                {"name": table},
+            )
+        }
+        for column in expected.keys() - actual.keys():
+            drift.append(f"{table}.{column}: column is missing")
+        for column in actual.keys() - expected.keys():
+            drift.append(f"{table}.{column}: unexpected column")
+        for column in expected.keys() & actual.keys():
+            (want_type, want_nullable), (have_type, have_nullable) = expected[column], actual[column]
+            if have_type != want_type:
+                drift.append(f"{table}.{column}: type is {have_type}, expected {want_type}")
+            if have_nullable != want_nullable:
+                words = {True: "nullable", False: "NOT NULL"}
+                drift.append(f"{table}.{column}: is {words[have_nullable]}, expected {words[want_nullable]}")
+    return sorted(drift)
+
+
+def _adopt(conn) -> None:
+    """The old chain already built the tables (spec §5 row 2): check they are all there and are still the tables
+    ``v2_001`` built (``_schema_drift`` — columns, types, nullability; not indexes or constraints), keep every
+    row, and retire the old version table. Any difference: refuse, change nothing."""
+    existing = _existing_sync_tables(conn)
+    missing = [table for table in reversed(SYNC_TABLES) if table not in existing]
     if missing:
         raise RuntimeError(
             f"Migration 006: {OLD_VERSION_TABLE} says the sync tables were created by revision {OLD_HEAD}, but "
             f"these are missing: {', '.join(missing)}. Nothing was changed. Repair the database by hand before "
             "upgrading."
+        )
+    drift = _schema_drift(conn)
+    if drift:
+        raise RuntimeError(
+            f"Migration 006: {OLD_VERSION_TABLE} says the sync tables were created by revision {OLD_HEAD}, but "
+            f"they are not the tables that revision built. {len(drift)} difference(s): {'; '.join(drift)}. "
+            "Nothing was changed. Bring these columns back to the original definition by hand (or, if the rows "
+            f"are not needed, drop the sync tables and {OLD_VERSION_TABLE}), then run the upgrade again."
         )
     op.drop_table(OLD_VERSION_TABLE)
 
@@ -136,14 +215,27 @@ def upgrade() -> None:
             "how to adopt. Nothing was changed. Bring the old chain to v2_001, or drop the sync tables and "
             f"{OLD_VERSION_TABLE} by hand, then run the upgrade again."
         )
-    _create_sync_tables()
-
-
-def _create_sync_tables() -> None:
+    existing = _existing_sync_tables(conn)
+    if existing:
+        raise RuntimeError(
+            f"Migration 006: {OLD_VERSION_TABLE} does not exist, but {len(existing)} of the {len(SYNC_TABLES)} "
+            f"sync tables already exist: {', '.join(existing)}. This is neither a fresh database nor one the old "
+            "sync chain left in a state this revision can adopt. Nothing was changed. If the old chain built "
+            f"all {len(SYNC_TABLES)} tables at {OLD_HEAD} and only its version table was lost, recreate "
+            f"{OLD_VERSION_TABLE} with the single row {OLD_HEAD!r} and run the upgrade again (the tables are "
+            "then checked and adopted, rows kept). Otherwise drop these tables by hand and run the upgrade "
+            "again to create all of them new."
+        )
     _ensure_gen_random_uuid()
+    _create_sync_tables(op)
+
+
+def _create_sync_tables(ops) -> None:
+    """Every CREATE TABLE / CREATE INDEX of this revision, issued through ``ops``: Alembic's ``op`` to really
+    create them, or a ``_ColumnRecorder`` to read the same definitions back for the adopt check."""
 
     # --- Masters (§4.3) ---
-    op.create_table(
+    ops.create_table(
         "tally_currencies",
         *_master_columns(),
         sa.Column("mailing_name", sa.Text(), nullable=True),
@@ -151,9 +243,9 @@ def _create_sync_tables() -> None:
         sa.Column("decimal_places", sa.Integer(), nullable=True),
         sa.Column("is_base", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
-    _master_indexes("tally_currencies")
+    _master_indexes(ops, "tally_currencies")
 
-    op.create_table(
+    ops.create_table(
         "tally_groups",
         *_master_columns(),
         sa.Column("parent_name", sa.Text(), nullable=False),
@@ -166,10 +258,10 @@ def _create_sync_tables() -> None:
         sa.Column("reserved_name", sa.Text(), nullable=True),
         sa.Column("derivation_warning", sa.Text(), nullable=True),
     )
-    _master_indexes("tally_groups")
-    op.create_index("ix_tally_groups_ws_parent", "tally_groups", ["workspace_id", "parent_guid"])
+    _master_indexes(ops, "tally_groups")
+    ops.create_index("ix_tally_groups_ws_parent", "tally_groups", ["workspace_id", "parent_guid"])
 
-    op.create_table(
+    ops.create_table(
         "tally_voucher_types",
         *_master_columns(),
         sa.Column("parent_name", sa.Text(), nullable=False),
@@ -177,9 +269,9 @@ def _create_sync_tables() -> None:
         sa.Column("reserved_name", sa.Text(), nullable=True),
         sa.Column("base_type", sa.Text(), nullable=True),
     )
-    _master_indexes("tally_voucher_types")
+    _master_indexes(ops, "tally_voucher_types")
 
-    op.create_table(
+    ops.create_table(
         "tally_ledgers",
         *_master_columns(),
         sa.Column("parent_name", sa.Text(), nullable=False),
@@ -200,18 +292,18 @@ def _create_sync_tables() -> None:
         sa.Column("balance_captured_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("balance_text", JSONB(), nullable=True),
     )
-    _master_indexes("tally_ledgers")
-    op.create_index("ix_tally_ledgers_ws_group", "tally_ledgers", ["workspace_id", "group_guid"])
+    _master_indexes(ops, "tally_ledgers")
+    ops.create_index("ix_tally_ledgers_ws_group", "tally_ledgers", ["workspace_id", "group_guid"])
 
-    op.create_table(
+    ops.create_table(
         "tally_stock_groups",
         *_master_columns(),
         sa.Column("parent_name", sa.Text(), nullable=False),
         sa.Column("parent_guid", sa.Text(), nullable=True),
     )
-    _master_indexes("tally_stock_groups")
+    _master_indexes(ops, "tally_stock_groups")
 
-    op.create_table(
+    ops.create_table(
         "tally_units",
         *_master_columns(),
         sa.Column("is_simple", sa.Boolean(), nullable=True),
@@ -219,9 +311,9 @@ def _create_sync_tables() -> None:
         sa.Column("additional_units", sa.Text(), nullable=True),
         sa.Column("conversion", QTY, nullable=True),
     )
-    _master_indexes("tally_units")
+    _master_indexes(ops, "tally_units")
 
-    op.create_table(
+    ops.create_table(
         "tally_stock_items",
         *_master_columns(),
         sa.Column("parent_name", sa.Text(), nullable=False),
@@ -233,10 +325,10 @@ def _create_sync_tables() -> None:
         sa.Column("closing_value", MONEY, nullable=True),
         sa.Column("balance_captured_at", sa.DateTime(timezone=True), nullable=True),
     )
-    _master_indexes("tally_stock_items")
+    _master_indexes(ops, "tally_stock_items")
 
     # --- Snapshots (§4.6) ---
-    op.create_table(
+    ops.create_table(
         "tally_report_snapshots",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -254,8 +346,8 @@ def _create_sync_tables() -> None:
         sa.Column("imbalance", MONEY, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_tally_report_snapshots_ws", "tally_report_snapshots", ["workspace_id"])
-    op.create_index(
+    ops.create_index("ix_tally_report_snapshots_ws", "tally_report_snapshots", ["workspace_id"])
+    ops.create_index(
         "uq_snapshots_ws_type_ason",
         "tally_report_snapshots",
         ["workspace_id", "report_type", "as_on_date"],
@@ -263,7 +355,7 @@ def _create_sync_tables() -> None:
     )
 
     # --- Bookkeeping (§4.2) ---
-    op.create_table(
+    ops.create_table(
         "sync_fy_coverage",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -276,10 +368,10 @@ def _create_sync_tables() -> None:
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_sync_fy_coverage_ws", "sync_fy_coverage", ["workspace_id"])
-    op.create_index("uq_sync_fy_coverage_ws_fystart", "sync_fy_coverage", ["workspace_id", "fy_start"], unique=True)
+    ops.create_index("ix_sync_fy_coverage_ws", "sync_fy_coverage", ["workspace_id"])
+    ops.create_index("uq_sync_fy_coverage_ws_fystart", "sync_fy_coverage", ["workspace_id", "fy_start"], unique=True)
 
-    op.create_table(
+    ops.create_table(
         "sync_quarantine",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -294,8 +386,8 @@ def _create_sync_tables() -> None:
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_sync_quarantine_ws", "sync_quarantine", ["workspace_id"])
-    op.create_index(
+    ops.create_index("ix_sync_quarantine_ws", "sync_quarantine", ["workspace_id"])
+    ops.create_index(
         "uq_sync_quarantine_open",
         "sync_quarantine",
         ["workspace_id", "kind", "guid"],
@@ -303,7 +395,7 @@ def _create_sync_tables() -> None:
         postgresql_where=sa.text("resolved_at IS NULL"),
     )
 
-    op.create_table(
+    ops.create_table(
         "sync_commands",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -315,9 +407,9 @@ def _create_sync_tables() -> None:
         sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("done_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index("ix_sync_commands_ws_status", "sync_commands", ["workspace_id", "status"])
+    ops.create_index("ix_sync_commands_ws_status", "sync_commands", ["workspace_id", "status"])
 
-    op.create_table(
+    ops.create_table(
         "agent_devices",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
@@ -334,10 +426,10 @@ def _create_sync_tables() -> None:
         sa.Column("revoke_reason", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_agent_devices_user", "agent_devices", ["user_id"])
-    op.create_index("ix_agent_devices_ws", "agent_devices", ["workspace_id"])
-    op.create_index("uq_agent_devices_refresh_hash", "agent_devices", ["refresh_hash"], unique=True)
-    op.create_index(
+    ops.create_index("ix_agent_devices_user", "agent_devices", ["user_id"])
+    ops.create_index("ix_agent_devices_ws", "agent_devices", ["workspace_id"])
+    ops.create_index("uq_agent_devices_refresh_hash", "agent_devices", ["refresh_hash"], unique=True)
+    ops.create_index(
         "uq_agent_devices_one_active",
         "agent_devices",
         ["workspace_id"],
@@ -345,7 +437,7 @@ def _create_sync_tables() -> None:
         postgresql_where=sa.text("is_active"),
     )
 
-    op.create_table(
+    ops.create_table(
         "sync_workspaces",
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), primary_key=True),
         sa.Column("tally_company_guid", sa.Text(), nullable=False),
@@ -377,9 +469,9 @@ def _create_sync_tables() -> None:
         sa.Column("bound_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_sync_workspaces_company_guid", "sync_workspaces", ["tally_company_guid"])
+    ops.create_index("ix_sync_workspaces_company_guid", "sync_workspaces", ["tally_company_guid"])
 
-    op.create_table(
+    ops.create_table(
         "sync_runs",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -398,9 +490,9 @@ def _create_sync_tables() -> None:
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_sync_runs_ws", "sync_runs", ["workspace_id"])
-    op.create_index("ix_sync_runs_ws_started", "sync_runs", ["workspace_id", sa.desc("started_at")])
-    op.create_index(
+    ops.create_index("ix_sync_runs_ws", "sync_runs", ["workspace_id"])
+    ops.create_index("ix_sync_runs_ws_started", "sync_runs", ["workspace_id", sa.desc("started_at")])
+    ops.create_index(
         "uq_sync_runs_one_open_first_sync",
         "sync_runs",
         ["workspace_id"],
@@ -408,7 +500,7 @@ def _create_sync_tables() -> None:
         postgresql_where=sa.text("status = 'running' AND kind = 'first_sync'"),
     )
 
-    op.create_table(
+    ops.create_table(
         "sync_batches",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -421,11 +513,11 @@ def _create_sync_tables() -> None:
         sa.Column("received_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_sync_batches_ws", "sync_batches", ["workspace_id"])
-    op.create_index("uq_sync_batches_ws_batch", "sync_batches", ["workspace_id", "batch_id"], unique=True)
+    ops.create_index("ix_sync_batches_ws", "sync_batches", ["workspace_id"])
+    ops.create_index("uq_sync_batches_ws_batch", "sync_batches", ["workspace_id", "batch_id"], unique=True)
 
     # --- Vouchers (§4.5) ---
-    op.create_table(
+    ops.create_table(
         "tally_vouchers",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -455,15 +547,15 @@ def _create_sync_tables() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("uq_tally_vouchers_ws_guid", "tally_vouchers", ["workspace_id", "guid"], unique=True)
-    op.create_index("ix_tally_vouchers_ws_date", "tally_vouchers", ["workspace_id", "date"])
-    op.create_index(
+    ops.create_index("uq_tally_vouchers_ws_guid", "tally_vouchers", ["workspace_id", "guid"], unique=True)
+    ops.create_index("ix_tally_vouchers_ws_date", "tally_vouchers", ["workspace_id", "date"])
+    ops.create_index(
         "ix_tally_vouchers_ws_party_date", "tally_vouchers", ["workspace_id", "party_ledger_guid", "date"]
     )
-    op.create_index("ix_tally_vouchers_ws_alter", "tally_vouchers", ["workspace_id", "alter_id"])
+    ops.create_index("ix_tally_vouchers_ws_alter", "tally_vouchers", ["workspace_id", "alter_id"])
 
     # --- Parity (§4.7) ---
-    op.create_table(
+    ops.create_table(
         "parity_runs",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -488,10 +580,10 @@ def _create_sync_tables() -> None:
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_parity_runs_ws", "parity_runs", ["workspace_id"])
-    op.create_index("ix_parity_runs_ws_started", "parity_runs", ["workspace_id", "started_at"])
+    ops.create_index("ix_parity_runs_ws", "parity_runs", ["workspace_id"])
+    ops.create_index("ix_parity_runs_ws_started", "parity_runs", ["workspace_id", "started_at"])
 
-    op.create_table(
+    ops.create_table(
         "tally_voucher_ledger_lines",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column(
@@ -513,9 +605,9 @@ def _create_sync_tables() -> None:
         sa.Column("countable", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_tally_voucher_ledger_lines_voucher", "tally_voucher_ledger_lines", ["voucher_id"])
-    op.create_index("ix_tally_voucher_ledger_lines_ws", "tally_voucher_ledger_lines", ["workspace_id"])
-    op.create_index(
+    ops.create_index("ix_tally_voucher_ledger_lines_voucher", "tally_voucher_ledger_lines", ["voucher_id"])
+    ops.create_index("ix_tally_voucher_ledger_lines_ws", "tally_voucher_ledger_lines", ["workspace_id"])
+    ops.create_index(
         "ix_lines_cover",
         "tally_voucher_ledger_lines",
         ["workspace_id", "ledger_guid", "voucher_date"],
@@ -523,7 +615,7 @@ def _create_sync_tables() -> None:
         postgresql_where=sa.text("countable"),
     )
 
-    op.create_table(
+    ops.create_table(
         "tally_voucher_inventory_lines",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column(
@@ -549,17 +641,17 @@ def _create_sync_tables() -> None:
         sa.Column("voucher_date", sa.Date(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index(
+    ops.create_index(
         "ix_tally_voucher_inventory_lines_voucher", "tally_voucher_inventory_lines", ["voucher_id"]
     )
-    op.create_index("ix_tally_voucher_inventory_lines_ws", "tally_voucher_inventory_lines", ["workspace_id"])
-    op.create_index(
+    ops.create_index("ix_tally_voucher_inventory_lines_ws", "tally_voucher_inventory_lines", ["workspace_id"])
+    ops.create_index(
         "ix_inv_lines_cover",
         "tally_voucher_inventory_lines",
         ["workspace_id", "stock_item_guid", "voucher_date"],
     )
 
-    op.create_table(
+    ops.create_table(
         "tally_bill_allocations",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column(
@@ -583,13 +675,13 @@ def _create_sync_tables() -> None:
         sa.Column("voucher_date", sa.Date(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_tally_bill_allocations_voucher", "tally_bill_allocations", ["voucher_id"])
-    op.create_index("ix_tally_bill_allocations_ws", "tally_bill_allocations", ["workspace_id"])
-    op.create_index(
+    ops.create_index("ix_tally_bill_allocations_voucher", "tally_bill_allocations", ["voucher_id"])
+    ops.create_index("ix_tally_bill_allocations_ws", "tally_bill_allocations", ["workspace_id"])
+    ops.create_index(
         "ix_bill_allocations_cover", "tally_bill_allocations", ["workspace_id", "ledger_guid", "bill_name"]
     )
 
-    op.create_table(
+    ops.create_table(
         "parity_lines",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("workspace_id", UUID(as_uuid=True), sa.ForeignKey("workspaces.id"), nullable=False),
@@ -611,9 +703,9 @@ def _create_sync_tables() -> None:
         sa.Column("as_on_date", sa.Date(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index("ix_parity_lines_ws", "parity_lines", ["workspace_id"])
-    op.create_index("ix_parity_lines_ws_run", "parity_lines", ["workspace_id", "run_id"])
-    op.create_index("ix_parity_lines_ws_verdict", "parity_lines", ["workspace_id", "verdict"])
+    ops.create_index("ix_parity_lines_ws", "parity_lines", ["workspace_id"])
+    ops.create_index("ix_parity_lines_ws_run", "parity_lines", ["workspace_id", "run_id"])
+    ops.create_index("ix_parity_lines_ws_verdict", "parity_lines", ["workspace_id", "verdict"])
 
 
 def downgrade() -> None:
