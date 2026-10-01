@@ -158,23 +158,6 @@ def _wrap_report_envelope(report_id: str, from_date: str, to_date: str, company:
 
 # --- Master Queries ---
 
-def build_list_companies() -> str:
-    return """<ENVELOPE>
-<HEADER>
-<VERSION>1</VERSION>
-<TALLYREQUEST>EXPORT</TALLYREQUEST>
-<TYPE>COLLECTION</TYPE>
-<ID>List of Companies</ID>
-</HEADER>
-<BODY>
-<DESC>
-<STATICVARIABLES>
-<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-</STATICVARIABLES>
-</DESC>
-</BODY>
-</ENVELOPE>"""
-
 def build_party_vouchers(
     party: str,
     voucher_types: list[str],

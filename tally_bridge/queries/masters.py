@@ -6,7 +6,6 @@ from tally_bridge.client import TallyClient
 from tally_bridge.models import Company, Ledger, StockItem, AccountGroup
 from tally_bridge.envelopes import build_company_list
 from tally_bridge.request_builder import (
-    build_list_companies,
     build_list_ledgers,
     build_list_stock_items,
     build_list_stock_groups,
@@ -18,44 +17,22 @@ from tally_bridge.response_parser import (
     parse_stock_items,
     parse_stock_group_list,
     parse_groups,
-    sanitize_xml,
 )
 from tally_bridge.exceptions import TallyResponseError
 from tally_bridge.xml_utils import parse_company_list
 
-import xml.etree.ElementTree as ET
-
 
 async def list_companies(client: TallyClient) -> list[Company]:
     """Fetch all companies loaded in TallyPrime."""
-    raw = await client.post_xml(build_list_companies())
-    error = detect_error(raw)
-    if error:
-        raise TallyResponseError(error)
-
-    root = ET.fromstring(sanitize_xml(raw))
-    companies = []
-    # Only look inside DATA > COLLECTION, skip CMPINFO section
-    collection = root.find(".//DATA/COLLECTION")
-    if collection is None:
-        return companies
-    for comp in collection.iter("COMPANY"):
-        name_el = comp.find("NAME")
-        if name_el is not None and name_el.text:
-            companies.append(Company(name=name_el.text.strip()))
-        elif comp.get("NAME"):
-            companies.append(Company(name=comp.get("NAME").strip()))
-        elif comp.text and comp.text.strip():
-            companies.append(Company(name=comp.text.strip()))
-    return companies
+    return [Company(name=name) for name in await get_company_list(client)]
 
 
 async def get_company_list(client: TallyClient) -> list[str]:
     """Fetch loaded company names via the verified probe-E7 envelope.
 
     Returns a plain list of company-name strings (used to populate the
-    connect-company dropdown). Distinct from ``list_companies`` which returns
-    ``Company`` models via the legacy ``List of Companies`` data envelope.
+    connect-company dropdown); ``list_companies`` wraps the same names in
+    ``Company`` models.
     """
     raw = await client.post_xml(build_company_list())
     error = detect_error(raw)

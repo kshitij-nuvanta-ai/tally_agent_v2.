@@ -1,5 +1,5 @@
 from tally_bridge.request_builder import (
-    build_list_companies, build_list_ledgers, build_list_groups, build_list_stock_items,
+    build_list_ledgers, build_list_groups, build_list_stock_items,
     build_list_stock_groups,
     build_trial_balance, build_profit_and_loss, build_balance_sheet,
     build_bills_receivable, build_bills_payable, build_stock_summary,
@@ -28,18 +28,6 @@ def test_ledger_vouchers_includes_inventory_entries():
 
 
 class TestMasterBuilders:
-    def test_list_companies_has_envelope(self):
-        xml = build_list_companies()
-        assert "<ENVELOPE>" in xml and "</ENVELOPE>" in xml
-
-    def test_list_companies_has_export_request(self):
-        xml = build_list_companies()
-        assert "<TALLYREQUEST>EXPORT</TALLYREQUEST>" in xml
-
-    def test_list_companies_has_company_collection(self):
-        xml = build_list_companies()
-        assert "List of Companies" in xml
-
     def test_list_ledgers_has_collection_type(self):
         xml = build_list_ledgers()
         assert "<TYPE>Ledger</TYPE>" in xml

@@ -16,8 +16,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from tally_bridge.envelopes import build_company_list
 from tally_bridge.exceptions import TallyConnectionError, TallyResponseError, TallyTimeoutError
-from tally_bridge.request_builder import build_list_companies
 
 DEFAULT_TIMEOUT_S = 30.0
 MAX_TIMEOUT_S = 90.0
@@ -121,7 +121,7 @@ class TallyClient:
 
     async def health_check(self) -> bool:
         try:
-            result = await self.post_xml(build_list_companies())
+            result = await self.post_xml(build_company_list())
             return "<COMPANY>" in result or "COMPANY" in result.upper()
         except (TallyConnectionError, TallyResponseError):
             return False

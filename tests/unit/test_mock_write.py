@@ -59,8 +59,8 @@ class TestMockImport:
 
     def test_read_requests_still_work(self):
         """Regression: write support must not break read handling."""
-        from tally_bridge.request_builder import build_list_companies
-        xml = build_list_companies()
+        from tally_bridge.envelopes import build_company_list
+        xml = build_company_list()
         resp = mock_tally_request(xml)
         # Should return company fixture, not an error
         assert "ERROR" not in resp.upper() or "COMPANY" in resp.upper()

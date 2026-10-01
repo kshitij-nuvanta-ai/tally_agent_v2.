@@ -7,11 +7,13 @@ Builders must match the verified probe envelopes (probe_group_b.py E7/E8):
 """
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from tally_bridge import envelopes
+from tally_bridge.client import TallyClient
 from tally_bridge.envelopes import build_company_list
-from tally_bridge.queries.masters import get_company_list
+from tally_bridge.models import Company
+from tally_bridge.queries.masters import get_company_list, list_companies
 from tally_bridge.request_builder import build_party_vouchers
 from tally_bridge.response_parser import parse_party_vouchers
 from tally_bridge.xml_utils import parse_company_list
@@ -188,3 +190,23 @@ class TestGetCompanyList:
     async def test_live_one_company_skips_cmpinfo_counter(self):
         client = _fake_client((FIXTURES / "company_list_live.xml").read_text(encoding="utf-8"))
         assert await get_company_list(client) == ["NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
+
+
+# ---------------------------------------------------------------------------
+# list_companies (chat tool / /api/companies) and health_check — same request
+# ---------------------------------------------------------------------------
+class TestListCompanies:
+    async def test_live_two_companies_as_models(self):
+        client = _fake_client((FIXTURES / "company_list_live_two_companies.xml").read_text(encoding="utf-8"))
+        companies = await list_companies(client)
+        assert companies == [Company(name="Bharat Traders Probe Copy"), Company(name="Sharma & Sons' Probe Traders")]
+        client.post_xml.assert_awaited_once_with(envelopes.build_company_list())
+
+
+async def test_health_check_posts_the_company_list_request():
+    client = TallyClient(host="localhost", port=9000)
+    reply = (FIXTURES / "company_list_live_two_companies.xml").read_text(encoding="utf-8")
+    with patch.object(client, "post_xml", AsyncMock(return_value=reply)) as post_xml:
+        assert await client.health_check() is True
+    post_xml.assert_awaited_once_with(envelopes.build_company_list())
+    await client.close()
