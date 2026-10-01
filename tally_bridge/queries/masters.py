@@ -4,8 +4,8 @@ Query functions for Tally master data: companies, ledgers, groups, stock items.
 
 from tally_bridge.client import TallyClient
 from tally_bridge.models import Company, Ledger, StockItem, AccountGroup
+from tally_bridge.envelopes import build_company_list
 from tally_bridge.request_builder import (
-    build_company_list,
     build_list_companies,
     build_list_ledgers,
     build_list_stock_items,
@@ -14,7 +14,6 @@ from tally_bridge.request_builder import (
 )
 from tally_bridge.response_parser import (
     detect_error,
-    parse_company_list,
     parse_ledger_list,
     parse_stock_items,
     parse_stock_group_list,
@@ -22,6 +21,7 @@ from tally_bridge.response_parser import (
     sanitize_xml,
 )
 from tally_bridge.exceptions import TallyResponseError
+from tally_bridge.xml_utils import parse_company_list
 
 import xml.etree.ElementTree as ET
 

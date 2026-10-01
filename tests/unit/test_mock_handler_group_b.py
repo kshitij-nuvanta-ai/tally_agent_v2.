@@ -6,10 +6,8 @@ build_company_list (E7) and build_party_vouchers (E8).
 import xml.etree.ElementTree as ET
 
 from tally_bridge.mock_handler import mock_tally_request
-from tally_bridge.request_builder import (
-    build_company_list,
-    build_party_vouchers,
-)
+from tally_bridge.envelopes import build_company_list
+from tally_bridge.request_builder import build_party_vouchers
 
 
 class TestCompanyListMock:

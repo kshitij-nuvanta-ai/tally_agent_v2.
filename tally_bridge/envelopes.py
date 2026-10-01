@@ -5,8 +5,7 @@ same report the two produce the same elements, but not the same bytes, so neithe
 - blank lines fall in different places (each side leaves an empty line where an optional part is absent);
 - here the company name is escaped with ``esc`` (``&``, ``<``, ``>``, ``"`` and ``'``); ``request_builder`` escapes
   ``&``, ``<`` and ``>`` only. Both are valid XML and Tally reads the same name;
-- ``wrap_report`` puts extra variables before ``SVCurrentCompany``; ``request_builder`` puts them after it;
-- ``build_company_list`` here and in ``request_builder`` differ in blank lines only.
+- ``wrap_report`` puts extra variables before ``SVCurrentCompany``; ``request_builder`` puts them after it.
 The collection wrapper also takes static variables, filters and extra TDL. Every ``SV*DATE`` static variable carries
 ``TYPE="Date"`` (C33), as ``request_builder`` does for its period variables.
 """

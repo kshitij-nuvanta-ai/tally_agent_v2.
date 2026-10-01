@@ -40,7 +40,7 @@ def test_read_objects_reads_fields_any_case_and_skips_bare_counters():
     assert rows == [{"Name": "Beta", "GUID": "g-1", "AltVchId": "12", "AltMstId": ""}]
 
 
-# --- one definition of each helper; the two company-list parsers differ on purpose -------------------------------------
+# --- one definition of each helper -------------------------------------------------------------------------------------
 
 def test_the_helpers_are_defined_once():
     from contract import transcode
@@ -52,12 +52,8 @@ def test_the_helpers_are_defined_once():
     assert sync_reports._parse_overdue_days is response_parser._parse_overdue_days
 
 
-def test_the_apps_company_list_parser_keeps_reading_inline_text():
-    from tally_bridge import response_parser
-
+def test_company_list_parser_ignores_inline_text():
     xml = (SAMPLES / "company_list_live.xml").read_text(encoding="utf-8")
-    assert response_parser.parse_company_list(xml) == ["0", "NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
     assert parse_company_list(xml) == ["NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
     inline = "<ENVELOPE><COMPANY>Inline Co</COMPANY></ENVELOPE>"
-    assert response_parser.parse_company_list(inline) == ["Inline Co"]
     assert parse_company_list(inline) == []

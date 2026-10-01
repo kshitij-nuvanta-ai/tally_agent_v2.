@@ -175,15 +175,6 @@ def build_list_companies() -> str:
 </BODY>
 </ENVELOPE>"""
 
-def build_company_list() -> str:
-    """List loaded companies (verified probe E7 — Collection TYPE=Company).
-
-    Returns the same `List of Companies` collection envelope verified live in
-    probe_group_b.py::probe_e7. Used to populate the connect-company dropdown.
-    """
-    return _wrap_collection_envelope("List of Companies", "Company", ["Name"])
-
-
 def build_party_vouchers(
     party: str,
     voucher_types: list[str],

@@ -106,13 +106,6 @@ def _lines(xml: str) -> list[str]:
     return [line for line in xml.split("\n") if line]
 
 
-def test_the_two_company_list_requests_differ_in_blank_lines_only():
-    from tally_bridge import request_builder
-
-    assert build_company_list() != request_builder.build_company_list()
-    assert _lines(build_company_list()) == _lines(request_builder.build_company_list())
-
-
 def test_wrap_report_and_the_apps_report_builder_differ_only_as_documented():
     from tally_bridge import request_builder
 

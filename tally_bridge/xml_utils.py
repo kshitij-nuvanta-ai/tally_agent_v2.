@@ -38,9 +38,8 @@ def get_text(element: ET.Element, tag: str) -> str:
 def parse_company_list(raw_xml: str) -> list[str]:
     """Names of the companies in a company-list response. CMPINFO's bare count elements are ignored.
 
-    Differs on purpose from ``response_parser.parse_company_list`` (the app's connect-company dropdown): that one
-    also takes a COMPANY element's inline text as a name, so CMPINFO's ``<COMPANY>0</COMPANY>`` counter comes back
-    as a company called "0". This one reads only a NAME child or a NAME attribute.
+    Reads only a NAME child or a NAME attribute, never a COMPANY element's inline text: CMPINFO's
+    ``<COMPANY>0</COMPANY>`` counter would otherwise come back as a company called "0".
     """
     root = ET.fromstring(sanitize_xml(raw_xml))
     names: list[str] = []

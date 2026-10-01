@@ -389,34 +389,13 @@ def parse_groups(raw_xml: str) -> list[dict]:
 def parse_stock_group_list(raw_xml: str) -> list[str]:
     """Parse a CustomStockGroupList collection response into group names.
 
-    Mirrors ``parse_company_list`` — each STOCKGROUP yields a name from a child
-    ``<NAME>`` element, the ``NAME`` attribute, or inline text. Nameless entries
-    are skipped.
+    Each STOCKGROUP yields a name from a child ``<NAME>`` element, the ``NAME``
+    attribute, or inline text. Nameless entries are skipped.
     """
     root = ET.fromstring(sanitize_xml(raw_xml))
     names: list[str] = []
     for grp in root.iter("STOCKGROUP"):
         name = (_get_text(grp, "NAME") or grp.get("NAME", "") or (grp.text or "")).strip()
-        if name:
-            names.append(name)
-    return names
-
-
-def parse_company_list(raw_xml: str) -> list[str]:
-    """Parse a `List of Companies` collection response into company names.
-
-    Handles both the COMPANY element shapes Tally emits (verified probe E7):
-    a child `<NAME>` element, a `NAME` attribute, or inline text. CMPINFO and
-    other envelope sections are ignored — only COMPANY elements are scanned.
-
-    ``xml_utils.parse_company_list`` (sync path, probes) is deliberately stricter: it
-    does not read inline text, so CMPINFO's ``<COMPANY>0</COMPANY>`` counter is not
-    returned as a company called "0". This one keeps the app's existing behaviour.
-    """
-    root = ET.fromstring(sanitize_xml(raw_xml))
-    names: list[str] = []
-    for comp in root.iter("COMPANY"):
-        name = (_get_text(comp, "NAME") or comp.get("NAME", "") or (comp.text or "")).strip()
         if name:
             names.append(name)
     return names

@@ -6,15 +6,15 @@ Builders must match the verified probe envelopes (probe_group_b.py E7/E8):
   - E8: Collection of Voucher CHILDOF $$VchType<Type> filtered by $PartyLedgerName.
 """
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
-from tally_bridge.request_builder import (
-    build_company_list,
-    build_party_vouchers,
-)
-from tally_bridge.response_parser import (
-    parse_company_list,
-    parse_party_vouchers,
-)
+from tally_bridge import envelopes
+from tally_bridge.envelopes import build_company_list
+from tally_bridge.queries.masters import get_company_list
+from tally_bridge.request_builder import build_party_vouchers
+from tally_bridge.response_parser import parse_party_vouchers
+from tally_bridge.xml_utils import parse_company_list
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +105,11 @@ class TestParseCompanyList:
         xml = "<ENVELOPE><BODY><DATA><COLLECTION></COLLECTION></DATA></BODY></ENVELOPE>"
         assert parse_company_list(xml) == []
 
+    def test_ignores_inline_text(self):
+        # Inline text is how CMPINFO's <COMPANY>0</COMPANY> counter looks — never a company name.
+        xml = "<ENVELOPE><BODY><COMPANY>Inline Co</COMPANY></BODY></ENVELOPE>"
+        assert parse_company_list(xml) == []
+
 
 # ---------------------------------------------------------------------------
 # parse_party_vouchers
@@ -159,3 +164,27 @@ class TestParsePartyVouchers:
     def test_empty_collection(self):
         xml = "<ENVELOPE><BODY><DATA><COLLECTION></COLLECTION></DATA></BODY></ENVELOPE>"
         assert parse_party_vouchers(xml) == []
+
+
+# ---------------------------------------------------------------------------
+# get_company_list — the connect-company dropdown, fed real Tally replies
+# ---------------------------------------------------------------------------
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+
+def _fake_client(reply: str):
+    client = MagicMock()
+    client.post_xml = AsyncMock(return_value=reply)
+    return client
+
+
+class TestGetCompanyList:
+    async def test_live_two_companies_skips_cmpinfo_counter(self):
+        # Live TallyPrime reply: CMPINFO's <COMPANY>0</COMPANY> counter + companies named by NAME attribute.
+        client = _fake_client((FIXTURES / "company_list_live_two_companies.xml").read_text(encoding="utf-8"))
+        assert await get_company_list(client) == ["Bharat Traders Probe Copy", "Sharma & Sons' Probe Traders"]
+        client.post_xml.assert_awaited_once_with(envelopes.build_company_list())
+
+    async def test_live_one_company_skips_cmpinfo_counter(self):
+        client = _fake_client((FIXTURES / "company_list_live.xml").read_text(encoding="utf-8"))
+        assert await get_company_list(client) == ["NUVANTA AI TECHNOLOGIES PRIVATE LIMITED"]
