@@ -1,5 +1,8 @@
 """Generic XML envelope builders for Tally export requests (the sync path and the probes). No I/O.
 
+Also the app's one company-list request, ``build_company_list``: the Connect-company dropdown (``get_company_list``),
+the chat tool ``list_companies``, ``/api/companies`` and ``TallyClient.health_check`` all send it.
+
 ``request_builder.py`` holds the app's fixed ``build_*`` requests; this module holds the general wrappers. For the
 same report the two produce the same elements, but not the same bytes, so neither is built on the other:
 - blank lines fall in different places (each side leaves an empty line where an optional part is absent);

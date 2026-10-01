@@ -134,7 +134,7 @@ Left open on purpose by the merge of the sync service into the main code (spec [
 - `tally_bridge/request_builder.py::build_company_list` (app path) and `tally_bridge/envelopes.py::build_company_list` (used by the probes) both exist; the merge kept both because they differ.
 - `tally_bridge/response_parser.py::parse_company_list` (the app's connect-company dropdown) also takes a COMPANY element's inline text as a name, so CMPINFO's `<COMPANY>0</COMPANY>` counter comes back as a company called "0". `tally_bridge/xml_utils.py::parse_company_list` reads only a NAME child or attribute and does not have that defect. The app's one was left unchanged (no behaviour change in the merge).
 - Fix: move the app to the `xml_utils` parser and one builder, with the company-dropdown tests updated.
-- Status: Open.
+- Status: Done 2026-10-01 on branch `chore/tally-bridge-dedupe-1` (commits `19c7d69` dropdown, `dcc734f` chat tool + health check). One builder, `tally_bridge/envelopes.py::build_company_list`, and one parser, `tally_bridge/xml_utils.py::parse_company_list`; the `request_builder` and `response_parser` copies are gone. The "0" company was seen on real TallyPrime under Wine before the fix and is gone after it. Section kept for history.
 
 ### Float and Decimal amount parsing side by side
 
@@ -159,8 +159,8 @@ The deferred Minor findings of `code-review-bi-s1-2026-09-29.md` (table "Minor",
 ### Code review minors parked (2026-09-30, `code-review-v2-merge-2026-09-30.md`)
 - **M7:** no startup check that the database is at revision `006` when the sync routes are mounted; a server started
   against an unmigrated database answers every sync call with 500 `internal_error`.
-- **M8:** `TallyClient.health_check` for probe callers now sends the app's company-list request with the 90 s timeout
-  (no caller found today).
+- **M8:** `TallyClient.health_check` now sends the one shared company-list request (`envelopes.build_company_list`)
+  with the client's default timeout; still no probe caller found.
 - **M9:** the login limiter lives on the module-level app; e2e DB tests that share that app and an email can carry
   failed-login counts between tests.
 - **M4 rest:** `V2_ROOT` constant in `probes/__main__.py` / `probes/setup/s1_capture.py`; stale "Task 5 lands binding.py"
